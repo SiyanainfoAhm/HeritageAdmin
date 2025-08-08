@@ -1,38 +1,61 @@
-.App {
-  text-align: center;
+/* App styles are handled by Tailwind CSS */
+
+/* Custom styles for Marketing components */
+.tab-button {
+  @apply px-4 py-2 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 hover:border-gray-300 transition-colors;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+.tab-button.active {
+  @apply text-primary border-primary;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.tab-content {
+  @apply hidden;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+.tab-content.active {
+  @apply block;
 }
 
-.App-link {
-  color: #61dafb;
+.status-badge {
+  @apply px-2 inline-flex text-xs leading-5 font-semibold rounded-full;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.status-badge.sent {
+  @apply bg-green-100 text-green-800;
+}
+
+.status-badge.active {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.status-badge.draft {
+  @apply bg-gray-100 text-gray-800;
+}
+
+.status-badge.paused {
+  @apply bg-yellow-100 text-yellow-800;
+}
+
+.status-badge.completed {
+  @apply bg-purple-100 text-purple-800;
+}
+
+/* Custom button styles */
+.rounded-button {
+  border-radius: 8px;
+}
+
+/* Focus styles for better accessibility */
+.focus\:ring-primary:focus {
+  --tw-ring-color: #FF6B35;
+}
+
+.focus\:ring-offset-2:focus {
+  --tw-ring-offset-width: 2px;
+}
+
+/* Hover effects for primary color */
+.hover\:bg-primary-dark:hover {
+  background-color: #E55A2B;
 }

@@ -1,13 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Pacifico&family=Urbanist:wght@300;400;500;600;700&display=swap');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css');
+
 body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-family: 'Urbanist', sans-serif;
+  background-color: #FDF8F4;
+  min-height: 100vh;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+.toggle-checkbox:checked {
+  right: 0;
+  border-color: #FDF8F4;
+}
+
+.toggle-checkbox:checked + .toggle-label {
+  background-color: #DA8552;
+}
+
+.otp-input:focus {
+  border-color: #DA8552;
+}
+
+.strength-meter {
+  height: 4px;
+  transition: width 0.3s;
+}
+
+.notification-card {
+  transition: all 0.2s ease;
+}
+
+.notification-card:hover {
+  transform: translateY(-2px);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Marketing Tab Styles */
+.tab-button {
+  padding: 12px 24px;
+  border: none;
+  background: none;
+  color: #6B7280;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.tab-button:hover {
+  color: #DA8552;
+}
+
+.tab-button.active {
+  color: #DA8552;
+  border-bottom-color: #DA8552;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* Status Badge Styles */
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.sent {
+  background-color: #D1FAE5;
+  color: #065F46;
+}
+
+.status-badge.active {
+  background-color: #DBEAFE;
+  color: #1E40AF;
+}
+
+.status-badge.draft {
+  background-color: #FEF3C7;
+  color: #92400E;
+}
+
+.status-badge.paused {
+  background-color: #FEE2E2;
+  color: #991B1B;
+}
+
+.status-badge.completed {
+  background-color: #D1FAE5;
+  color: #065F46;
 }
