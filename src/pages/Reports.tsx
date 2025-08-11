@@ -6,6 +6,9 @@ import BookingReportDialog from '../components/BookingReportDialog';
 import ViewSessionDialog from '../components/ViewSessionDialog';
 import BlockVendorDialog from '../components/BlockVendorDialog';
 import VendorDetailsDialog from '../components/VendorDetailsDialog';
+import FeedbackDetailsDialog from '../components/FeedbackDetailsDialog';
+import MarkResolvedDialog from '../components/MarkResolvedDialog';
+import ReplyToFeedbackDialog from '../components/ReplyToFeedbackDialog';
 
 interface ReportsProps {
   onPageChange?: (page: string) => void;
@@ -49,8 +52,8 @@ interface VendorReport {
 }
 
 interface FeedbackComplaint {
+  id: number;
   user: string;
-  userInitials: string;
   type: string;
   entity: string;
   description: string;
@@ -138,6 +141,10 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
   const [showBlockVendorDialog, setShowBlockVendorDialog] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<VendorReport | null>(null);
   const [showVendorDetailsDialog, setShowVendorDetailsDialog] = useState(false);
+  const [showFeedbackDetailsDialog, setShowFeedbackDetailsDialog] = useState(false);
+  const [showMarkResolvedDialog, setShowMarkResolvedDialog] = useState(false);
+  const [showReplyToFeedbackDialog, setShowReplyToFeedbackDialog] = useState(false);
+  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackComplaint | null>(null);
 
   const handleSidebarToggle = () => {
     setSidebarExpanded(!sidebarExpanded);
@@ -177,6 +184,21 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
   const handleVendorDetailsClick = (vendor: VendorReport) => {
     setSelectedVendor(vendor);
     setShowVendorDetailsDialog(true);
+  };
+
+  const handleFeedbackDetailsClick = (feedback: FeedbackComplaint) => {
+    setSelectedFeedback(feedback);
+    setShowFeedbackDetailsDialog(true);
+  };
+
+  const handleMarkResolvedClick = (feedback: FeedbackComplaint) => {
+    setSelectedFeedback(feedback);
+    setShowMarkResolvedDialog(true);
+  };
+
+  const handleReplyToFeedbackClick = (feedback: FeedbackComplaint) => {
+    setSelectedFeedback(feedback);
+    setShowReplyToFeedbackDialog(true);
   };
 
   // Sample data for Booking Reports
@@ -359,49 +381,49 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
   // Sample data for Feedback & Complaints
   const feedbackComplaints: FeedbackComplaint[] = [
     {
-      user: 'Vikram Reddy',
-      userInitials: 'VR',
-      type: 'Complaint',
+      id: 1,
+      user: 'VR',
+      type: 'Comp',
       entity: 'Royal Retreats',
       description: 'Room was not as shown in pictures. The view was completely different and amenities were missing...',
       status: 'Open',
       date: 'Jun 12, 2025'
     },
     {
-      user: 'Shreya Desai',
-      userInitials: 'SD',
-      type: 'Complaint',
-      entity: 'Alleppey Cruises',
-      description: 'The houseboat had cleanliness issues and the food quality was below average. Staff was not responsive...',
+      id: 2,
+      user: 'SD',
+      type: 'Com',
+      entity: 'Heritage Tours',
+      description: 'The guide was late and rushed through explanations. Food quality was poor and there were cleanliness issues...',
       status: 'In Progress',
       date: 'Jun 11, 2025'
     },
     {
-      user: 'Rahul Kumar',
-      userInitials: 'RK',
-      type: 'Suggestion',
-      entity: 'Platform',
-      description: 'It would be great if the app could include a feature to download tickets offline for areas with poor connectivity.',
+      id: 3,
+      user: 'RK',
+      type: 'Sug',
+      entity: 'Cultural Events',
+      description: 'Would be great to include a feature to book multiple events at once. Also, please add more payment options...',
       status: 'Open',
       date: 'Jun 10, 2025'
     },
     {
-      user: 'Ananya Patel',
-      userInitials: 'AP',
-      type: 'Feedback',
-      entity: 'Karnataka Tourism',
-      description: 'The Mysore Palace light show was absolutely spectacular! The guide was knowledgeable and the entire experience was magical.',
-      status: 'Closed',
-      date: 'Jun 09, 2025'
+      id: 4,
+      user: 'AP',
+      type: 'Feed',
+      entity: 'Local Guides',
+      description: 'Our guide was absolutely knowledgeable and made the tour very engaging. Highly recommend!',
+      status: 'Resolved',
+      date: 'Jun 9, 2025'
     },
     {
-      user: 'Priya Joshi',
-      userInitials: 'PJ',
+      id: 5,
+      user: 'PJ',
       type: 'Complaint',
       entity: 'Banaras Cultural Tours',
-      description: 'The guide was 30 minutes late for the Ganga Aarti tour and rushed through explanations. Very disappointing.',
-      status: 'Open',
-      date: 'Jun 08, 2025'
+      description: 'The guide was 30 minutes late for the Ganga Aarti tour and rushed through explanations. Very disappointing experience.',
+      status: 'Resolved',
+      date: 'Jun 8, 2025'
     }
   ];
 
@@ -994,10 +1016,9 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
               <tr key={index} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3">
-                      <span className="text-sm font-medium text-orange-600">{item.userInitials}</span>
+                    <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center mr-3">
+                      <span className="text-sm font-medium text-gray-700">{item.user}</span>
                     </div>
-                    <span className="text-sm font-medium text-gray-900">{item.user}</span>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.type}</td>
@@ -1015,13 +1036,13 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.date}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <div className="flex space-x-2">
-                    <button className="text-blue-600 hover:text-blue-900">
+                    <button className="text-blue-600 hover:text-blue-900" onClick={() => handleFeedbackDetailsClick(item)}>
                       <i className="ri-eye-line text-lg"></i>
                     </button>
-                    <button className="text-green-600 hover:text-green-900">
+                    <button className="text-green-600 hover:text-green-900" onClick={() => handleMarkResolvedClick(item)}>
                       <i className="ri-check-line text-lg"></i>
                     </button>
-                    <button className="text-purple-600 hover:text-purple-900">
+                    <button className="text-purple-600 hover:text-purple-900" onClick={() => handleReplyToFeedbackClick(item)}>
                       <i className="ri-reply-line text-lg"></i>
                     </button>
                   </div>
@@ -2239,6 +2260,64 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
             isOpen={showVendorDetailsDialog}
             onClose={() => setShowVendorDetailsDialog(false)}
             vendorData={selectedVendor}
+          />
+        )}
+
+        {/* Feedback Details Dialog */}
+        {showFeedbackDetailsDialog && selectedFeedback && (
+          <FeedbackDetailsDialog
+            isOpen={showFeedbackDetailsDialog}
+            onClose={() => setShowFeedbackDetailsDialog(false)}
+            feedbackData={{
+              userInitials: selectedFeedback.user,
+              userName: selectedFeedback.user,
+              userEmail: "user@example.com",
+              userPhone: "+91 98765 43210",
+              userLocation: "Mumbai, India",
+              feedbackType: selectedFeedback.type,
+              entity: selectedFeedback.entity,
+              status: selectedFeedback.status,
+              date: selectedFeedback.date,
+              description: selectedFeedback.description
+            }}
+            onContactUser={() => {
+              setShowFeedbackDetailsDialog(false);
+              setShowReplyToFeedbackDialog(true);
+            }}
+            onMarkResolved={() => {
+              setShowFeedbackDetailsDialog(false);
+              setShowMarkResolvedDialog(true);
+            }}
+          />
+        )}
+
+        {/* Mark Resolved Dialog */}
+        {showMarkResolvedDialog && selectedFeedback && (
+          <MarkResolvedDialog
+            isOpen={showMarkResolvedDialog}
+            onClose={() => setShowMarkResolvedDialog(false)}
+            onConfirm={() => {
+              // Handle mark resolved confirmation
+              setShowMarkResolvedDialog(false);
+            }}
+          />
+        )}
+
+        {/* Reply to Feedback Dialog */}
+        {showReplyToFeedbackDialog && selectedFeedback && (
+          <ReplyToFeedbackDialog
+            isOpen={showReplyToFeedbackDialog}
+            onClose={() => setShowReplyToFeedbackDialog(false)}
+            feedbackData={{
+              userInitials: selectedFeedback.user,
+              userName: selectedFeedback.user,
+              date: selectedFeedback.date,
+              message: selectedFeedback.description
+            }}
+            onSendResponse={(response, attachments) => {
+              // Handle sending response
+              console.log('Response:', response, 'Attachments:', attachments);
+            }}
           />
         )}
       </div>
