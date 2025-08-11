@@ -1,0 +1,307 @@
+body {
+  background-color: #FDF8F4;
+  color: #3F3D56;
+}
+
+.step-content {
+  display: block;
+  width: 100%;
+}
+
+.step-active {
+  background-color: #DA8552;
+  color: white;
+}
+
+.step-completed {
+  background-color: #E9C4B1;
+  color: #3F3D56;
+}
+
+.step-inactive {
+  background-color: #F5E9E2;
+  color: #8C8A97;
+}
+
+.custom-file-upload {
+  border: 2px dashed #E9C4B1;
+  display: inline-block;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.custom-file-upload:hover {
+  border-color: #DA8552;
+}
+
+/* Ensure file input is completely hidden */
+.custom-file-upload input[type="file"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute !important;
+  left: -9999px !important;
+}
+
+/* Hide any browser default file input styling */
+input[type="file"]::-webkit-file-upload-button,
+input[type="file"]::file-selector-button {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+.tab-active {
+  background-color: #DA8552;
+  color: white;
+}
+
+.tab-inactive {
+  background-color: #F5E9E2;
+  color: #3F3D56;
+}
+
+.amenity-selected {
+  border-color: #DA8552;
+  background-color: rgba(218, 133, 82, 0.1);
+}
+
+/* Fix for amenity button text color only */
+.bg-primary.bg-opacity-10.text-primary {
+  color: #C67642 !important;
+  background-color: rgba(218, 133, 82, 0.1) !important;
+}
+
+/* Style for amenity button remove icon */
+.bg-primary.bg-opacity-10.text-primary .ri-close-line {
+  color: #C67642 !important;
+}
+
+/* Override Tailwind text-primary class for amenity buttons */
+.bg-primary.bg-opacity-10.text-primary,
+.bg-primary.bg-opacity-10.text-primary * {
+  color: #C67642 !important;
+}
+
+/* Ensure Next button is positioned on the right */
+.flex.justify-between .bg-primary {
+  margin-left: auto !important;
+}
+
+/* Force Next button to right side */
+.flex.justify-between > button:last-child {
+  margin-left: auto !important;
+}
+
+/* Additional positioning for navigation buttons */
+.flex.justify-between {
+  position: relative;
+}
+
+.flex.justify-between > button:last-child {
+  position: absolute;
+  right: 0;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 30px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #F5E9E2;
+  transition: .4s;
+  border-radius: 34px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .toggle-slider {
+  background-color: #DA8552;
+}
+
+input:checked + .toggle-slider:before {
+  transform: translateX(30px);
+}
+
+.confetti {
+  position: fixed;
+  width: 10px;
+  height: 10px;
+  background-color: #f2d74e;
+  opacity: 0;
+  animation: confetti-fall 3s ease-in-out forwards;
+  z-index: 1000;
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-100vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.rich-text-toolbar button {
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  padding: 4px 8px;
+  margin: 0 2px;
+  border-radius: 4px;
+}
+
+.rich-text-toolbar button:hover {
+  background: #e5e5e5;
+}
+
+.rich-text-editor {
+  border: 1px solid #ddd;
+  min-height: 200px;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.rounded-button {
+  border-radius: 8px;
+}
+
+.text-primary {
+  color: #DA8552;
+}
+
+.bg-primary {
+  background-color: #DA8552;
+}
+
+.text-secondary {
+  color: #3F3D56;
+}
+
+.hover\:text-primary-dark:hover {
+  color: #C67642;
+}
+
+.hover\:bg-primary-dark:hover {
+  background-color: #C67642;
+}
+
+.disabled\:opacity-50:disabled {
+  opacity: 0.5;
+}
+
+.hover\:border-primary:hover {
+  border-color: #DA8552;
+}
+
+.hover\:bg-primary-50:hover {
+  background-color: rgba(218, 133, 82, 0.1);
+}
+
+.ri-lg {
+  font-size: 1.125rem;
+}
+
+.ri-sm {
+  font-size: 0.875rem;
+}
+
+.ri-2x {
+  font-size: 2rem;
+}
+
+.ri-3x {
+  font-size: 3rem;
+}
+
+.transition-colors {
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+.hover\:bg-opacity-90:hover {
+  background-color: rgba(218, 133, 82, 0.9);
+}
+
+.hover\:bg-gray-50:hover {
+  background-color: #F9FAFB;
+}
+
+.hover\:bg-gray-100:hover {
+  background-color: #F3F4F6;
+}
+
+.hover\:text-red-700:hover {
+  color: #B91C1C;
+}
+
+.hover\:underline:hover {
+  text-decoration: underline;
+}
+
+.hover\:border-primary:hover {
+  border-color: #DA8552;
+}
+
+.hover\:bg-primary-50:hover {
+  background-color: rgba(218, 133, 82, 0.1);
+}
+
+.hover\:text-primary-dark:hover {
+  color: #C67642;
+}
+
+.hover\:bg-primary-dark:hover {
+  background-color: #C67642;
+}
+
+.bg-primary-50 {
+  background-color: rgba(218, 133, 82, 0.1);
+}
+
+/* Additional styles for step content */
+.step-content {
+  display: block !important;
+  width: 100%;
+  min-height: 200px;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.step-content > * {
+  display: block;
+}
+
+/* Ensure form elements are visible */
+.step-content input,
+.step-content textarea,
+.step-content select {
+  display: block !important;
+  visibility: visible !important;
+}

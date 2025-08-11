@@ -1014,6 +1014,12 @@ const Manage: React.FC<ManageProps> = ({ onPageChange, onLogout }) => {
                     if (activeTab === 'heritage-sites' && onPageChange) {
                       onPageChange('add-new-heritage');
                     }
+                    if (activeTab === 'local-guides' && onPageChange) {
+                      onPageChange('add-new-local-guide');
+                    }
+                    if (activeTab === 'event-operators' && onPageChange) {
+                      onPageChange('add-new-event');
+                    }
                   }}
                   className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-orange-500 border border-orange-500 rounded-md hover:bg-orange-600"
                 >

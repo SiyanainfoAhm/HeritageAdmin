@@ -108,3 +108,192 @@ body {
   background-color: #D1FAE5;
   color: #065F46;
 }
+
+/* Reports Styles */
+.text-secondary {
+  color: #3F3D56;
+}
+
+.text-primary {
+  color: #DA8552;
+}
+
+.bg-primary {
+  background-color: #DA8552;
+}
+
+.bg-primary-50 {
+  background-color: rgba(218, 133, 82, 0.1);
+}
+
+.hover\:bg-primary:hover {
+  background-color: #DA8552;
+}
+
+.hover\:text-primary:hover {
+  color: #DA8552;
+}
+
+.hover\:bg-primary-50:hover {
+  background-color: rgba(218, 133, 82, 0.1);
+}
+
+/* Table Styles */
+.table-hover tbody tr:hover {
+  background-color: #F9FAFB;
+}
+
+/* Pagination Styles */
+.pagination-button {
+  transition: all 0.2s ease;
+}
+
+.pagination-button:hover {
+  background-color: #F3F4F6;
+}
+
+.pagination-button.active {
+  background-color: #DA8552;
+  color: white;
+}
+
+/* Filter Button Styles */
+.filter-button {
+  transition: all 0.2s ease;
+}
+
+.filter-button:hover {
+  background-color: #F3F4F6;
+}
+
+.filter-button.active {
+  background-color: #DA8552;
+  color: white;
+}
+
+/* Year View Styles */
+.year-view-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+}
+
+.quarter-section {
+  background: white;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+.quarter-header {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.quarter-header.q1 {
+  background-color: #DBEAFE;
+}
+
+.quarter-header.q2 {
+  background-color: #D1FAE5;
+}
+
+.quarter-header.q3 {
+  background-color: #FEF3C7;
+}
+
+.quarter-header.q4 {
+  background-color: #F3E8FF;
+}
+
+.month-section {
+  margin-bottom: 1rem;
+}
+
+.month-title {
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.event-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.event-date {
+  font-size: 0.875rem;
+  color: #6B7280;
+  min-width: 2rem;
+}
+
+.event-tag {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.event-tag.admin {
+  background-color: #DBEAFE;
+  color: #1E40AF;
+}
+
+.event-tag.cultural {
+  background-color: #F3E8FF;
+  color: #7C3AED;
+}
+
+.event-tag.festival {
+  background-color: #FEF3C7;
+  color: #92400E;
+}
+
+.event-tag.heritage {
+  background-color: #D1FAE5;
+  color: #065F46;
+}
+
+.event-tag.artisan {
+  background-color: #FEE2E2;
+  color: #991B1B;
+}
+
+.event-name {
+  font-size: 0.875rem;
+  color: #111827;
+  flex: 1;
+}
+
+/* Calendar Navigation Styles */
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.calendar-nav-button {
+  padding: 0.5rem;
+  color: #6B7280;
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+.calendar-nav-button:hover {
+  color: #374151;
+  background-color: #F3F4F6;
+}
+
+.calendar-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+}

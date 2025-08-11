@@ -10,6 +10,8 @@ import Manage from './pages/Manage';
 import AccessControl from './pages/AccessControl';
 import CRM from './pages/CRM';
 import AddNewHeritage from './pages/AddNewHeritage';
+import AddNewLocalGuide from './pages/AddNewLocalGuide';
+import AddNewEvent from './pages/AddNewEvent';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -46,6 +48,10 @@ function App() {
         return <CRM onLogout={handleLogout} onPageChange={handlePageChange} />;
       case 'add-new-heritage':
         return <AddNewHeritage onLogout={handleLogout} onPageChange={handlePageChange} />;
+      case 'add-new-local-guide':
+        return <AddNewLocalGuide onLogout={handleLogout} onPageChange={handlePageChange} />;
+      case 'add-new-event':
+        return <AddNewEvent onLogout={handleLogout} onPageChange={handlePageChange} />;
       case 'dashboard':
       default:
         return <Dashboard onLogout={handleLogout} onPageChange={handlePageChange} />;

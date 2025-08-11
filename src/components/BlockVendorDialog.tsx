@@ -1,19 +1,19 @@
 import React from 'react';
 
-interface BlockConfirmationDialogProps {
+interface BlockVendorDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  userName: string;
-  userEmail: string;
+  vendorName: string;
+  vendorType: string;
 }
 
-const BlockConfirmationDialog: React.FC<BlockConfirmationDialogProps> = ({ 
+const BlockVendorDialog: React.FC<BlockVendorDialogProps> = ({ 
   isOpen, 
   onClose, 
   onConfirm, 
-  userName, 
-  userEmail 
+  vendorName, 
+  vendorType 
 }) => {
   if (!isOpen) {
     return null;
@@ -26,9 +26,9 @@ const BlockConfirmationDialog: React.FC<BlockConfirmationDialogProps> = ({
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <i className="ri-forbid-line text-red-500 ri-2x"></i>
           </div>
-          <h3 className="text-xl font-semibold text-gray-800 mb-2">Block User</h3>
+          <h3 className="text-xl font-semibold text-gray-800 mb-2">Block Vendor</h3>
           <p className="text-gray-600">
-            Are you sure you want to block this user? They will not be able to
+            Are you sure you want to block this vendor? They will not be able to
             access the application or web app.
           </p>
         </div>
@@ -46,7 +46,7 @@ const BlockConfirmationDialog: React.FC<BlockConfirmationDialogProps> = ({
             }}
             className="px-4 py-2 text-white bg-red-500 rounded-button hover:bg-red-600 !rounded-button whitespace-nowrap"
           >
-            Yes, Block User
+            Yes, Block Vendor
           </button>
         </div>
       </div>
@@ -54,4 +54,4 @@ const BlockConfirmationDialog: React.FC<BlockConfirmationDialogProps> = ({
   );
 };
 
-export default BlockConfirmationDialog;
+export default BlockVendorDialog;
