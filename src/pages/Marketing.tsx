@@ -43,6 +43,9 @@ const Marketing: React.FC<MarketingProps> = ({ onPageChange, onLogout }) => {
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
+    // Close any open filters when switching tabs
+    const event = new MouseEvent('mousedown', { bubbles: true });
+    document.dispatchEvent(event);
   };
 
   const handleSidebarToggle = () => {

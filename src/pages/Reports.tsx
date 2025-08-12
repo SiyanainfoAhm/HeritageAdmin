@@ -9,6 +9,8 @@ import VendorDetailsDialog from '../components/VendorDetailsDialog';
 import FeedbackDetailsDialog from '../components/FeedbackDetailsDialog';
 import MarkResolvedDialog from '../components/MarkResolvedDialog';
 import ReplyToFeedbackDialog from '../components/ReplyToFeedbackDialog';
+import CommentDetailsDialog from '../components/CommentDetailsDialog';
+import ReplyToCommentDialog from '../components/ReplyToCommentDialog';
 
 interface ReportsProps {
   onPageChange?: (page: string) => void;
@@ -145,6 +147,9 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
   const [showMarkResolvedDialog, setShowMarkResolvedDialog] = useState(false);
   const [showReplyToFeedbackDialog, setShowReplyToFeedbackDialog] = useState(false);
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackComplaint | null>(null);
+  const [showCommentDetailsDialog, setShowCommentDetailsDialog] = useState(false);
+  const [showReplyToCommentDialog, setShowReplyToCommentDialog] = useState(false);
+  const [selectedComment, setSelectedComment] = useState<Comment | null>(null);
 
   const handleSidebarToggle = () => {
     setSidebarExpanded(!sidebarExpanded);
@@ -199,6 +204,22 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
   const handleReplyToFeedbackClick = (feedback: FeedbackComplaint) => {
     setSelectedFeedback(feedback);
     setShowReplyToFeedbackDialog(true);
+  };
+
+  const handleCommentDetailsClick = (comment: Comment) => {
+    setSelectedComment(comment);
+    setShowCommentDetailsDialog(true);
+  };
+
+  const handleReplyToCommentClick = (comment: Comment) => {
+    setSelectedComment(comment);
+    setShowReplyToCommentDialog(true);
+  };
+
+  const handleSendCommentResponse = (response: string, attachments: File[]) => {
+    // Handle sending comment response
+    console.log('Sending comment response:', response, attachments);
+    // Here you would typically make an API call to send the response
   };
 
   // Sample data for Booking Reports
@@ -747,36 +768,36 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
   const renderBookingReports = () => (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
+        <table className="w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 <div className="flex items-center">
                   <span>Booking ID</span>
                   <i className="ri-arrow-up-s-line ml-1 text-gray-400"></i>
                 </div>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 <div className="flex items-center">
                   <span>Date & Time</span>
                   <i className="ri-arrow-down-s-line ml-1 text-gray-400"></i>
                 </div>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor/Guide</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Mode</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount (₹)</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor/Guide</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Mode</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount (₹)</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {bookingReports.map((booking, index) => (
               <tr key={index} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{booking.id}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{booking.dateTime}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{booking.id}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{booking.dateTime}</td>
+                <td className="px-4 py-3 whitespace-nowrap">
                   <div className="flex items-center">
                     <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3">
                       <span className="text-sm font-medium text-orange-600">{booking.userInitials}</span>
@@ -784,9 +805,9 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
                     <span className="text-sm font-medium text-gray-900">{booking.user}</span>
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{booking.entity}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{booking.vendorGuide}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{booking.entity}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{booking.vendorGuide}</td>
+                <td className="px-4 py-3 whitespace-nowrap">
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                     booking.status === 'Confirmed' ? 'bg-green-100 text-green-800' :
                     booking.status === 'Cancelled' ? 'bg-red-100 text-red-800' :
@@ -795,9 +816,9 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
                     {booking.status}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{booking.paymentMode}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">₹{booking.amount.toLocaleString()}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{booking.paymentMode}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">₹{booking.amount.toLocaleString()}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
                   <div className="flex space-x-2">
                     <button className="text-blue-600 hover:text-blue-900" onClick={() => handleBookingDetailsClick(booking)}>
                       <i className="ri-eye-line text-lg"></i>
@@ -812,7 +833,7 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
           </tbody>
         </table>
       </div>
-      <div className="bg-white px-6 py-3 border-t border-gray-200">
+      <div className="bg-white px-4 py-2 border-t border-gray-200">
         <p className="text-sm text-gray-700">Showing 1-5 of 42 bookings</p>
       </div>
     </div>
@@ -924,10 +945,10 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
           <tbody className="bg-white divide-y divide-gray-200">
             {vendorReports.map((vendor, index) => (
               <tr key={index} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-6 py-4">
                   <div className="flex items-center">
                     <input type="checkbox" className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 mr-3" />
-                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3">
+                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3 flex-shrink-0">
                       <span className="text-sm font-medium text-orange-600">{vendor.vendorInitials}</span>
                     </div>
                     <span className="text-sm font-medium text-gray-900">{vendor.vendorName}</span>
@@ -1120,11 +1141,19 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{comment.date}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <div className="flex space-x-2">
-                    <button className="text-blue-600 hover:text-blue-900">
+                    <button 
+                      onClick={() => handleCommentDetailsClick(comment)}
+                      className="text-blue-600 hover:text-blue-900"
+                      title="View Comment Details"
+                    >
                       <i className="ri-eye-line text-lg"></i>
                     </button>
-                    <button className="text-gray-400 hover:text-gray-600">
-                      <i className="ri-forbid-line text-lg"></i>
+                    <button 
+                      onClick={() => handleReplyToCommentClick(comment)}
+                      className="text-green-600 hover:text-green-900"
+                      title="Reply to Comment"
+                    >
+                      <i className="ri-reply-line text-lg"></i>
                     </button>
                   </div>
                 </td>
@@ -1533,10 +1562,10 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
           <tbody className="bg-white divide-y divide-gray-200">
             {footfallLogs.map((log, index) => (
               <tr key={index} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-6 py-4">
                   <div className="flex items-center">
                     <input type="checkbox" className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 mr-3" />
-                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3">
+                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3 flex-shrink-0">
                       <span className="text-sm font-medium text-orange-600">{log.siteInitials}</span>
                     </div>
                     <span className="text-sm font-medium text-gray-900">{log.siteName}</span>
@@ -1624,9 +1653,9 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{report.site}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-6 py-4">
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3">
+                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3 flex-shrink-0">
                       <span className="text-sm font-medium text-orange-600">{report.userInitials}</span>
                     </div>
                     <span className="text-sm font-medium text-gray-900">{report.user}</span>
@@ -1695,10 +1724,10 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
           <tbody className="bg-white divide-y divide-gray-200">
             {authenticationReports.map((report, index) => (
               <tr key={index} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-6 py-4">
                   <div className="flex items-center">
                     <input type="checkbox" className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 mr-3" />
-                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3">
+                    <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center mr-3 flex-shrink-0">
                       <span className="text-sm font-medium text-orange-600">{report.userInitials}</span>
                     </div>
                     <span className="text-sm font-medium text-gray-900">{report.user}</span>
@@ -1707,9 +1736,8 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{report.role}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{report.activity}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.deviceOS}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {report.ipAddress} · {report.location}
-                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.ipAddress}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.location}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{report.dateTime}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -1872,17 +1900,17 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
   const renderFilters = () => {
     if (activeReportTab === 'vendor-reports') {
       return (
-        <div className="flex space-x-2 mb-6">
+        <div className="flex space-x-2 mb-4">
           {['All Vendors', 'Artisans', 'Hotels', 'Event Organizers', 'Local Guides', 'Food Vendors', 'Retailers'].map((filter) => (
             <button
               key={filter}
               onClick={() => setActiveFilter(filter === 'All Vendors' ? 'all' : filter.toLowerCase())}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                (filter === 'All Vendors' && activeFilter === 'all') || 
-                (filter !== 'All Vendors' && activeFilter === filter.toLowerCase())
-                  ? 'bg-orange-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+                              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  (filter === 'All Vendors' && activeFilter === 'all') || 
+                  (filter !== 'All Vendors' && activeFilter === filter.toLowerCase())
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
             >
               {filter}
             </button>
@@ -1893,34 +1921,34 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
     
     if (activeReportTab === 'feedback-complaints') {
       return (
-        <div className="flex space-x-2 mb-6">
-          {['All', 'Complaints', 'Suggestions', 'Feedback'].map((filter) => (
-            <button
-              key={filter}
-              onClick={() => setActiveFilter(filter === 'All' ? 'all' : filter.toLowerCase())}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                (filter === 'All' && activeFilter === 'all') || 
-                (filter !== 'All' && activeFilter === filter.toLowerCase())
-                  ? 'bg-orange-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {filter}
-            </button>
-          ))}
+        <div className="flex space-x-2 mb-4">
+                      {['All', 'Complaints', 'Suggestions', 'Feedback'].map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setActiveFilter(filter === 'All' ? 'all' : filter.toLowerCase())}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  (filter === 'All' && activeFilter === 'all') || 
+                  (filter !== 'All' && activeFilter === filter.toLowerCase())
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
         </div>
       );
     }
 
     if (activeReportTab === 'comments') {
       return (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex space-x-2">
             {['All', 'Heritage Sites', 'Vendors', 'Events', 'Local Guides', 'Food'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter === 'All' ? 'all' : filter.toLowerCase())}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   (filter === 'All' && activeFilter === 'all') || 
                   (filter !== 'All' && activeFilter === filter.toLowerCase())
                     ? 'bg-orange-500 text-white'
@@ -1950,7 +1978,7 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
 
     if (activeReportTab === 'footfall-logs') {
       return (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex space-x-4">
             <select className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
               <option>All Sites</option>
@@ -1983,13 +2011,13 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
 
     if (activeReportTab === 'sentiment-reports') {
       return (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex space-x-2">
             {['All', 'Positive', 'Neutral', 'Negative'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter === 'All' ? 'all' : filter.toLowerCase())}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   (filter === 'All' && activeFilter === 'all') || 
                   (filter !== 'All' && activeFilter === filter.toLowerCase())
                     ? 'bg-orange-500 text-white'
@@ -2024,7 +2052,7 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
 
     if (activeReportTab === 'authentication-report') {
       return (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex space-x-4">
             <select className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
               <option>All Roles</option>
@@ -2066,7 +2094,7 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
 
     if (activeReportTab === 'ad-performance') {
       return (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex space-x-4">
             <select className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
               <option>All Platforms</option>
@@ -2126,7 +2154,7 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
       
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="bg-[#FDF8F4] shadow-sm py-4 px-6">
+        <header className="bg-[#FDF8F4] shadow-sm py-3 px-4">
           <div className="flex items-center">
             <div className="flex items-center text-sm text-gray-500">
               <a href="#" className="hover:text-primary">Admin</a>
@@ -2137,11 +2165,11 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
         </header>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 max-w-full">
           {/* Report Tabs */}
-          <div className="mb-6">
+          <div className="mb-4">
             <div className="border-b border-gray-200">
-              <nav className="-mb-px flex space-x-8 overflow-x-auto">
+              <nav className="-mb-px flex space-x-4 overflow-hidden">
                 {[
                   { id: 'booking-reports', label: 'Booking Reports' },
                   { id: 'user-activity', label: 'User Activity' },
@@ -2157,7 +2185,7 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveReportTab(tab.id)}
-                    className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    className={`whitespace-normal text-center py-2 px-2 border-b-2 font-medium text-sm transition-colors leading-tight ${
                       activeReportTab === tab.id
                         ? 'border-orange-500 text-orange-600'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -2318,6 +2346,34 @@ const Reports: React.FC<ReportsProps> = ({ onPageChange, onLogout }) => {
               // Handle sending response
               console.log('Response:', response, 'Attachments:', attachments);
             }}
+          />
+        )}
+
+        {/* Comment Details Dialog */}
+        {showCommentDetailsDialog && selectedComment && (
+          <CommentDetailsDialog
+            isOpen={showCommentDetailsDialog}
+            onClose={() => setShowCommentDetailsDialog(false)}
+            comment={selectedComment}
+            onReply={() => {
+              setShowCommentDetailsDialog(false);
+              setShowReplyToCommentDialog(true);
+            }}
+          />
+        )}
+
+        {/* Reply to Comment Dialog */}
+        {showReplyToCommentDialog && selectedComment && (
+          <ReplyToCommentDialog
+            isOpen={showReplyToCommentDialog}
+            onClose={() => setShowReplyToCommentDialog(false)}
+            comment={{
+              name: selectedComment.name,
+              userInitials: selectedComment.userInitials,
+              date: selectedComment.date,
+              comment: selectedComment.comment
+            }}
+            onSendResponse={handleSendCommentResponse}
           />
         )}
       </div>

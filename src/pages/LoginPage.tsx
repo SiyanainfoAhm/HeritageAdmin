@@ -336,7 +336,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 Password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none w-10 h-10">
+                <div className="lock-icon absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none w-10 h-10">
                   <i className="ri-lock-line text-gray-400"></i>
                 </div>
                 <input
@@ -349,13 +349,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                   required
                 />
                 <div
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer w-10 h-10"
+                  className="eye-icon absolute inset-y-0 right-0 pr-3 flex items-center justify-center cursor-pointer w-10 h-10"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? (
-                    <i className="ri-eye-line text-gray-400"></i>
+                    <i className="ri-eye-line text-gray-400 text-lg"></i>
                   ) : (
-                    <i className="ri-eye-off-line text-gray-400"></i>
+                    <i className="ri-eye-off-line text-gray-400 text-lg"></i>
                   )}
                 </div>
               </div>
@@ -577,7 +577,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     New Password
                   </label>
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none w-10 h-10">
+                    <div className="lock-icon absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none w-10 h-10">
                       <i className="ri-lock-line text-gray-400"></i>
                     </div>
                     <input
@@ -589,13 +589,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                       placeholder="Enter new password"
                     />
                     <div
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer w-10 h-10"
+                      className="eye-icon absolute inset-y-0 right-0 pr-3 flex items-center justify-center cursor-pointer w-10 h-10"
                       onClick={() => setShowNewPassword(!showNewPassword)}
                     >
                       {showNewPassword ? (
-                        <i className="ri-eye-line text-gray-400"></i>
+                        <i className="ri-eye-line text-gray-400 text-lg"></i>
                       ) : (
-                        <i className="ri-eye-off-line text-gray-400"></i>
+                        <i className="ri-eye-off-line text-gray-400 text-lg"></i>
                       )}
                     </div>
                   </div>
@@ -616,7 +616,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     Confirm Password
                   </label>
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none w-10 h-10">
+                    <div className="lock-icon absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none w-10 h-10">
                       <i className="ri-lock-line text-gray-400"></i>
                     </div>
                     <input
@@ -628,11 +628,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                       placeholder="Confirm new password"
                     />
                     <div
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer w-10 h-10"
+                      className="eye-icon absolute inset-y-0 right-0 pr-3 flex items-center justify-center cursor-pointer w-10 h-10"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     >
                       {showConfirmPassword ? (
-                        <i className="ri-eye-line text-gray-400"></i>
+                        <i className="ri-eye-line text-gray-400 text-lg"></i>
                       ) : (
                         <i className="ri-eye-off-line text-gray-400"></i>
                       )}

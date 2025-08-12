@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface WhatsAppTabProps {
   onAddNotification: () => void;
@@ -7,6 +7,26 @@ interface WhatsAppTabProps {
 
 const WhatsAppTab: React.FC<WhatsAppTabProps> = ({ onAddNotification, onViewDetails }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeFilters, setActiveFilters] = useState({
+    audience: '',
+    dateFrom: '',
+    dateTo: ''
+  });
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setOpenFilter(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   return (
     <div id="whatsapp-tab" className="tab-content">
@@ -45,51 +65,73 @@ const WhatsAppTab: React.FC<WhatsAppTabProps> = ({ onAddNotification, onViewDeta
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-3 mt-4">
+        <div ref={filterRef} className="flex flex-wrap gap-3 mt-4">
           <div className="relative">
             <button
-              id="filter-whatsapp-audience-btn"
-              className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 flex items-center !rounded-button whitespace-nowrap"
+              onClick={() => setOpenFilter(openFilter === 'audience' ? null : 'audience')}
+              className={`border rounded-lg px-3 py-2 text-sm flex items-center !rounded-button whitespace-nowrap ${
+                activeFilters.audience 
+                  ? 'bg-primary/10 border-primary text-primary' 
+                  : 'bg-white border-gray-200 text-gray-600'
+              }`}
             >
               <span>Audience</span>
-              <i className="ri-arrow-down-s-line ml-2"></i>
+              <i className={`ri-arrow-down-s-line ml-2 transition-transform ${openFilter === 'audience' ? 'rotate-180' : ''}`}></i>
             </button>
             <div
-              id="filter-whatsapp-audience-dropdown"
-              className="hidden absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-10 w-48"
+              className={`absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-10 w-48 ${openFilter === 'audience' ? 'block' : 'hidden'}`}
             >
               <div className="p-2 space-y-1">
                 <label className="flex items-center p-2 hover:bg-gray-50 rounded-lg cursor-pointer">
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="whatsapp-audience"
+                    value="All Users"
+                    checked={activeFilters.audience === 'All Users'}
+                    onChange={(e) => setActiveFilters({...activeFilters, audience: e.target.value})}
                     className="form-checkbox h-4 w-4 text-primary rounded border-gray-300 mr-2"
                   />
                   <span className="text-sm">All Users</span>
                 </label>
                 <label className="flex items-center p-2 hover:bg-gray-50 rounded-lg cursor-pointer">
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="whatsapp-audience"
+                    value="Only Tourists"
+                    checked={activeFilters.audience === 'Only Tourists'}
+                    onChange={(e) => setActiveFilters({...activeFilters, audience: e.target.value})}
                     className="form-checkbox h-4 w-4 text-primary rounded border-gray-300 mr-2"
                   />
                   <span className="text-sm">Only Tourists</span>
                 </label>
                 <label className="flex items-center p-2 hover:bg-gray-50 rounded-lg cursor-pointer">
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="whatsapp-audience"
+                    value="Only Vendors"
+                    checked={activeFilters.audience === 'Only Vendors'}
+                    onChange={(e) => setActiveFilters({...activeFilters, audience: e.target.value})}
                     className="form-checkbox h-4 w-4 text-primary rounded border-gray-300 mr-2"
                   />
                   <span className="text-sm">Only Vendors</span>
                 </label>
                 <label className="flex items-center p-2 hover:bg-gray-50 rounded-lg cursor-pointer">
                   <input
-                    type="checkbox"
+                    type="radio"
+                    name="whatsapp-audience"
+                    value="Only Guides"
+                    checked={activeFilters.audience === 'Only Guides'}
+                    onChange={(e) => setActiveFilters({...activeFilters, audience: e.target.value})}
                     className="form-checkbox h-4 w-4 text-primary rounded border-gray-300 mr-2"
                   />
                   <span className="text-sm">Only Guides</span>
                 </label>
               </div>
               <div className="border-t border-gray-200 p-2 flex justify-end">
-                <button className="text-xs text-primary font-medium">
+                <button 
+                  onClick={() => setOpenFilter(null)}
+                  className="text-xs text-primary font-medium hover:text-primary/80"
+                >
                   Apply Filter
                 </button>
               </div>
@@ -97,21 +139,26 @@ const WhatsAppTab: React.FC<WhatsAppTabProps> = ({ onAddNotification, onViewDeta
           </div>
           <div className="relative">
             <button
-              id="filter-whatsapp-date-btn"
-              className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 flex items-center !rounded-button whitespace-nowrap"
+              onClick={() => setOpenFilter(openFilter === 'date' ? null : 'date')}
+              className={`border rounded-lg px-3 py-2 text-sm flex items-center !rounded-button whitespace-nowrap ${
+                (activeFilters.dateFrom || activeFilters.dateTo)
+                  ? 'bg-primary/10 border-primary text-primary' 
+                  : 'bg-white border-gray-200 text-gray-600'
+              }`}
             >
               <span>Date</span>
-              <i className="ri-arrow-down-s-line ml-2"></i>
+              <i className={`ri-arrow-down-s-line ml-2 transition-transform ${openFilter === 'date' ? 'rotate-180' : ''}`}></i>
             </button>
             <div
-              id="filter-whatsapp-date-dropdown"
-              className="hidden absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-10 w-64"
+              className={`absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-md z-10 w-64 ${openFilter === 'date' ? 'block' : 'hidden'}`}
             >
               <div className="p-3 space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">From</label>
                   <input
                     type="date"
+                    value={activeFilters.dateFrom}
+                    onChange={(e) => setActiveFilters({...activeFilters, dateFrom: e.target.value})}
                     className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
@@ -119,20 +166,32 @@ const WhatsAppTab: React.FC<WhatsAppTabProps> = ({ onAddNotification, onViewDeta
                   <label className="block text-xs font-medium text-gray-700 mb-1">To</label>
                   <input
                     type="date"
+                    value={activeFilters.dateTo}
+                    onChange={(e) => setActiveFilters({...activeFilters, dateTo: e.target.value})}
                     className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
               </div>
               <div className="border-t border-gray-200 p-2 flex justify-end">
-                <button className="text-xs text-primary font-medium">
+                <button 
+                  onClick={() => setOpenFilter(null)}
+                  className="text-xs text-primary font-medium hover:text-primary/80"
+                >
                   Apply Filter
                 </button>
               </div>
             </div>
           </div>
           <button
-            id="clear-whatsapp-filters"
-            className="text-sm text-primary flex items-center"
+            onClick={() => {
+              setActiveFilters({
+                audience: '',
+                dateFrom: '',
+                dateTo: ''
+              });
+              setOpenFilter(null);
+            }}
+            className="text-sm text-primary flex items-center hover:text-primary/80"
           >
             <i className="ri-refresh-line mr-1"></i>
             Clear Filters

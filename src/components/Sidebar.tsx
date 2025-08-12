@@ -39,7 +39,9 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between h-16 px-4 border-b border-gray-700">
         <div className="flex items-center space-x-2">
-          <h1 className="font-pacifico text-xl text-white">Heritage Admin</h1>
+          {isExpanded && (
+            <h1 className="font-pacifico text-xl text-white">Heritage Admin</h1>
+          )}
         </div>
       </div>
 
