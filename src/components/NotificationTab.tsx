@@ -46,7 +46,7 @@ const NotificationTab: React.FC<NotificationTabProps> = ({ onAddNotification, on
                 <i className="ri-search-line text-gray-400"></i>
               </div>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex gap-3">
               <button
                 id="export-notification-btn"
                 className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 flex items-center !rounded-button whitespace-nowrap"

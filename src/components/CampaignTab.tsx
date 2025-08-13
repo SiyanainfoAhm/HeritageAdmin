@@ -16,6 +16,8 @@ const CampaignTab: React.FC<CampaignTabProps> = ({ onAddCampaign, onViewDetails,
   });
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const filterRef = useRef<HTMLDivElement>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingCampaign, setEditingCampaign] = useState<any>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -48,7 +50,7 @@ const CampaignTab: React.FC<CampaignTabProps> = ({ onAddCampaign, onViewDetails,
                 <i className="ri-search-line text-gray-400"></i>
               </div>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex gap-3">
               <button
                 id="export-campaign-btn"
                 className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 flex items-center !rounded-button whitespace-nowrap"

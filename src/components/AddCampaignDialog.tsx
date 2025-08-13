@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Dialog from './Dialog';
 
 interface AddCampaignDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: CampaignFormData) => void;
+  editData?: CampaignFormData | null;
+  isEditing?: boolean;
 }
 
 interface CampaignFormData {
@@ -16,7 +18,7 @@ interface CampaignFormData {
   status: string;
 }
 
-const AddCampaignDialog: React.FC<AddCampaignDialogProps> = ({ isOpen, onClose, onSubmit }) => {
+const AddCampaignDialog: React.FC<AddCampaignDialogProps> = ({ isOpen, onClose, onSubmit, editData, isEditing = false }) => {
   const [formData, setFormData] = useState<CampaignFormData>({
     name: '',
     description: '',
@@ -25,6 +27,22 @@ const AddCampaignDialog: React.FC<AddCampaignDialogProps> = ({ isOpen, onClose, 
     endDate: '',
     status: 'draft'
   });
+
+  // Update form data when editData changes
+  useEffect(() => {
+    if (editData && isEditing) {
+      setFormData(editData);
+    } else {
+      setFormData({
+        name: '',
+        description: '',
+        audience: 'all',
+        startDate: '',
+        endDate: '',
+        status: 'draft'
+      });
+    }
+  }, [editData, isEditing]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +58,7 @@ const AddCampaignDialog: React.FC<AddCampaignDialogProps> = ({ isOpen, onClose, 
   };
 
   return (
-    <Dialog isOpen={isOpen} onClose={onClose} title="Add New Campaign" size="lg">
+    <Dialog isOpen={isOpen} onClose={onClose} title={isEditing ? "Edit Campaign" : "Add New Campaign"} size="lg">
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -100,6 +118,7 @@ const AddCampaignDialog: React.FC<AddCampaignDialogProps> = ({ isOpen, onClose, 
               <option value="draft">Draft</option>
               <option value="active">Active</option>
               <option value="paused">Paused</option>
+              <option value="completed">Completed</option>
             </select>
           </div>
         </div>
@@ -144,7 +163,7 @@ const AddCampaignDialog: React.FC<AddCampaignDialogProps> = ({ isOpen, onClose, 
             type="submit"
             className="px-4 py-2 text-sm font-medium text-white bg-primary border border-transparent rounded-lg hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
           >
-            Create Campaign
+            {isEditing ? 'Update Campaign' : 'Create Campaign'}
           </button>
         </div>
       </form>

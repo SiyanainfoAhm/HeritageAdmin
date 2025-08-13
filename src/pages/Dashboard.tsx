@@ -85,13 +85,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, onPageChange }) => {
       const channelChart = echarts.init(channelChartRef.current);
       const channelOption = {
         animation: false,
-        grid: { top: 20, right: 20, bottom: 40, left: 60 },
+        grid: { top: 20, right: 20, bottom: 40, left: 80 },
         xAxis: { type: 'value', axisLine: { show: false }, axisTick: { show: false } },
         yAxis: {
           type: 'category',
           data: ['App Store', 'Google Play', 'Direct', 'Social Media'],
           axisLine: { show: false },
-          axisTick: { show: false }
+          axisTick: { show: false },
+          axisLabel: {
+            margin: 8,
+            width: 80,
+            overflow: 'break'
+          }
         },
         series: [{
           type: 'bar',

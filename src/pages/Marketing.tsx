@@ -40,6 +40,8 @@ const Marketing: React.FC<MarketingProps> = ({ onPageChange, onLogout }) => {
   const [viewDetailsData, setViewDetailsData] = useState<any>(null);
   const [viewDetailsType, setViewDetailsType] = useState<'campaign' | 'notification' | 'whatsapp' | 'mail'>('campaign');
   const [notificationType, setNotificationType] = useState<'notification' | 'whatsapp' | 'mail'>('notification');
+  const [isEditCampaignOpen, setIsEditCampaignOpen] = useState(false);
+  const [editingCampaignData, setEditingCampaignData] = useState<any>(null);
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
@@ -85,9 +87,71 @@ const Marketing: React.FC<MarketingProps> = ({ onPageChange, onLogout }) => {
   };
 
   const handleEditCampaignStatus = (id: string) => {
-    console.log('Edit campaign status:', id);
-    // Here you would typically open an edit dialog or navigate to edit page
-    alert(`Edit status for campaign ${id}`);
+    // Mock data - in real app, you'd fetch this from your backend
+    const campaignData = getCampaignDataById(id);
+    if (campaignData) {
+      setEditingCampaignData(campaignData);
+      setIsEditCampaignOpen(true);
+    }
+  };
+
+  const getCampaignDataById = (id: string) => {
+    const campaigns = [
+      {
+        id: "1",
+        name: "Summer Heritage Walk",
+        description: "Special guided tours",
+        audience: "all",
+        startDate: "2025-06-20",
+        endDate: "2025-08-31",
+        status: "active"
+      },
+      {
+        id: "2",
+        name: "Monsoon Festival Discount",
+        description: "20% off on all packages",
+        audience: "tourists",
+        startDate: "2025-07-01",
+        endDate: "2025-07-31",
+        status: "draft"
+      },
+      {
+        id: "3",
+        name: "Artisan Spotlight",
+        description: "Featured local artisans",
+        audience: "vendors",
+        startDate: "2025-06-15",
+        endDate: "2025-06-30",
+        status: "paused"
+      },
+      {
+        id: "4",
+        name: "Guide Certification Program",
+        description: "Professional development",
+        audience: "guides",
+        startDate: "2025-05-01",
+        endDate: "2025-06-15",
+        status: "completed"
+      },
+      {
+        id: "5",
+        name: "Heritage Photography Contest",
+        description: "User-generated content",
+        audience: "all",
+        startDate: "2025-07-15",
+        endDate: "2025-08-15",
+        status: "draft"
+      }
+    ];
+    return campaigns.find(campaign => campaign.id === id);
+  };
+
+  const handleEditCampaignSubmit = (data: CampaignFormData) => {
+    console.log('Campaign updated:', data);
+    // Here you would typically send the updated data to your backend
+    alert('Campaign updated successfully!');
+    setIsEditCampaignOpen(false);
+    setEditingCampaignData(null);
   };
 
   // Notification handlers
@@ -262,6 +326,14 @@ const Marketing: React.FC<MarketingProps> = ({ onPageChange, onLogout }) => {
         isOpen={isAddCampaignOpen}
         onClose={() => setIsAddCampaignOpen(false)}
         onSubmit={handleCampaignSubmit}
+      />
+
+      <AddCampaignDialog 
+        isOpen={isEditCampaignOpen}
+        onClose={() => setIsEditCampaignOpen(false)}
+        onSubmit={handleEditCampaignSubmit}
+        editData={editingCampaignData}
+        isEditing={true}
       />
 
       <AddNotificationDialog 

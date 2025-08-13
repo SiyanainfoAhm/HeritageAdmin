@@ -27,9 +27,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'manage', label: 'Manage', icon: 'ri-settings-line' },
     { id: 'verification', label: 'Verification', icon: 'ri-check-line' },
     { id: 'marketing', label: 'Marketing', icon: 'ri-megaphone-line' },
-    { id: 'access-control', label: 'Access Control', icon: 'ri-shield-line' },
-    { id: 'crm', label: 'CRM', icon: 'ri-customer-service-line' }
-  ];
+    { id: 'access-control', label: 'Access Control', icon: 'ri-shield-line' }
+    ];
 
   return (
     <div className={`fixed inset-y-0 left-0 z-50 bg-gray-900 shadow-lg transform transition-all duration-300 ease-in-out ${

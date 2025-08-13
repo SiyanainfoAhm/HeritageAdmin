@@ -229,7 +229,7 @@ const Notifications: React.FC<NotificationsProps> = ({ onLogout, onPageChange })
                         {notification.time}
                       </span>
                     </div>
-                    <div className="flex space-x-2">
+                    <div className="flex gap-3">
                       {notification.actions ? (
                         notification.actions.map((action, index) => (
                           <button
