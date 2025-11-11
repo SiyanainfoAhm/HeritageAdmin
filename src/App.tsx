@@ -1,72 +1,62 @@
-import React, { useState } from 'react';
-import './App.css';
-import LoginPage from './pages/LoginPage';
-import Dashboard from './pages/Dashboard';
-import Notifications from './pages/Notifications';
-import Marketing from './pages/Marketing';
-import Verification from './pages/Verification';
-import Reports from './pages/Reports';
-import Manage from './pages/Manage';
-import AccessControl from './pages/AccessControl';
-import CRM from './pages/CRM';
-import AddNewHeritage from './pages/AddNewHeritage';
-import AddNewLocalGuide from './pages/AddNewLocalGuide';
-import AddNewEvent from './pages/AddNewEvent';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import { AuthProvider } from './context/AuthContext';
+import LoginPage from './pages/Login/LoginPage';
+import DashboardLayout from './components/layout/DashboardLayout';
+import Dashboard from './pages/Dashboard/Dashboard';
+import Dashboard2 from './pages/Dashboard/Dashboard2';
+import Masters from './pages/Masters/Masters';
+import Reports from './pages/Reports/Reports';
+import Users from './pages/Users/Users';
+import Bookings from './pages/Bookings/Bookings';
+import ProtectedRoute from './components/common/ProtectedRoute';
+import Verification from './pages/Verification/Verification';
+import Marketing from './pages/Marketing/Marketing';
+
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1976d2',
+    },
+    secondary: {
+      main: '#dc004e',
+    },
+  },
+});
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentPage, setCurrentPage] = useState('dashboard');
-
-  const handleLogin = () => {
-    setIsLoggedIn(true);
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setCurrentPage('dashboard');
-  };
-
-  const handlePageChange = (page: string) => {
-    setCurrentPage(page);
-  };
-
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'notifications':
-        return <Notifications onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'marketing':
-        return <Marketing onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'verification':
-        return <Verification onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'reports':
-        return <Reports onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'manage':
-        return <Manage onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'access-control':
-        return <AccessControl onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'crm':
-        return <CRM onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'add-new-heritage':
-        return <AddNewHeritage onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'add-new-local-guide':
-        return <AddNewLocalGuide onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'add-new-event':
-        return <AddNewEvent onLogout={handleLogout} onPageChange={handlePageChange} />;
-      case 'dashboard':
-      default:
-        return <Dashboard onLogout={handleLogout} onPageChange={handlePageChange} />;
-    }
-  };
-
   return (
-    <div className="App">
-      {isLoggedIn ? (
-        renderPage()
-      ) : (
-        <LoginPage onLogin={handleLogin} />
-      )}
-    </div>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AuthProvider>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="dashboard-2" element={<Dashboard2 />} />
+              <Route path="masters" element={<Masters />} />
+              <Route path="reports" element={<Reports />} />
+              <Route path="users" element={<Users />} />
+              <Route path="verification" element={<Verification />} />
+              <Route path="marketing" element={<Marketing />} />
+              <Route path="bookings" element={<Bookings />} />
+            </Route>
+          </Routes>
+        </Router>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
 export default App;
+
