@@ -100,6 +100,60 @@ export interface ReportFilters {
 }
 
 // Heritage Site Types
+export interface HeritageSiteMediaItem {
+  url: string;
+  type: 'image' | 'video' | 'document';
+  label?: string;
+  is_primary?: boolean;
+  thumbnail_url?: string | null;
+}
+
+export interface HeritageSiteAmenity {
+  name: string;
+  icon?: string | null;
+  description?: string | null;
+}
+
+export interface HeritageSiteOpeningDay {
+  day: string;
+  is_open: boolean;
+  opening_time?: string | null;
+  closing_time?: string | null;
+}
+
+export interface HeritageSiteOpeningHours {
+  schedule: HeritageSiteOpeningDay[];
+  notes?: string | null;
+}
+
+export interface HeritageSiteAudioGuide {
+  language: string;
+  url?: string | null;
+  duration_seconds?: number | null;
+  file_name?: string | null;
+}
+
+export interface HeritageSiteTransportOption {
+  mode: string;
+  name?: string | null;
+  distance_km?: number | null;
+  notes?: string | null;
+}
+
+export interface HeritageSiteAttraction {
+  name: string;
+  distance_km?: number | null;
+  notes?: string | null;
+}
+
+export interface HeritageSiteFeeBreakup {
+  visitor_type: string;
+  amount: number;
+  notes?: string | null;
+}
+
+export type HeritageSiteTranslationMap = Record<string, string>;
+
 export interface HeritageSite {
   site_id: number;
   name_default: string;
@@ -119,5 +173,27 @@ export interface HeritageSite {
   entry_type?: 'free' | 'paid' | null;
   experience?: string | null;
   accessibility?: string | null;
+  location_address?: string | null;
+  location_area?: string | null;
+  location_city?: string | null;
+  location_state?: string | null;
+  location_country?: string | null;
+  location_postal_code?: string | null;
+  hero_image_url?: string | null;
+  media_gallery?: HeritageSiteMediaItem[] | null;
+  video_360_url?: string | null;
+  ar_mode_available?: boolean | null;
+  opening_hours?: HeritageSiteOpeningHours | null;
+  amenities?: HeritageSiteAmenity[] | null;
+  overview_translations?: HeritageSiteTranslationMap | null;
+  history_translations?: HeritageSiteTranslationMap | null;
+  audio_guides?: HeritageSiteAudioGuide[] | null;
+  entry_fee_structure?: HeritageSiteFeeBreakup[] | null;
+  booking_url?: string | null;
+  booking_online_available?: boolean | null;
+  site_map_url?: string | null;
+  cultural_etiquettes?: string[] | null;
+  transport_options?: HeritageSiteTransportOption[] | null;
+  nearby_attractions?: HeritageSiteAttraction[] | null;
 }
 

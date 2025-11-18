@@ -7,7 +7,10 @@ import DashboardLayout from './components/layout/DashboardLayout';
 import Dashboard from './pages/Dashboard/Dashboard';
 import Dashboard2 from './pages/Dashboard/Dashboard2';
 import Masters from './pages/Masters/Masters';
+import AddHeritageSite from './pages/Masters/AddHeritageSite';
 import Reports from './pages/Reports/Reports';
+import Analytics from './pages/Analytics/Analytics';
+import Reports2 from './pages/Reports/Reports2';
 import Users from './pages/Users/Users';
 import Bookings from './pages/Bookings/Bookings';
 import ProtectedRoute from './components/common/ProtectedRoute';
@@ -46,10 +49,14 @@ function App() {
               <Route path="dashboard-2" element={<Dashboard2 />} />
               <Route path="masters" element={<Masters />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="reports-2" element={<Reports2 />} />
+              <Route path="analytics" element={<Analytics />} />
               <Route path="users" element={<Users />} />
               <Route path="verification" element={<Verification />} />
               <Route path="marketing" element={<Marketing />} />
               <Route path="bookings" element={<Bookings />} />
+              <Route path="masters/heritage-sites/new" element={<AddHeritageSite />} />
+              <Route path="masters/heritage-sites/:siteId/edit" element={<AddHeritageSite />} />
             </Route>
           </Routes>
         </Router>

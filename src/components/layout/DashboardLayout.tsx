@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -8,6 +9,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Collapse,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import AssessmentIcon from '@mui/icons-material/Assessment';
@@ -18,14 +20,43 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import LogoutIcon from '@mui/icons-material/Logout';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import { useAuth } from '@/context/AuthContext';
 
 const drawerWidth = 260;
 
-const menuItems = [
-  { text: 'Dashboard', icon: DashboardIcon, path: '/dashboard' },
-  { text: 'Dashboard 2', icon: TimelineIcon, path: '/dashboard-2' },
-  { text: 'Reports', icon: AssessmentIcon, path: '/reports' },
+type MenuIcon = typeof DashboardIcon;
+
+interface MenuChild {
+  text: string;
+  path: string;
+  icon?: MenuIcon;
+}
+
+interface MenuItem {
+  text: string;
+  icon: MenuIcon;
+  path?: string;
+  children?: MenuChild[];
+}
+
+const menuItems: MenuItem[] = [
+  {
+    text: 'Dashboard',
+    icon: DashboardIcon,
+    path: '/dashboard',
+    children: [{ text: 'Dashboard 2', path: '/dashboard-2', icon: TimelineIcon }],
+  },
+  {
+    text: 'Reports',
+    icon: AssessmentIcon,
+    path: '/reports',
+    children: [
+      { text: 'Reports 2', path: '/reports-2' },
+    ],
+  },
   { text: 'Analytics', icon: AnalyticsIcon, path: '/analytics' },
   { text: 'Manage', icon: SettingsIcon, path: '/masters' },
   { text: 'User Management', icon: PeopleAltIcon, path: '/users' },
@@ -34,16 +65,50 @@ const menuItems = [
 ];
 
 const DashboardLayout = () => {
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const isPathActive = (path: string) => location.pathname === path;
+
+  const isMenuItemActive = (item: MenuItem) => {
+    if (item.path && isPathActive(item.path)) {
+      return true;
+    }
+
+    if (item.children) {
+      return item.children.some((child) => isPathActive(child.path));
+    }
+
+    return false;
+  };
+
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>(() => {
+    const initialState: Record<string, boolean> = {};
+    menuItems.forEach((item) => {
+      if (item.children) {
+        initialState[item.text] = isMenuItemActive(item);
+      }
+    });
+    return initialState;
+  });
+
+  useEffect(() => {
+    setOpenMenus((prev) => {
+      const updated = { ...prev };
+      menuItems.forEach((item) => {
+        if (item.children) {
+          updated[item.text] = isMenuItemActive(item);
+        }
+      });
+      return updated;
+    });
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
-
-  const isActive = (path: string) => location.pathname === path;
 
   const drawer = (
     <Box
@@ -100,15 +165,33 @@ const DashboardLayout = () => {
       <List sx={{ flexGrow: 1, px: 1 }}>
         {menuItems.map((item) => {
           const IconComponent = item.icon;
-          const active = isActive(item.path);
+          const hasChildren = Boolean(item.children && item.children.length > 0);
+          const active = isMenuItemActive(item);
+          const iconColor = active ? '#ffffff' : '#424242';
+          const isOpen = hasChildren ? openMenus[item.text] : false;
+
+          const handleMenuClick = () => {
+            if (hasChildren) {
+              setOpenMenus((prev) => ({
+                ...prev,
+                [item.text]: !prev[item.text],
+              }));
+              if (item.path) {
+                navigate(item.path);
+              }
+            } else if (item.path) {
+              navigate(item.path);
+            }
+          };
+
           return (
-            <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
+            <ListItem key={item.text} disablePadding sx={{ flexDirection: 'column', alignItems: 'stretch' }}>
               <ListItemButton
-                onClick={() => navigate(item.path)}
+                onClick={handleMenuClick}
                 sx={{
                   borderRadius: 2,
                   backgroundColor: active ? '#f08060' : 'transparent',
-                  color: active ? '#ffffff' : '#424242',
+                  color: iconColor,
                   '&:hover': {
                     backgroundColor: active ? '#f08060' : 'rgba(0, 0, 0, 0.04)',
                   },
@@ -133,7 +216,7 @@ const DashboardLayout = () => {
                 <ListItemIcon
                   sx={{
                     minWidth: 40,
-                    color: active ? '#ffffff' : '#424242',
+                    color: iconColor,
                   }}
                 >
                   <IconComponent />
@@ -146,7 +229,61 @@ const DashboardLayout = () => {
                     fontSize: '0.9375rem',
                   }}
                 />
+                {hasChildren &&
+                  (isOpen ? (
+                    <ExpandLessIcon sx={{ color: iconColor, fontSize: '1rem' }} />
+                  ) : (
+                    <ExpandMoreIcon sx={{ color: iconColor, fontSize: '1rem' }} />
+                  ))}
               </ListItemButton>
+              {hasChildren && (
+                <Collapse in={isOpen} timeout="auto" unmountOnExit sx={{ alignSelf: 'stretch', width: '100%' }}>
+                  <List component="div" disablePadding sx={{ px: 1, pb: 0.5 }}>
+                    {item.children?.map((child) => {
+                      const childActive = isPathActive(child.path);
+                      const ChildIcon = child.icon ?? FiberManualRecordIcon;
+                      return (
+                        <ListItem key={child.text} disablePadding sx={{ mb: 0.5 }}>
+                          <ListItemButton
+                            onClick={() => navigate(child.path)}
+                            sx={{
+                              borderRadius: 2,
+                              ml: 4.5,
+                              mr: 0.5,
+                              pl: 2.5,
+                              py: 1.25,
+                              backgroundColor: childActive ? '#fde6df' : 'transparent',
+                              color: childActive ? '#f08060' : '#424242',
+                              '&:hover': {
+                                backgroundColor: childActive ? '#fde6df' : 'rgba(0, 0, 0, 0.04)',
+                              },
+                            }}
+                          >
+                            <ListItemIcon
+                              sx={{
+                                minWidth: 32,
+                                color: childActive ? '#f08060' : '#757575',
+                                '& svg': {
+                                  fontSize: child.icon ? '1rem' : '0.625rem',
+                                },
+                              }}
+                            >
+                              <ChildIcon fontSize="inherit" />
+                            </ListItemIcon>
+                            <ListItemText
+                              primary={child.text}
+                              primaryTypographyProps={{
+                                fontFamily: 'sans-serif',
+                                fontSize: '0.875rem',
+                              }}
+                            />
+                          </ListItemButton>
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                </Collapse>
+              )}
             </ListItem>
           );
         })}

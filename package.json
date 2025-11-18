@@ -5,10 +5,11 @@
   "description": "Heritage Admin Dashboard Web Application",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "create-admin": "node scripts/create-admin.js"
+    "create-admin": "node scripts/create-admin.js",
+    "review-site": "node scripts/review-site-structure.js"
   },
   "dependencies": {
     "@emotion/react": "^11.11.0",

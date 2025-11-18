@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { ChangeEvent, MutableRefObject, useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import {
   Grid,
   Paper,
@@ -8,12 +8,10 @@ import {
   IconButton,
   Alert,
   Button,
-  ButtonGroup,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   Stack,
   Switch,
   FormControlLabel,
@@ -189,78 +187,6 @@ const StatCard = memo(({
 });
 StatCard.displayName = 'StatCard';
 
-interface CustomRangeDialogProps {
-  open: boolean;
-  onClose: () => void;
-  onApply: (range: CustomDateRange) => void;
-  initialRange?: CustomDateRange | null;
-}
-
-const CustomRangeDialog: React.FC<CustomRangeDialogProps> = ({ open, onClose, onApply, initialRange }) => {
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (open) {
-      setError('');
-      if (initialRange) {
-        setStart(formatDate(initialRange.startDate, 'yyyy-MM-dd'));
-        setEnd(formatDate(initialRange.endDate, 'yyyy-MM-dd'));
-      } else {
-        const now = new Date();
-        setEnd(formatDate(now, 'yyyy-MM-dd'));
-        setStart(formatDate(subDays(now, 29), 'yyyy-MM-dd'));
-      }
-    }
-  }, [open, initialRange]);
-
-  const handleApply = () => {
-    if (!start || !end) {
-      setError('Please select both start and end dates.');
-      return;
-    }
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    if (startDate > endDate) {
-      setError('Start date must be before end date.');
-      return;
-    }
-    onApply({ startDate, endDate });
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Select Custom Date Range</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2}>
-          <TextField
-            label="Start Date"
-            type="date"
-            value={start}
-            onChange={(event) => setStart(event.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            label="End Date"
-            type="date"
-            value={end}
-            onChange={(event) => setEnd(event.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          {error && <Alert severity="error">{error}</Alert>}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleApply}>
-          Apply
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-};
-
 type DrilldownType =
   | 'users'
   | 'bookings'
@@ -270,6 +196,14 @@ type DrilldownType =
   | 'userGrowth'
   | 'moduleRevenue';
 
+const createDefaultCustomRange = (): CustomDateRange => {
+  const endDate = new Date();
+  return {
+    startDate: subDays(endDate, 29),
+    endDate,
+  };
+};
+
 const Dashboard = () => {
   const [dashboardData, setDashboardData] = useState<DashboardEnhancedData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -278,7 +212,8 @@ const Dashboard = () => {
   const [error, setError] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState<DashboardPeriod>('today');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
-  const [customDialogOpen, setCustomDialogOpen] = useState(false);
+  const [customRangeDraft, setCustomRangeDraft] = useState<CustomDateRange>(() => createDefaultCustomRange());
+  const [customRangeError, setCustomRangeError] = useState('');
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [widgetVisibility, setWidgetVisibility] = useState({
     statusShare: true,
@@ -289,6 +224,17 @@ const Dashboard = () => {
   const [drilldownType, setDrilldownType] = useState<DrilldownType | null>(null);
   const { user } = useAuth();
   const dashboardRef = useRef<HTMLDivElement>(null);
+  const customStartInputRef = useRef<HTMLInputElement>(null);
+  const customEndInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (customRange) {
+      setCustomRangeDraft({
+        startDate: new Date(customRange.startDate),
+        endDate: new Date(customRange.endDate),
+      });
+    }
+  }, [customRange]);
 
   const getRangeForPeriod = useCallback(
     (period: DashboardPeriod, customOverride?: CustomDateRange | null): DashboardDateRange => {
@@ -795,6 +741,29 @@ const Dashboard = () => {
     { value: 'custom', label: 'Custom', icon: CalendarIcon },
   ];
 
+  const handleCustomInputChange =
+    (field: 'startDate' | 'endDate') => (event: ChangeEvent<HTMLInputElement>) => {
+      const { value } = event.target;
+      if (!value) {
+        return;
+      }
+      setCustomRangeDraft((prev) => ({
+        ...prev,
+        [field]: new Date(value),
+      }));
+      setCustomRangeError('');
+    };
+
+  const openNativeDatePicker = (ref: MutableRefObject<HTMLInputElement | null>) => {
+    if (ref.current) {
+      if (typeof (ref.current as any).showPicker === 'function') {
+        (ref.current as any).showPicker();
+      } else {
+        ref.current.click();
+      }
+    }
+  };
+
   const handleDownload = async () => {
     if (!dashboardRef.current) return;
     try {
@@ -828,16 +797,39 @@ const Dashboard = () => {
 
   const handlePeriodSelection = (value: DashboardPeriod) => {
     if (value === 'custom') {
-      setCustomDialogOpen(true);
+      setCustomRangeError('');
+      if (customRange) {
+        setCustomRangeDraft({
+          startDate: new Date(customRange.startDate),
+          endDate: new Date(customRange.endDate),
+        });
+      } else {
+        const defaultRange = createDefaultCustomRange();
+        setCustomRange({
+          startDate: new Date(defaultRange.startDate),
+          endDate: new Date(defaultRange.endDate),
+        });
+        setCustomRangeDraft(defaultRange);
+      }
+      setSelectedPeriod('custom');
       return;
     }
     setSelectedPeriod(value);
   };
 
-  const handleApplyCustomRange = (range: CustomDateRange) => {
-    setCustomRange(range);
-    setSelectedPeriod('custom');
-    setCustomDialogOpen(false);
+  const handleApplyCustomRange = () => {
+    if (customRangeDraft.startDate > customRangeDraft.endDate) {
+      setCustomRangeError('Start date must be before end date.');
+      return;
+    }
+    setCustomRangeError('');
+    setCustomRange({
+      startDate: new Date(customRangeDraft.startDate),
+      endDate: new Date(customRangeDraft.endDate),
+    });
+    if (selectedPeriod !== 'custom') {
+      setSelectedPeriod('custom');
+    }
   };
 
   return (
@@ -878,39 +870,135 @@ const Dashboard = () => {
           mb: 3,
         }}
       >
-        <Stack direction="row" spacing={2} alignItems="center">
-          <ButtonGroup variant="outlined" size="small">
-            {periodOptions.map((period) => {
-              const IconComponent = period.icon;
-              const isActive = selectedPeriod === period.value;
-              return (
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" rowGap={1.5}>
+          {periodOptions.map((period) => {
+            const IconComponent = period.icon;
+            const isActive = selectedPeriod === period.value;
+            const isCustom = period.value === 'custom';
+            return (
+              <Button
+                key={period.value}
+                onClick={() => handlePeriodSelection(period.value)}
+                startIcon={IconComponent ? <IconComponent fontSize="small" /> : undefined}
+                variant={isActive ? 'contained' : 'outlined'}
+                sx={{
+                  borderRadius: '999px',
+                  textTransform: 'none',
+                  fontFamily: 'sans-serif',
+                  fontSize: '0.875rem',
+                  px: 2.5,
+                  py: 1,
+                  borderColor: '#d7d7d7',
+                  backgroundColor: isActive
+                    ? isCustom
+                      ? '#f08060'
+                      : '#f08060'
+                    : '#ffffff',
+                  color: isActive ? '#ffffff' : '#424242',
+                  boxShadow: 'none',
+                  '&:hover': {
+                    backgroundColor: isActive ? '#f08060' : '#f5f5f5',
+                    borderColor: '#d7d7d7',
+                    boxShadow: 'none',
+                  },
+                }}
+              >
+                {period.label}
+              </Button>
+            );
+          })}
+
+          {selectedPeriod === 'custom' && (
+            <>
+              <Box sx={{ position: 'relative' }}>
+                <input
+                  ref={customStartInputRef}
+                  type="date"
+                  value={formatDate(customRangeDraft.startDate, 'yyyy-MM-dd')}
+                  onChange={handleCustomInputChange('startDate')}
+                  style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                />
                 <Button
-                  key={period.value}
-                  onClick={() => handlePeriodSelection(period.value)}
-                  startIcon={IconComponent ? <IconComponent /> : undefined}
+                  variant="outlined"
+                  onClick={() => openNativeDatePicker(customStartInputRef)}
                   sx={{
-                    backgroundColor: isActive ? '#f08060' : 'transparent',
-                    color: isActive ? '#ffffff' : '#424242',
-                    borderColor: '#e0e0e0',
+                    borderRadius: '999px',
                     textTransform: 'none',
                     fontFamily: 'sans-serif',
+                    fontSize: '0.875rem',
+                    px: 2.5,
+                    py: 1,
+                    borderColor: '#42a5f5',
+                    color: '#1976d2',
+                    backgroundColor: '#ffffff',
                     '&:hover': {
-                      backgroundColor: isActive ? '#f08060' : 'rgba(0, 0, 0, 0.04)',
-                      borderColor: '#e0e0e0',
+                      borderColor: '#1e88e5',
+                      backgroundColor: '#e3f2fd',
                     },
                   }}
                 >
-                  {period.label}
+                  {formatDate(customRangeDraft.startDate, 'dd MMM yyyy')}
                 </Button>
-              );
-            })}
-          </ButtonGroup>
-          {selectedPeriod === 'custom' && customRange && (
-            <Typography variant="caption" color="text.secondary">
-              {`${formatDate(customRange.startDate, 'dd MMM yyyy')} - ${formatDate(customRange.endDate, 'dd MMM yyyy')}`}
-            </Typography>
+              </Box>
+              <Box sx={{ position: 'relative' }}>
+                <input
+                  ref={customEndInputRef}
+                  type="date"
+                  value={formatDate(customRangeDraft.endDate, 'yyyy-MM-dd')}
+                  onChange={handleCustomInputChange('endDate')}
+                  style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                />
+                <Button
+                  variant="outlined"
+                  onClick={() => openNativeDatePicker(customEndInputRef)}
+                  sx={{
+                    borderRadius: '999px',
+                    textTransform: 'none',
+                    fontFamily: 'sans-serif',
+                    fontSize: '0.875rem',
+                    px: 2.5,
+                    py: 1,
+                    borderColor: '#42a5f5',
+                    color: '#1976d2',
+                    backgroundColor: '#ffffff',
+                    '&:hover': {
+                      borderColor: '#1e88e5',
+                      backgroundColor: '#e3f2fd',
+                    },
+                  }}
+                >
+                  {formatDate(customRangeDraft.endDate, 'dd MMM yyyy')}
+                </Button>
+              </Box>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleApplyCustomRange}
+                sx={{
+                  borderRadius: '999px',
+                  textTransform: 'none',
+                  fontFamily: 'sans-serif',
+                  fontSize: '0.875rem',
+                  px: 3,
+                  py: 1,
+                  boxShadow: 'none',
+                  backgroundColor: '#0070d9',
+                  '&:hover': {
+                    backgroundColor: '#005bb5',
+                    boxShadow: 'none',
+                  },
+                }}
+              >
+                Apply
+              </Button>
+            </>
           )}
         </Stack>
+        {customRangeError && selectedPeriod === 'custom' && (
+          <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+            {customRangeError}
+          </Typography>
+        )}
         <Box>
           <IconButton
             size="small"
@@ -1112,14 +1200,6 @@ const Dashboard = () => {
           </Grid>
         )}
       </Grid>
-
-      <CustomRangeDialog
-        open={customDialogOpen}
-        onClose={() => setCustomDialogOpen(false)}
-        onApply={handleApplyCustomRange}
-        initialRange={customRange}
-      />
-
       <Dialog open={settingsDialogOpen} onClose={() => setSettingsDialogOpen(false)}>
         <DialogTitle>Dashboard Settings</DialogTitle>
         <DialogContent dividers>

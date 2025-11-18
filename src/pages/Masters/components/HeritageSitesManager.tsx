@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -45,6 +46,8 @@ type SnackbarState = {
 };
 
 const HeritageSitesManager: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [sites, setSites] = useState<HeritageSite[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,15 +102,11 @@ const HeritageSitesManager: React.FC = () => {
   };
 
   const openCreateDialog = () => {
-    setFormMode('create');
-    setSelectedSite(null);
-    setFormOpen(true);
+    navigate('/masters/heritage-sites/new');
   };
 
   const openEditDialog = (site: HeritageSite) => {
-    setFormMode('edit');
-    setSelectedSite(site);
-    setFormOpen(true);
+    navigate(`/masters/heritage-sites/${site.site_id}/edit`);
   };
 
   const openViewDialog = (site: HeritageSite) => {
@@ -229,6 +228,16 @@ const HeritageSitesManager: React.FC = () => {
     });
     return Array.from(uniqueTypes);
   }, [sites]);
+
+  useEffect(() => {
+    const state = location.state as { heritageAction?: 'created' | 'updated' } | null;
+    if (state?.heritageAction) {
+      showSnackbar(`Heritage site ${state.heritageAction === 'updated' ? 'updated' : 'created'} successfully.`);
+      fetchSites();
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   return (
     <Box sx={{ mt: 3 }}>
