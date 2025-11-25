@@ -24,6 +24,8 @@ import {
   TextField,
   Tooltip,
   Typography,
+  Checkbox,
+  ListItemText,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
@@ -34,8 +36,9 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 
-import { HeritageSite } from '@/types';
+import { HeritageSite, MasterData } from '@/types';
 import { HeritageSiteService, HeritageSiteFilters, HeritageSitePayload, HeritageSiteExperience } from '@/services/heritageSite.service';
+import { supabase } from '@/config/supabase';
 import HeritageSiteFormDialog, { HeritageSiteFormValues } from './HeritageSiteFormDialog';
 import HeritageSiteViewDialog from './HeritageSiteViewDialog';
 
@@ -54,8 +57,12 @@ const HeritageSitesManager: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const [experienceFilter, setExperienceFilter] = useState<HeritageSiteExperience | 'all'>('all');
+  const [experienceFilter, setExperienceFilter] = useState<HeritageSiteExperience[]>([]);
   const [siteTypeFilter, setSiteTypeFilter] = useState<string>('all');
+  
+  // Master data for filters
+  const [experienceMasterData, setExperienceMasterData] = useState<MasterData[]>([]);
+  const [siteTypeMasterData, setSiteTypeMasterData] = useState<MasterData[]>([]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
@@ -82,13 +89,107 @@ const HeritageSitesManager: React.FC = () => {
 
   useEffect(() => {
     fetchSites();
+    fetchMasterData();
   }, []);
+
+  const fetchMasterData = async () => {
+    try {
+      // Query master data directly from the table
+      const { data: experienceDataDirect, error: experienceError } = await supabase
+        .from('heritage_masterdata')
+        .select('*')
+        .eq('category', 'experience')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+      
+      const { data: siteTypeDataDirect, error: siteTypeError } = await supabase
+        .from('heritage_masterdata')
+        .select('*')
+        .eq('category', 'site_type')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (experienceError) {
+        console.error('Error fetching experience master data:', experienceError);
+      }
+      if (siteTypeError) {
+        console.error('Error fetching site type master data:', siteTypeError);
+      }
+
+      // Get translations for English
+      if (experienceDataDirect && experienceDataDirect.length > 0) {
+        const experienceIds = experienceDataDirect.map((item: any) => item.master_id);
+        const { data: experienceTranslations } = await supabase
+          .from('heritage_masterdatatranslation')
+          .select('master_id, display_name')
+          .in('master_id', experienceIds)
+          .eq('language_code', 'EN');
+
+        const experienceWithTranslations = experienceDataDirect.map((item: any) => {
+          const translation = experienceTranslations?.find((t: any) => t.master_id === item.master_id);
+          return {
+            master_id: item.master_id,
+            category: item.category,
+            code: item.code,
+            display_name: translation?.display_name || item.code,
+            description: item.description,
+            display_order: item.display_order,
+            is_active: item.is_active,
+            metadata: item.metadata,
+          };
+        });
+        console.log('Experience master data loaded:', experienceWithTranslations);
+        setExperienceMasterData(experienceWithTranslations || []);
+      } else {
+        console.warn('No experience master data found');
+        setExperienceMasterData([]);
+      }
+
+      if (siteTypeDataDirect && siteTypeDataDirect.length > 0) {
+        const siteTypeIds = siteTypeDataDirect.map((item: any) => item.master_id);
+        const { data: siteTypeTranslations } = await supabase
+          .from('heritage_masterdatatranslation')
+          .select('master_id, display_name')
+          .in('master_id', siteTypeIds)
+          .eq('language_code', 'EN');
+
+        const siteTypeWithTranslations = siteTypeDataDirect.map((item: any) => {
+          const translation = siteTypeTranslations?.find((t: any) => t.master_id === item.master_id);
+          return {
+            master_id: item.master_id,
+            category: item.category,
+            code: item.code,
+            display_name: translation?.display_name || item.code,
+            description: item.description,
+            display_order: item.display_order,
+            is_active: item.is_active,
+            metadata: item.metadata,
+          };
+        });
+        console.log('Site type master data loaded:', siteTypeWithTranslations);
+        setSiteTypeMasterData(siteTypeWithTranslations || []);
+      } else {
+        console.warn('No site type master data found');
+        setSiteTypeMasterData([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch master data:', err);
+      setExperienceMasterData([]);
+      setSiteTypeMasterData([]);
+    }
+  };
+
+  // Helper function to get English label from code
+  const getLabelFromCode = (code: string, masterData: MasterData[]): string => {
+    const item = masterData.find((item) => item.code === code);
+    return item?.display_name || code;
+  };
 
   const handleApplyFilters = () => {
     fetchSites({
       search: searchTerm || undefined,
       status: statusFilter === 'all' ? undefined : statusFilter,
-      experience: experienceFilter,
+      experience: experienceFilter.length > 0 ? experienceFilter : 'all',
       siteType: siteTypeFilter !== 'all' ? siteTypeFilter : undefined,
     });
   };
@@ -96,7 +197,7 @@ const HeritageSitesManager: React.FC = () => {
   const handleResetFilters = () => {
     setSearchTerm('');
     setStatusFilter('all');
-    setExperienceFilter('all');
+    setExperienceFilter([]);
     setSiteTypeFilter('all');
     fetchSites();
   };
@@ -155,7 +256,7 @@ const HeritageSitesManager: React.FC = () => {
       await fetchSites({
         search: searchTerm || undefined,
         status: statusFilter === 'all' ? undefined : statusFilter,
-        experience: experienceFilter,
+        experience: experienceFilter.length > 0 ? experienceFilter : 'all',
         siteType: siteTypeFilter !== 'all' ? siteTypeFilter : undefined,
       });
     } catch (err: any) {
@@ -178,7 +279,7 @@ const HeritageSitesManager: React.FC = () => {
       await fetchSites({
         search: searchTerm || undefined,
         status: statusFilter === 'all' ? undefined : statusFilter,
-        experience: experienceFilter,
+        experience: experienceFilter.length > 0 ? experienceFilter : 'all',
         siteType: siteTypeFilter !== 'all' ? siteTypeFilter : undefined,
       });
     } catch (err: any) {
@@ -199,7 +300,7 @@ const HeritageSitesManager: React.FC = () => {
       await fetchSites({
         search: searchTerm || undefined,
         status: statusFilter === 'all' ? undefined : statusFilter,
-        experience: experienceFilter,
+        experience: experienceFilter.length > 0 ? experienceFilter : 'all',
         siteType: siteTypeFilter !== 'all' ? siteTypeFilter : undefined,
       });
     } catch (err: any) {
@@ -209,25 +310,15 @@ const HeritageSitesManager: React.FC = () => {
     }
   };
 
+  // Get experience options from master data (filter to only active ones)
   const experienceOptions = useMemo(() => {
-    const uniqueExperiences = new Set<HeritageSiteExperience>();
-    sites.forEach((site) => {
-      if (site.experience) {
-        uniqueExperiences.add(site.experience as HeritageSiteExperience);
-      }
-    });
-    return Array.from(uniqueExperiences);
-  }, [sites]);
+    return experienceMasterData.filter((item) => item.is_active);
+  }, [experienceMasterData]);
 
+  // Get site type options from master data (filter to only active ones)
   const siteTypeOptions = useMemo(() => {
-    const uniqueTypes = new Set<string>();
-    sites.forEach((site) => {
-      if (site.site_type) {
-        uniqueTypes.add(site.site_type);
-      }
-    });
-    return Array.from(uniqueTypes);
-  }, [sites]);
+    return siteTypeMasterData.filter((item) => item.is_active);
+  }, [siteTypeMasterData]);
 
   useEffect(() => {
     const state = location.state as { heritageAction?: 'created' | 'updated' } | null;
@@ -309,14 +400,34 @@ const HeritageSitesManager: React.FC = () => {
               select
               label="Experience"
               value={experienceFilter}
-              onChange={(event) => setExperienceFilter(event.target.value as HeritageSiteExperience | 'all')}
+              onChange={(event) => {
+                const value = event.target.value;
+                setExperienceFilter(typeof value === 'string' ? value.split(',') : value);
+              }}
+              SelectProps={{
+                multiple: true,
+                renderValue: (selected) => {
+                  if ((selected as string[]).length === 0) {
+                    return 'All Experiences';
+                  }
+                  if ((selected as string[]).length <= 2) {
+                    return (selected as string[])
+                      .map((code) => {
+                        const item = experienceOptions.find((opt) => opt.code === code);
+                        return item?.display_name || code;
+                      })
+                      .join(', ');
+                  }
+                  return `${(selected as string[]).length} Experiences`;
+                },
+              }}
               size="small"
-              sx={{ minWidth: 180 }}
+              sx={{ minWidth: 220 }}
             >
-              <MenuItem value="all">All</MenuItem>
-              {experienceOptions.map((experience) => (
-                <MenuItem key={experience} value={experience}>
-                  {experience.replace(/_/g, ' ')}
+              {experienceOptions.map((item) => (
+                <MenuItem key={item.code} value={item.code}>
+                  <Checkbox checked={experienceFilter.indexOf(item.code) > -1} />
+                  <ListItemText primary={item.display_name} />
                 </MenuItem>
               ))}
             </TextField>
@@ -329,9 +440,9 @@ const HeritageSitesManager: React.FC = () => {
               sx={{ minWidth: 200 }}
             >
               <MenuItem value="all">All</MenuItem>
-              {siteTypeOptions.map((type) => (
-                <MenuItem key={type} value={type}>
-                  {type}
+              {siteTypeOptions.map((item) => (
+                <MenuItem key={item.code} value={item.code}>
+                  {item.display_name}
                 </MenuItem>
               ))}
             </TextField>
@@ -380,30 +491,68 @@ const HeritageSitesManager: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                sites.map((site) => (
-                  <TableRow key={site.site_id} hover>
+                sites.map((site) => {
+                  const firstTicketPrice = (site as any)._firstTicketPrice;
+                  const firstTicketName = ((site as any)._firstTicketName || '') as string;
+                  const hasExternalTicket =
+                    site.entry_type === 'paid' && firstTicketName.toLowerCase().includes('external');
+                  const entryLabel = hasExternalTicket
+                    ? 'EXTERNAL'
+                    : site.entry_type
+                    ? site.entry_type.toUpperCase()
+                    : '—';
+                  const entryDescription =
+                    site.entry_type === 'paid'
+                      ? hasExternalTicket
+                        ? 'External booking'
+                        : firstTicketPrice !== null && firstTicketPrice !== undefined
+                        ? `₹${firstTicketPrice}`
+                        : site.entry_fee !== null && site.entry_fee !== undefined
+                        ? `₹${site.entry_fee}`
+                        : '₹0'
+                      : 'Free Entry';
+
+                  return (
+                    <TableRow key={site.site_id} hover>
                     <TableCell>
                       <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                         {site.name_default}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {site.site_type || '—'}
+                        {site.site_type ? getLabelFromCode(site.site_type, siteTypeMasterData) : '—'}
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={site.experience ? site.experience.replace(/_/g, ' ') : '—'}
-                        size="small"
-                        sx={{ backgroundColor: '#DA855210', color: '#DA8552', fontWeight: 600 }}
-                      />
+                      {site.experience ? (
+                        Array.isArray(site.experience) ? (
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                            {site.experience.map((exp, idx) => (
+                              <Chip
+                                key={idx}
+                                label={getLabelFromCode(exp, experienceMasterData)}
+                                size="small"
+                                sx={{ backgroundColor: '#DA855210', color: '#DA8552', fontWeight: 600 }}
+                              />
+                            ))}
+                          </Stack>
+                        ) : (
+                          <Chip
+                            label={getLabelFromCode(site.experience, experienceMasterData)}
+                            size="small"
+                            sx={{ backgroundColor: '#DA855210', color: '#DA8552', fontWeight: 600 }}
+                          />
+                        )
+                      ) : (
+                        '—'
+                      )}
                     </TableCell>
                     <TableCell>
                       <Stack spacing={0.5}>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {site.entry_type ? site.entry_type.toUpperCase() : '—'}
+                          {entryLabel}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {site.entry_type === 'paid' ? `₹${site.entry_fee ?? 0}` : 'Free Entry'}
+                          {entryDescription}
                         </Typography>
                       </Stack>
                     </TableCell>
@@ -453,7 +602,8 @@ const HeritageSitesManager: React.FC = () => {
                       </Stack>
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>

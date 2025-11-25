@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -17,6 +18,7 @@ import {
   FormControlLabel,
   FormLabel,
   Grid,
+  InputLabel,
   IconButton,
   InputAdornment,
   Paper,
@@ -120,7 +122,7 @@ interface AddHeritageSiteState {
     openingHours: HeritageSiteOpeningHours;
     accessibility: string[]; // Array of accessibility codes from masterdata
     siteType: string | null; // Single site type code from masterdata
-    experience: string | null; // Single experience code from masterdata
+    experience: string[]; // Array of experience codes from masterdata
   };
   translations: {
     siteName: Record<LanguageCode, string>;
@@ -181,6 +183,59 @@ const TRANSPORT_PRESETS: TransportPreset[] = [
 
 const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+const ADD_NEW_TICKET_TYPE_OPTION = '__add_new_ticket_type__';
+const ADD_NEW_SITE_TYPE_OPTION = '__add_new_site_type__';
+const ADD_NEW_EXPERIENCE_OPTION = '__add_new_experience__';
+const LAT_LONG_INPUT_REGEX = /^-?\d*(\.\d*)?$/;
+const PINCODE_INPUT_REGEX = /^\d*$/;
+
+// Helper functions to sanitize pasted input
+const sanitizeLatLong = (value: string): string => {
+  // Extract only digits, decimal points, and minus signs
+  let sanitized = value.replace(/[^\d.-]/g, '');
+  
+  // Handle minus sign: only allow at the start
+  const hasMinus = sanitized.includes('-');
+  if (hasMinus) {
+    sanitized = sanitized.replace(/-/g, '');
+    // Only add minus at start if original had it at start
+    if (value.trim().startsWith('-')) {
+      sanitized = '-' + sanitized;
+    }
+  }
+  
+  // Handle decimal point: only allow one
+  const parts = sanitized.split('.');
+  if (parts.length > 2) {
+    sanitized = parts[0] + '.' + parts.slice(1).join('');
+  }
+  
+  return sanitized;
+};
+
+const sanitizePostalCode = (value: string): string => {
+  // Extract only digits
+  return value.replace(/\D/g, '');
+};
+
+// Helper function to check if a visitor_type is "External Booking"
+const isExternalBookingType = (visitorType: string): boolean => {
+  if (!visitorType) return false;
+  const lower = visitorType.toLowerCase();
+  // Check if it contains "external" (which would match "External Booking", "external booking", etc.)
+  return lower.includes('external');
+};
+
+// Helper function to determine onlineBookingAvailable based on fees
+const calculateOnlineBookingAvailable = (fees: HeritageSiteFeeBreakup[], entryType: 'free' | 'paid'): boolean => {
+  if (entryType === 'free') return false;
+  // Only enable online booking when at least one non-external ticket exists
+  const hasRegularTicket = fees.some(
+    (fee) => fee.visitor_type && !isExternalBookingType(fee.visitor_type)
+  );
+  return hasRegularTicket;
+};
+
 const createInitialOpeningHours = (): HeritageSiteOpeningHours => ({
   schedule: DAY_ORDER.map<HeritageSiteOpeningDay>((day) => ({
     day,
@@ -211,7 +266,7 @@ const initialFormState: AddHeritageSiteState = {
     openingHours: createInitialOpeningHours(),
     accessibility: [],
     siteType: null,
-    experience: null,
+    experience: [],
   },
   translations: {
     siteName: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
@@ -324,6 +379,11 @@ const AddHeritageSite = () => {
   const [experienceOptions, setExperienceOptions] = useState<MasterData[]>([]);
   const [showAddSiteType, setShowAddSiteType] = useState<boolean>(false);
   const [showAddExperience, setShowAddExperience] = useState<boolean>(false);
+  const [fieldErrors, setFieldErrors] = useState<{ latitude: string; longitude: string; postalCode: string }>({
+    latitude: '',
+    longitude: '',
+    postalCode: '',
+  });
   const [newSiteTypeTranslations, setNewSiteTypeTranslations] = useState<Record<LanguageCode, { displayName: string; description: string }>>({
     en: { displayName: '', description: '' },
     hi: { displayName: '', description: '' },
@@ -358,6 +418,20 @@ const AddHeritageSite = () => {
   });
   const [creatingEtiquette, setCreatingEtiquette] = useState<boolean>(false);
   const [translatingEtiquette, setTranslatingEtiquette] = useState<boolean>(false);
+
+  // Ticket Type options from masterdata
+  const [ticketTypeOptions, setTicketTypeOptions] = useState<MasterData[]>([]);
+  const [showAddTicketType, setShowAddTicketType] = useState<boolean>(false);
+  const [newTicketTypeTranslations, setNewTicketTypeTranslations] = useState<Record<LanguageCode, { displayName: string; description: string }>>({
+    en: { displayName: '', description: '' },
+    hi: { displayName: '', description: '' },
+    gu: { displayName: '', description: '' },
+    ja: { displayName: '', description: '' },
+    es: { displayName: '', description: '' },
+    fr: { displayName: '', description: '' },
+  });
+  const [creatingTicketType, setCreatingTicketType] = useState<boolean>(false);
+  const [translatingTicketType, setTranslatingTicketType] = useState<boolean>(false);
 
   useEffect(() => {
     if (autoSaveStatus === 'saving') {
@@ -777,8 +851,17 @@ const AddHeritageSite = () => {
           const transportType = item.transport_type || item.mode || 'other';
           const routeInfo = item.route_info || item.name || '';
           
-          // Extract distance from route_info if it contains "km away"
+          // Extract distance from database field or route_info if it contains "km away"
           let distanceKm = item.distance_km;
+          // Check if distance field exists (text type in database)
+          if (!distanceKm && item.distance) {
+            distanceKm = parseFloat(item.distance);
+            // If parsing fails, set to undefined
+            if (isNaN(distanceKm)) {
+              distanceKm = undefined;
+            }
+          }
+          // Fallback: extract from route_info if it contains "km away"
           if (!distanceKm && routeInfo) {
             const match = routeInfo.match(/(\d+(?:\.\d+)?)\s*km/i);
             if (match) {
@@ -1002,8 +1085,29 @@ const AddHeritageSite = () => {
       // Load site_type code from site.site_type column (single code)
       const siteTypeCode = site.site_type || null;
 
-      // Load experience code from site.experience column (single code)
-      const experienceCode = site.experience || null;
+      // Load experience codes from site.experience column (array of codes)
+      // Parse experience as JSON array if it's a string, otherwise use as array
+      let experienceCodes: string[] = [];
+      if ((site as any).experience) {
+        if (typeof (site as any).experience === 'string') {
+          try {
+            experienceCodes = JSON.parse((site as any).experience);
+          } catch (e) {
+            // If parsing fails, treat as comma-separated string or single value
+            const experienceValue = (site as any).experience;
+            if (experienceValue.includes(',')) {
+              experienceCodes = experienceValue.split(',').map((code: string) => code.trim()).filter(Boolean);
+            } else {
+              experienceCodes = [experienceValue.trim()].filter(Boolean);
+            }
+          }
+        } else if (Array.isArray((site as any).experience)) {
+          experienceCodes = (site as any).experience;
+        } else {
+          // Fallback: if it's a single value, convert to array
+          experienceCodes = [(site as any).experience].filter(Boolean);
+        }
+      }
 
       // Load etiquette codes from site.etiquettes column (array of codes)
       // Parse etiquettes as JSON array if it's a string, otherwise use as array
@@ -1044,7 +1148,7 @@ const AddHeritageSite = () => {
           },
           accessibility: accessibilityCodes,
           siteType: siteTypeCode,
-          experience: experienceCode,
+          experience: experienceCodes,
         },
         translations: {
           siteName: siteNameTranslations,
@@ -1064,18 +1168,16 @@ const AddHeritageSite = () => {
         ticketing: {
           entryType,
           bookingUrl: extractedBookingUrl || site.booking_url || '',
-          // Determine online booking available based on ticket types:
-          // - If ticket types exist but don't contain "External Booking", toggle must be OFF
-          // - If ticket types exist and contain "External Booking", toggle should be ON
-          // - If no ticket types exist, use the value from site.booking_online_available
-          onlineBookingAvailable: hasTicketTypes
-            ? hasExternalBooking // If ticket types exist, only ON if External Booking exists
-            : Boolean(site.booking_online_available), // If no ticket types, use database value
-          // IMPORTANT: Only populate fees if entry type is 'paid'
-          // If entry is 'free', always use empty array regardless of database content
+          // Determine online booking availability:
+          // - Enable only when at least one non-external ticket type exists
+          // - For free entries, toggle should always be OFF
           fees: entryType === 'paid' 
             ? (ticketFees.length > 0 ? ticketFees : [])
               : [],
+          onlineBookingAvailable: calculateOnlineBookingAvailable(
+            entryType === 'paid' ? (ticketFees.length > 0 ? ticketFees : []) : [],
+            entryType
+          ),
         },
         transport: transportOptions,
         nearbyAttractions,
@@ -1156,6 +1258,20 @@ const AddHeritageSite = () => {
       }
     };
     fetchEtiquetteOptions();
+  }, []);
+
+  // Fetch ticket type options from masterdata with English display names
+  useEffect(() => {
+    const fetchTicketTypeOptions = async () => {
+      try {
+        const options = await MasterDataService.getMasterDataByCategory('ticket_type', 'EN');
+        setTicketTypeOptions(options);
+        console.log('✅ Loaded ticket type options with English display names:', options.map(o => ({ code: o.code, display_name: o.display_name })));
+      } catch (error) {
+        console.error('Error fetching ticket type options:', error);
+      }
+    };
+    fetchTicketTypeOptions();
   }, []);
 
   useEffect(() => {
@@ -1262,6 +1378,74 @@ const AddHeritageSite = () => {
       } else if (key === 'locationCountry') {
         syncEnglishTranslation('locationCountry', value);
       }
+    }
+  };
+
+  const handleLatitudeChange = (value: string) => {
+    // Sanitize the input to allow pasting
+    const sanitized = sanitizeLatLong(value);
+    if (sanitized === '' || LAT_LONG_INPUT_REGEX.test(sanitized)) {
+      updateOverviewField('latitude', sanitized);
+      setFieldErrors((prev) => ({ ...prev, latitude: '' }));
+    }
+  };
+
+  const handleLongitudeChange = (value: string) => {
+    // Sanitize the input to allow pasting
+    const sanitized = sanitizeLatLong(value);
+    if (sanitized === '' || LAT_LONG_INPUT_REGEX.test(sanitized)) {
+      updateOverviewField('longitude', sanitized);
+      setFieldErrors((prev) => ({ ...prev, longitude: '' }));
+    }
+  };
+
+  const handlePostalCodeChange = (value: string) => {
+    // Sanitize the input to allow pasting
+    const sanitized = sanitizePostalCode(value);
+    if (sanitized === '' || PINCODE_INPUT_REGEX.test(sanitized)) {
+      updateOverviewField('locationPostalCode', sanitized);
+      setFieldErrors((prev) => ({ ...prev, postalCode: '' }));
+    }
+  };
+
+  const validateLatitude = () => {
+    const value = formState.overview.latitude;
+    if (!value) {
+      setFieldErrors((prev) => ({ ...prev, latitude: '' }));
+      return;
+    }
+    const numeric = Number(value);
+    if (Number.isNaN(numeric) || numeric < -90 || numeric > 90) {
+      setFieldErrors((prev) => ({ ...prev, latitude: 'Latitude must be between -90 and 90.' }));
+    } else {
+      setFieldErrors((prev) => ({ ...prev, latitude: '' }));
+    }
+  };
+
+  const validateLongitude = () => {
+    const value = formState.overview.longitude;
+    if (!value) {
+      setFieldErrors((prev) => ({ ...prev, longitude: '' }));
+      return;
+    }
+    const numeric = Number(value);
+    if (Number.isNaN(numeric) || numeric < -180 || numeric > 180) {
+      setFieldErrors((prev) => ({ ...prev, longitude: 'Longitude must be between -180 and 180.' }));
+    } else {
+      setFieldErrors((prev) => ({ ...prev, longitude: '' }));
+    }
+  };
+
+  const validatePostalCode = () => {
+    const value = formState.overview.locationPostalCode;
+    if (!value) {
+      setFieldErrors((prev) => ({ ...prev, postalCode: '' }));
+      return;
+    }
+    if (!PINCODE_INPUT_REGEX.test(value)) {
+      setFieldErrors((prev) => ({ ...prev, postalCode: 'Pincode must contain only digits.' }));
+    } else {
+      setFieldErrors((prev) => ({ ...prev, postalCode: '' }));
     }
   };
 
@@ -1919,8 +2103,21 @@ const AddHeritageSite = () => {
       });
       setShowAddExperience(false);
 
-      // Auto-select the newly created option
-      updateOverviewField('experience', generatedCode);
+      // Auto-select the newly created option by adding it to the array
+      setFormState((prev) => {
+        const currentExperiences = prev.overview.experience || [];
+        if (!currentExperiences.includes(generatedCode)) {
+          markDirty();
+          return {
+            ...prev,
+            overview: {
+              ...prev.overview,
+              experience: [...currentExperiences, generatedCode],
+            },
+          };
+        }
+        return prev;
+      });
     } catch (error) {
       console.error('Error creating experience:', error);
       alert(`Failed to create experience: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -2056,62 +2253,211 @@ const AddHeritageSite = () => {
     }
   };
 
+  const handleCreateTicketType = async () => {
+    // Validate that English display name is provided
+    if (!newTicketTypeTranslations.en.displayName.trim()) {
+      alert('Please enter an English display name');
+      return;
+    }
+
+    setCreatingTicketType(true);
+    try {
+      // Auto-generate code from English display name
+      const englishName = newTicketTypeTranslations.en.displayName.trim();
+      const generatedCode = englishName
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_]/g, '')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '');
+      
+      if (!generatedCode) {
+        throw new Error('Unable to generate code from English display name. Please use alphanumeric characters.');
+      }
+
+      console.log('🔑 Auto-generated ticket type code from English name:', {
+        englishName,
+        generatedCode,
+      });
+
+      // Get the next display order
+      const maxDisplayOrder = ticketTypeOptions.length > 0
+        ? Math.max(...ticketTypeOptions.map(opt => opt.display_order || 0))
+        : 0;
+
+      // Get logged-in user ID
+      const userId = user?.user_id || null;
+      console.log('👤 Creating ticket type with user ID:', userId);
+
+      // Create master data item
+      const createResult = await MasterDataService.createMasterData(
+        'ticket_type',
+        generatedCode,
+        maxDisplayOrder + 1,
+        { icon: 'ticket_type' },
+        userId
+      );
+
+      if (!createResult.success || !createResult.data) {
+        throw new Error(createResult.error?.message || 'Failed to create ticket type');
+      }
+
+      const masterId = createResult.data.master_id;
+      const englishDesc = newTicketTypeTranslations.en.description.trim();
+      
+      // Create translations for all languages
+      const translationPromises = LANGUAGES.map(async lang => {
+        let displayName: string;
+        let description: string;
+        
+        if (lang.code === 'en') {
+          displayName = englishName;
+          description = englishDesc;
+        } else {
+          const translation = newTicketTypeTranslations[lang.code];
+          displayName = translation.displayName.trim();
+          description = translation.description.trim();
+          
+          if (!displayName && englishName) {
+            try {
+              displayName = await autoTranslateText(englishName, lang.code, 'en');
+            } catch (error) {
+              console.warn(`Failed to auto-translate display name to ${lang.code}:`, error);
+              displayName = englishName;
+            }
+          }
+          
+          if (!description && englishDesc) {
+            try {
+              description = await autoTranslateText(englishDesc, lang.code, 'en');
+            } catch (error) {
+              console.warn(`Failed to auto-translate description to ${lang.code}:`, error);
+              description = englishDesc;
+            }
+          }
+        }
+        
+        if (displayName && displayName.trim()) {
+          const result = await MasterDataService.upsertTranslation(
+            masterId,
+            lang.code.toUpperCase(),
+            displayName,
+            description || undefined
+          );
+          return result;
+        } else {
+          return { success: true, data: null, error: null };
+        }
+      });
+
+      await Promise.all(translationPromises);
+
+      // Refresh ticket type options
+      const options = await MasterDataService.getMasterDataByCategory('ticket_type', 'EN');
+      setTicketTypeOptions(options);
+
+      // Reset form
+      setNewTicketTypeTranslations({
+        en: { displayName: '', description: '' },
+        hi: { displayName: '', description: '' },
+        gu: { displayName: '', description: '' },
+        ja: { displayName: '', description: '' },
+        es: { displayName: '', description: '' },
+        fr: { displayName: '', description: '' },
+      });
+      setShowAddTicketType(false);
+    } catch (error) {
+      console.error('Error creating ticket type:', error);
+      alert(`Failed to create ticket type: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setCreatingTicketType(false);
+    }
+  };
+
   const updateTicketField = <K extends keyof AddHeritageSiteState['ticketing']>(
     key: K,
     value: AddHeritageSiteState['ticketing'][K]
   ) => {
     // Update state immediately (no debounce here to prevent focus loss)
-    setFormState((prev) => ({
-      ...prev,
-      ticketing: {
+    setFormState((prev) => {
+      const newTicketing = {
         ...prev.ticketing,
         [key]: value,
-      },
-    }));
+      };
+      // If entryType changes, recalculate onlineBookingAvailable
+      if (key === 'entryType') {
+        newTicketing.onlineBookingAvailable = calculateOnlineBookingAvailable(
+          newTicketing.fees,
+          value as 'free' | 'paid'
+        );
+      }
+      return {
+        ...prev,
+        ticketing: newTicketing,
+      };
+    });
     // Debounce markDirty to prevent focus loss
     markDirty();
   };
 
   const updateFee = (index: number, updates: Partial<HeritageSiteFeeBreakup>) => {
     // Update state immediately (no debounce here to prevent focus loss)
-    setFormState((prev) => ({
-      ...prev,
-      ticketing: {
-        ...prev.ticketing,
-        fees: prev.ticketing.fees.map((fee, idx) => (idx === index ? { ...fee, ...updates } : fee)),
-      },
-    }));
+    setFormState((prev) => {
+      const updatedFees = prev.ticketing.fees.map((fee, idx) => (idx === index ? { ...fee, ...updates } : fee));
+      // Recalculate onlineBookingAvailable based on updated fees
+      const newOnlineBookingAvailable = calculateOnlineBookingAvailable(updatedFees, prev.ticketing.entryType);
+      return {
+        ...prev,
+        ticketing: {
+          ...prev.ticketing,
+          fees: updatedFees,
+          onlineBookingAvailable: newOnlineBookingAvailable,
+        },
+      };
+    });
     // Debounce markDirty to prevent focus loss
     markDirty();
   };
 
   const addFee = () => {
     markDirty();
-    setFormState((prev) => ({
-      ...prev,
-      ticketing: {
-        ...prev.ticketing,
-        fees: [
-          ...prev.ticketing.fees,
-          {
-            visitor_type: 'New visitor type',
-            amount: 0,
-            notes: '',
-          },
-        ],
-      },
-    }));
+    setFormState((prev) => {
+      const updatedFees = [
+        ...prev.ticketing.fees,
+        {
+          visitor_type: 'New visitor type',
+          amount: 0,
+          notes: '',
+        },
+      ];
+      // Recalculate onlineBookingAvailable based on updated fees
+      const newOnlineBookingAvailable = calculateOnlineBookingAvailable(updatedFees, prev.ticketing.entryType);
+      return {
+        ...prev,
+        ticketing: {
+          ...prev.ticketing,
+          fees: updatedFees,
+          onlineBookingAvailable: newOnlineBookingAvailable,
+        },
+      };
+    });
   };
 
   const removeFee = (index: number) => {
     markDirty();
-    setFormState((prev) => ({
-      ...prev,
-      ticketing: {
-        ...prev.ticketing,
-        fees: prev.ticketing.fees.filter((_, idx) => idx !== index),
-      },
-    }));
+    setFormState((prev) => {
+      const updatedFees = prev.ticketing.fees.filter((_, idx) => idx !== index);
+      // Recalculate onlineBookingAvailable based on updated fees
+      const newOnlineBookingAvailable = calculateOnlineBookingAvailable(updatedFees, prev.ticketing.entryType);
+      return {
+        ...prev,
+        ticketing: {
+          ...prev.ticketing,
+          fees: updatedFees,
+          onlineBookingAvailable: newOnlineBookingAvailable,
+        },
+      };
+    });
   };
 
   const addTransport = () => {
@@ -2481,7 +2827,12 @@ const AddHeritageSite = () => {
       // Store site_type and experience codes from masterdata
       // The codes are stored in the database, and English display names are fetched from masterdata for display
       site_type: formState.overview.siteType || null,
-      experience: formState.overview.experience || null,
+      // Store experience codes as text[] array (e.g., ["vr", "audio_guide"])
+      // The codes are stored in the database as a PostgreSQL text[] array
+      // English display names are fetched from masterdata for display in the UI
+      experience: formState.overview.experience.length > 0 
+        ? formState.overview.experience 
+        : (null as string[] | null),
       // Store accessibility codes as text[] array (e.g., ["wheelchair", "sign_language"])
       // The codes are stored in the database as a PostgreSQL text[] array
       // English display names are fetched from masterdata for display in the UI
@@ -3607,7 +3958,7 @@ const AddHeritageSite = () => {
               Translation Status:
             </Typography>
             <Stack direction="row" spacing={2} flexWrap="wrap">
-              {['siteName', 'shortDescription', 'fullDescription', 'address', 'city', 'state', 'country'].map((field) => {
+              {['siteName', 'shortDescription', 'fullDescription', 'address', 'city', 'state'].map((field) => {
                 const fieldKey = field as keyof AddHeritageSiteState['translations'];
                 const isComplete = areTranslationsComplete(fieldKey);
                 const fieldLabel = field.replace(/([A-Z])/g, ' $1').trim();
@@ -3877,27 +4228,6 @@ const AddHeritageSite = () => {
                     }}
                   />
                 </Grid>
-                <Grid item xs={12} md={4}>
-                  <TextField
-                    label={`Country (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
-                    placeholder="Translated country"
-                    value={formState.translations.country[currentLanguageTab] || ''}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      updateTranslation('country', currentLanguageTab, value);
-                      autoTranslateField(value, 'country', currentLanguageTab);
-                      markDirty();
-                    }}
-                    fullWidth
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          {LANGUAGES.find(l => l.code === currentLanguageTab)?.flag}
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                </Grid>
               </Grid>
             </>
           )}
@@ -3957,38 +4287,38 @@ const AddHeritageSite = () => {
                 </Grid>
                 <Grid item xs={12} md={4}>
                   <TextField
-                    label="Country"
-                    value={formState.overview.locationCountry}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      updateOverviewField('locationCountry', value);
-                      autoTranslateField(value, 'country');
-                    }}
-                    fullWidth
-                  />
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <TextField
                     label="Postal Code"
                     value={formState.overview.locationPostalCode}
-                    onChange={(event) => updateOverviewField('locationPostalCode', event.target.value)}
+                    onChange={(event) => handlePostalCodeChange(event.target.value)}
+                    onBlur={validatePostalCode}
+                    error={Boolean(fieldErrors.postalCode)}
+                    helperText={fieldErrors.postalCode || undefined}
                     fullWidth
+                    inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6 }}
                   />
                 </Grid>
                 <Grid item xs={12} md={2.5}>
                   <TextField
                     label="Latitude"
                     value={formState.overview.latitude}
-                    onChange={(event) => updateOverviewField('latitude', event.target.value)}
+                    onChange={(event) => handleLatitudeChange(event.target.value)}
+                    onBlur={validateLatitude}
+                    error={Boolean(fieldErrors.latitude)}
+                    helperText={fieldErrors.latitude }
                     fullWidth
+                    inputProps={{ inputMode: 'decimal', pattern: '-?\\d*(\\.\\d*)?' }}
                   />
                 </Grid>
                 <Grid item xs={12} md={2.5}>
                   <TextField
                     label="Longitude"
                     value={formState.overview.longitude}
-                    onChange={(event) => updateOverviewField('longitude', event.target.value)}
+                    onChange={(event) => handleLongitudeChange(event.target.value)}
+                    onBlur={validateLongitude}
+                    error={Boolean(fieldErrors.longitude)}
+                    helperText={fieldErrors.longitude}
                     fullWidth
+                    inputProps={{ inputMode: 'decimal', pattern: '-?\\d*(\\.\\d*)?' }}
                   />
                 </Grid>
                 <Grid item xs={12}>
@@ -4153,20 +4483,18 @@ const AddHeritageSite = () => {
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 Site Type
               </Typography>
-              <Button
-                size="small"
-                startIcon={<AddIcon />}
-                variant="outlined"
-                onClick={() => setShowAddSiteType(true)}
-                sx={{ borderRadius: 2 }}
-              >
-                Add New
-              </Button>
             </Stack>
             <FormControl fullWidth>
               <Select
                 value={formState.overview.siteType || ''}
-                onChange={(e) => updateOverviewField('siteType', e.target.value || null)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === ADD_NEW_SITE_TYPE_OPTION) {
+                    setShowAddSiteType(true);
+                    return;
+                  }
+                  updateOverviewField('siteType', value || null);
+                }}
                 displayEmpty
               >
                 <MenuItem value="">
@@ -4177,6 +4505,13 @@ const AddHeritageSite = () => {
                     {option.display_name || option.code}
                   </MenuItem>
                 ))}
+                <Divider />
+                <MenuItem value={ADD_NEW_SITE_TYPE_OPTION}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <AddIcon fontSize="small" />
+                    <Typography variant="body2">Add New Site Type</Typography>
+                  </Stack>
+                </MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -4186,30 +4521,65 @@ const AddHeritageSite = () => {
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 Experience
               </Typography>
-              <Button
-                size="small"
-                startIcon={<AddIcon />}
-                variant="outlined"
-                onClick={() => setShowAddExperience(true)}
-                sx={{ borderRadius: 2 }}
-              >
-                Add New
-              </Button>
             </Stack>
             <FormControl fullWidth>
+              <InputLabel id="experience-select-label">Select Experiences</InputLabel>
               <Select
-                value={formState.overview.experience || ''}
-                onChange={(e) => updateOverviewField('experience', e.target.value || null)}
-                displayEmpty
+                labelId="experience-select-label"
+                label="Select Experiences"
+                multiple
+                value={formState.overview.experience || []}
+                onChange={(e) => {
+                  const value = typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value;
+                  if (value.includes(ADD_NEW_EXPERIENCE_OPTION)) {
+                    setShowAddExperience(true);
+                    const filtered = value.filter((code) => code !== ADD_NEW_EXPERIENCE_OPTION);
+                    updateOverviewField('experience', filtered);
+                    return;
+                  }
+                  updateOverviewField('experience', value);
+                }}
+                renderValue={(selected) => {
+                  if ((selected as string[]).length === 0) {
+                    return <em>Select Experiences</em>;
+                  }
+                  return (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {(selected as string[]).map((code) => {
+                        const option = experienceOptions.find((opt) => opt.code === code);
+                        return (
+                          <Chip
+                            key={code}
+                            label={option?.display_name || option?.code || code}
+                            size="small"
+                          />
+                        );
+                      })}
+                    </Box>
+                  );
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    style: {
+                      maxHeight: 300,
+                      width: 250,
+                    },
+                  },
+                }}
               >
-                <MenuItem value="">
-                  <em>Select Experience</em>
-                </MenuItem>
                 {experienceOptions.map((option) => (
                   <MenuItem key={option.master_id} value={option.code}>
+                    <Checkbox checked={formState.overview.experience?.indexOf(option.code) > -1} />
                     {option.display_name || option.code}
                   </MenuItem>
                 ))}
+                <Divider />
+                <MenuItem value={ADD_NEW_EXPERIENCE_OPTION}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <AddIcon fontSize="small" />
+                    <Typography variant="body2">Add New Experience</Typography>
+                  </Stack>
+                </MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -5384,12 +5754,40 @@ const AddHeritageSite = () => {
                     {formState.ticketing.fees.map((fee, index) => (
                       <Box component="tr" key={`fee-${index}`} sx={{ borderTop: '1px solid #E0E0E0' }}>
                         <Box component="td" sx={{ p: 2, width: '30%' }}>
-                          <TextField
-                            value={fee.visitor_type}
-                            onChange={(event) => updateFee(index, { visitor_type: event.target.value })}
-                            fullWidth
-                            size="small"
-                          />
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <FormControl fullWidth size="small">
+                              <InputLabel id={`ticket-type-label-${index}`}>Ticket Type</InputLabel>
+                              <Select
+                                labelId={`ticket-type-label-${index}`}
+                                label="Ticket Type"
+                                value={fee.visitor_type || ''}
+                                onChange={(e) => {
+                                  const value = e.target.value as string;
+                                  if (value === ADD_NEW_TICKET_TYPE_OPTION) {
+                                    setShowAddTicketType(true);
+                                    return;
+                                  }
+                                  updateFee(index, { visitor_type: value });
+                                }}
+                                displayEmpty
+                              >
+                                <MenuItem value="">
+                                  <em>Select Ticket Type</em>
+                                </MenuItem>
+                                {ticketTypeOptions.map((option) => (
+                                  <MenuItem key={option.master_id} value={option.code}>
+                                    {option.display_name || option.code}
+                                  </MenuItem>
+                                ))}
+                                <MenuItem value={ADD_NEW_TICKET_TYPE_OPTION}>
+                                  <Stack direction="row" alignItems="center" spacing={1}>
+                                    <AddIcon fontSize="small" />
+                                    <Typography variant="body2">Add New</Typography>
+                                  </Stack>
+                                </MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Stack>
                         </Box>
                         <Box component="td" sx={{ p: 2, width: '15%' }}>
                           <TextField
@@ -6082,6 +6480,187 @@ const AddHeritageSite = () => {
           Add Nearby Attraction
         </Button>
       </Paper>
+
+      {/* Add New Ticket Type Dialog */}
+      <Dialog
+        open={showAddTicketType}
+        onClose={() => !creatingTicketType && setShowAddTicketType(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" spacing={2}>
+            <CheckCircleIcon sx={{ color: '#DA8552' }} />
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              Add New Ticket Type
+            </Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={3} sx={{ mt: 1 }}>
+            <Alert severity="info">
+              <Typography variant="body2">
+                <strong>Code will be auto-generated</strong> from the English display name when you click "Create".
+              </Typography>
+            </Alert>
+            <Divider />
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Translations
+            </Typography>
+            {formState.autoTranslate.enabled && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  Auto-translation is enabled. When you enter English text, it will automatically translate to other languages after you stop typing.
+                </Typography>
+              </Alert>
+            )}
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+              <Tabs
+                value={currentLanguageTab}
+                onChange={(_, newValue) => setCurrentLanguageTab(newValue as LanguageCode)}
+                variant="scrollable"
+                scrollButtons="auto"
+              >
+                {LANGUAGES.map((lang) => (
+                  <Tab
+                    key={lang.code}
+                    label={`${lang.flag} ${lang.label}`}
+                    value={lang.code}
+                  />
+                ))}
+              </Tabs>
+            </Box>
+            <TextField
+              label={`Display Name (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
+              placeholder="Enter display name (required for English)"
+              value={newTicketTypeTranslations[currentLanguageTab].displayName}
+              onChange={(e) => {
+                const value = e.target.value;
+                setNewTicketTypeTranslations(prev => ({
+                  ...prev,
+                  [currentLanguageTab]: {
+                    ...prev[currentLanguageTab],
+                    displayName: value,
+                  },
+                }));
+                if (currentLanguageTab === 'en' && value.trim() && formState.autoTranslate.enabled) {
+                  if (accessibilityTranslationTimerRef.current) {
+                    clearTimeout(accessibilityTranslationTimerRef.current);
+                  }
+                  accessibilityTranslationTimerRef.current = setTimeout(async () => {
+                    setTranslatingTicketType(true);
+                    const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+                    for (const lang of targetLanguages) {
+                      try {
+                        const translated = await autoTranslateText(value, lang.code, 'en');
+                        setNewTicketTypeTranslations(prev => ({
+                          ...prev,
+                          [lang.code]: {
+                            ...prev[lang.code],
+                            displayName: translated,
+                          },
+                        }));
+                      } catch (error) {
+                        console.error(`Failed to translate to ${lang.code}:`, error);
+                      }
+                    }
+                    setTranslatingTicketType(false);
+                  }, 1000);
+                }
+              }}
+              fullWidth
+              required={currentLanguageTab === 'en'}
+              error={currentLanguageTab === 'en' && !newTicketTypeTranslations.en.displayName.trim()}
+              helperText={
+                currentLanguageTab === 'en'
+                  ? (translatingTicketType ? 'Translating to other languages...' : 'English display name is required')
+                  : ''
+              }
+              InputProps={{
+                endAdornment: currentLanguageTab === 'en' && translatingTicketType ? (
+                  <InputAdornment position="end">
+                    <CircularProgress size={16} />
+                  </InputAdornment>
+                ) : undefined,
+              }}
+            />
+            <TextField
+              label={`Description (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
+              placeholder="Enter description (optional)"
+              value={newTicketTypeTranslations[currentLanguageTab].description}
+              onChange={(e) => {
+                const value = e.target.value;
+                setNewTicketTypeTranslations(prev => ({
+                  ...prev,
+                  [currentLanguageTab]: {
+                    ...prev[currentLanguageTab],
+                    description: value,
+                  },
+                }));
+                if (currentLanguageTab === 'en' && value.trim() && formState.autoTranslate.enabled) {
+                  if (accessibilityTranslationTimerRef.current) {
+                    clearTimeout(accessibilityTranslationTimerRef.current);
+                  }
+                  accessibilityTranslationTimerRef.current = setTimeout(async () => {
+                    setTranslatingTicketType(true);
+                    const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+                    for (const lang of targetLanguages) {
+                      try {
+                        const translated = await autoTranslateText(value, lang.code, 'en');
+                        setNewTicketTypeTranslations(prev => ({
+                          ...prev,
+                          [lang.code]: {
+                            ...prev[lang.code],
+                            description: translated,
+                          },
+                        }));
+                      } catch (error) {
+                        console.error(`Failed to translate to ${lang.code}:`, error);
+                      }
+                    }
+                    setTranslatingTicketType(false);
+                  }, 1000);
+                }
+              }}
+              fullWidth
+              multiline
+              rows={3}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => {
+              if (accessibilityTranslationTimerRef.current) {
+                clearTimeout(accessibilityTranslationTimerRef.current);
+                accessibilityTranslationTimerRef.current = null;
+              }
+              setShowAddTicketType(false);
+              setNewTicketTypeTranslations({
+                en: { displayName: '', description: '' },
+                hi: { displayName: '', description: '' },
+                gu: { displayName: '', description: '' },
+                ja: { displayName: '', description: '' },
+                es: { displayName: '', description: '' },
+                fr: { displayName: '', description: '' },
+              });
+              setTranslatingTicketType(false);
+            }}
+            disabled={creatingTicketType}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateTicketType}
+            disabled={creatingTicketType || !newTicketTypeTranslations.en.displayName.trim()}
+            startIcon={creatingTicketType ? <CircularProgress size={18} /> : <AddIcon />}
+            sx={{ backgroundColor: '#DA8552' }}
+          >
+            {creatingTicketType ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 
@@ -6310,64 +6889,6 @@ const AddHeritageSite = () => {
         </Grid>
       </Paper>
 
-      <Paper sx={{ p: 3, borderRadius: 3 }}>
-        <Typography variant="h6" sx={{ fontWeight: 700, color: '#3F3D56', mb: 2 }}>
-          Auto-Translation Settings
-        </Typography>
-        
-        <Stack spacing={2}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between">
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                Enable Auto-Translation
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Automatically translate content to all supported languages using Google Translate API
-              </Typography>
-            </Box>
-            <Switch
-              checked={formState.autoTranslate.enabled}
-              onChange={(_, value) => {
-                setFormState((prev) => ({
-                  ...prev,
-                  autoTranslate: { ...prev.autoTranslate, enabled: value },
-                }));
-              }}
-            />
-          </Stack>
-
-          {formState.autoTranslate.enabled && (
-            <Box>
-              <FormControl fullWidth>
-                <FormLabel>Source Language</FormLabel>
-                <RadioGroup
-                  row
-                  value={formState.autoTranslate.sourceLanguage}
-                  onChange={(event) => {
-                    setFormState((prev) => ({
-                      ...prev,
-                      autoTranslate: { ...prev.autoTranslate, sourceLanguage: event.target.value as LanguageCode },
-                    }));
-                  }}
-                >
-                  {LANGUAGES.map((lang) => (
-                    <FormControlLabel 
-                      key={lang.code} 
-                      value={lang.code} 
-                      control={<Radio />} 
-                      label={`${lang.flag} ${lang.label}`} 
-                    />
-                  ))}
-                </RadioGroup>
-              </FormControl>
-              <Alert severity="info" sx={{ mt: 2 }}>
-                Missing translations will be automatically generated from the {LANGUAGES.find(l => l.code === formState.autoTranslate.sourceLanguage)?.label} content.
-                Existing translations will be preserved.
-              </Alert>
-            </Box>
-          )}
-        </Stack>
-      </Paper>
 
       <Paper sx={{ p: 3, borderRadius: 3 }}>
         <Typography variant="h6" sx={{ fontWeight: 700, color: '#3F3D56', mb: 2 }}>
