@@ -56,10 +56,20 @@ const HeritageSiteViewDialog: React.FC<HeritageSiteViewDialogProps> = ({ open, s
                 <Chip label={site.site_type} sx={{ backgroundColor: '#DA855210', color: '#DA8552', fontWeight: 600 }} />
               )}
               {site.experience && (
-                <Chip
-                  label={`Experience: ${site.experience.replace(/_/g, ' ')}`}
-                  sx={{ backgroundColor: '#3F3D5610', color: '#3F3D56', fontWeight: 600 }}
-                />
+                Array.isArray(site.experience) ? (
+                  site.experience.map((exp, idx) => (
+                    <Chip
+                      key={idx}
+                      label={`Experience: ${exp.replace(/_/g, ' ')}`}
+                      sx={{ backgroundColor: '#3F3D5610', color: '#3F3D56', fontWeight: 600 }}
+                    />
+                  ))
+                ) : (
+                  <Chip
+                    label={`Experience: ${site.experience.replace(/_/g, ' ')}`}
+                    sx={{ backgroundColor: '#3F3D5610', color: '#3F3D56', fontWeight: 600 }}
+                  />
+                )
               )}
               <Chip
                 label={site.is_active ? 'Active' : 'Inactive'}
