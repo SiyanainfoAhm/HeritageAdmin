@@ -46,7 +46,10 @@ export type MasterDataCategory =
   | 'report_reason'
   | 'age_group'
   | 'travel_purpose'
-  | 'relation';
+  | 'relation'
+  | 'accessibility'
+  | 'experience'
+  | 'etiquette';
 
 // Booking Types
 export interface Booking {
