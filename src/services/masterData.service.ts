@@ -53,7 +53,8 @@ export class MasterDataService {
     category: string,
     code: string,
     displayOrder: number = 0,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
+    createdBy?: number | null
   ): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
       const { data, error } = await supabase
@@ -64,6 +65,7 @@ export class MasterDataService {
           display_order: displayOrder,
           metadata: metadata || {},
           is_active: true,
+          created_by: createdBy || null,
         })
         .select()
         .single();
@@ -133,6 +135,7 @@ export class MasterDataService {
 
   /**
    * Create or update translation
+   * Note: created_by column does not exist in heritage_masterdatatranslation table
    */
   static async upsertTranslation(
     masterId: number,
@@ -141,24 +144,87 @@ export class MasterDataService {
     description?: string
   ): Promise<{ success: boolean; data?: any; error?: any }> {
     try {
-      const { data, error } = await supabase
+      const langCodeUpper = languageCode.toUpperCase();
+      
+      // First, check if translation already exists
+      const { data: existing, error: checkError } = await supabase
         .from('heritage_masterdatatranslation')
-        .upsert({
-          master_id: masterId,
-          language_code: languageCode.toUpperCase(),
-          display_name: displayName,
-          description: description || null,
-        })
-        .select()
-        .single();
+        .select('translation_id')
+        .eq('master_id', masterId)
+        .eq('language_code', langCodeUpper)
+        .maybeSingle();
 
-      if (error) {
-        return { success: false, error };
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "not found" which is OK
+        console.error('Error checking existing translation:', checkError);
+        return { success: false, error: checkError };
       }
 
-      return { success: true, data };
-    } catch (error) {
-      return { success: false, error };
+      const translationData: any = {
+        master_id: masterId,
+        language_code: langCodeUpper,
+        display_name: displayName,
+        description: description || null,
+      };
+
+      let result;
+      if (existing) {
+        // Update existing translation
+        const { data, error } = await supabase
+          .from('heritage_masterdatatranslation')
+          .update({
+            display_name: displayName,
+            description: description || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('translation_id', existing.translation_id)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error updating translation:', {
+            masterId,
+            languageCode: langCodeUpper,
+            displayName,
+            error: error.message,
+            details: error,
+          });
+          return { success: false, error };
+        }
+
+        result = { data, error: null };
+      } else {
+        // Insert new translation
+        const { data, error } = await supabase
+          .from('heritage_masterdatatranslation')
+          .insert(translationData)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Error inserting translation:', {
+            masterId,
+            languageCode: langCodeUpper,
+            displayName,
+            error: error.message,
+            details: error,
+          });
+          return { success: false, error };
+        }
+
+        result = { data, error: null };
+      }
+
+      console.log('✅ Translation upserted successfully:', {
+        masterId,
+        languageCode: langCodeUpper,
+        translationId: result.data?.translation_id,
+        action: existing ? 'updated' : 'created',
+      });
+
+      return { success: true, data: result.data };
+    } catch (error: any) {
+      console.error('Exception upserting translation:', error);
+      return { success: false, error: error?.message || error };
     }
   }
 }
