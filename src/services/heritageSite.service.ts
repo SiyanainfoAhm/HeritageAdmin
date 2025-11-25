@@ -8,7 +8,7 @@ export type HeritageSiteEntryType = 'free' | 'paid' | string;
 export interface HeritageSiteFilters {
   search?: string;
   status?: 'active' | 'inactive';
-  experience?: HeritageSiteExperience | 'all';
+  experience?: HeritageSiteExperience | HeritageSiteExperience[] | 'all';
   siteType?: string;
 }
 
@@ -29,7 +29,7 @@ export interface HeritageSitePayload {
   is_active?: boolean;
   // Database columns in heritage_site table
   site_type?: string | null; // Database column: varchar - stores site type code from masterdata
-  experience?: HeritageSiteExperience | null; // Database column: text - stores experience code from masterdata
+  experience?: string[] | null; // Database column: text[] - stores array of experience codes from masterdata
   accessibility?: string[] | null; // text[] array in database
   entry_type?: HeritageSiteEntryType | null; // Database column: varchar - stores 'free' or 'paid'
   // Legacy fields (not in actual database - filtered out)
@@ -345,7 +345,15 @@ export class HeritageSiteService {
       }
 
       if (filters?.experience && filters.experience !== 'all') {
-        query = query.eq('experience', filters.experience);
+        // Experience can be stored as text[] array
+        // Handle both single value and array of values
+        if (Array.isArray(filters.experience) && filters.experience.length > 0) {
+          // For multiple experiences, use overlaps to find sites that have any of the selected experiences
+          query = query.overlaps('experience', filters.experience);
+        } else if (!Array.isArray(filters.experience)) {
+          // Single experience value
+          query = query.contains('experience', [filters.experience]);
+        }
       }
 
       if (filters?.siteType && filters.siteType !== 'all') {
@@ -359,7 +367,50 @@ export class HeritageSiteService {
         return [];
       }
 
-      return data || [];
+      if (!data || data.length === 0) {
+        return [];
+      }
+
+      // Fetch ticket types for all sites
+      const siteIds = data.map((site: any) => site.site_id);
+      const { data: ticketData, error: ticketError } = await supabase
+        .from('heritage_sitetickettype')
+        .select('site_id, price, currency, ticket_name, is_active')
+        .in('site_id', siteIds)
+        .eq('is_active', true)
+        .order('price', { ascending: true }); // Order by price to get cheapest first
+
+      if (ticketError) {
+        console.error('Error fetching ticket types:', ticketError);
+        // Continue without ticket data if there's an error
+      }
+
+      // Map ticket prices to sites
+      const ticketMap = new Map<number, { price: number; currency: string | null; ticket_name: string }>();
+      if (ticketData) {
+        ticketData.forEach((ticket: any) => {
+          // Only store the first (cheapest) ticket for each site
+          if (!ticketMap.has(ticket.site_id)) {
+            ticketMap.set(ticket.site_id, {
+              price: ticket.price,
+              currency: ticket.currency || 'INR',
+              ticket_name: ticket.ticket_name,
+            });
+          }
+        });
+      }
+
+      // Attach ticket info to sites
+      return data.map((site: any) => {
+        const ticketInfo = ticketMap.get(site.site_id);
+        return {
+          ...site,
+          // Add ticket price info for easy access
+          _firstTicketPrice: ticketInfo?.price ?? null,
+          _firstTicketCurrency: ticketInfo?.currency ?? null,
+          _firstTicketName: ticketInfo?.ticket_name ?? null,
+        };
+      });
     } catch (error) {
       console.error('Exception fetching heritage sites:', error);
       return [];
@@ -647,6 +698,7 @@ export class HeritageSiteService {
             duration_minutes: item.duration_minutes ?? item.travel_time_minutes ?? null,
             cost_range: item.cost_range ?? null,
             accessibility_notes: item.accessibility_notes ?? item.notes ?? null,
+            distance: item.distance_km !== undefined && item.distance_km !== null ? String(item.distance_km) : null,
             is_active: item.is_active ?? true,
           };
         });
@@ -1014,6 +1066,7 @@ export class HeritageSiteService {
               duration_minutes: item.duration_minutes ?? item.travel_time_minutes ?? null,
               cost_range: item.cost_range ?? null,
               accessibility_notes: item.accessibility_notes ?? item.notes ?? null,
+              distance: item.distance_km !== undefined && item.distance_km !== null ? String(item.distance_km) : null,
               is_active: item.is_active ?? true,
             };
           }),
@@ -1652,6 +1705,7 @@ export class HeritageSiteService {
               duration_minutes: item.duration_minutes ?? item.travel_time_minutes ?? null,
               cost_range: item.cost_range ?? null,
               accessibility_notes: item.accessibility_notes ?? item.notes ?? null,
+              distance: item.distance_km !== undefined && item.distance_km !== null ? String(item.distance_km) : null,
               is_active: item.is_active ?? true,
             };
           }),
