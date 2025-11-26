@@ -300,7 +300,7 @@ export class HeritageSiteService {
       history_translations,          // Object - stored in heritage_sitetranslation table
       cultural_etiquettes,          // Legacy - Array - stored in heritage_siteetiquette table (deprecated)
       // etiquettes is in heritage_site table - keep it
-      ar_mode_available,            // Boolean - column doesn't exist
+      // ar_mode_available is now in heritage_site table - keep it
       booking_online_available,      // Boolean - column doesn't exist
       booking_url,                  // String - column doesn't exist
       video_360_url,                // String - column doesn't exist (using vr_link instead)
