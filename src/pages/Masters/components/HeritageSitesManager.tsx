@@ -41,6 +41,7 @@ import { HeritageSiteService, HeritageSiteFilters, HeritageSitePayload, Heritage
 import { supabase } from '@/config/supabase';
 import HeritageSiteFormDialog, { HeritageSiteFormValues } from './HeritageSiteFormDialog';
 import HeritageSiteViewDialog from './HeritageSiteViewDialog';
+import MobilePreviewDialog from './MobilePreviewDialog';
 
 type SnackbarState = {
   open: boolean;
@@ -71,6 +72,8 @@ const HeritageSitesManager: React.FC = () => {
 
   const [deleteConfirm, setDeleteConfirm] = useState<HeritageSite | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
+  const [mobilePreviewSiteId, setMobilePreviewSiteId] = useState<number | null>(null);
 
   const [snackbar, setSnackbar] = useState<SnackbarState>({ open: false, message: '', severity: 'success' });
 
@@ -213,6 +216,11 @@ const HeritageSitesManager: React.FC = () => {
   const openViewDialog = (site: HeritageSite) => {
     setSelectedSite(site);
     setViewDialogOpen(true);
+  };
+
+  const openMobilePreview = (site: HeritageSite) => {
+    setMobilePreviewSiteId(site.site_id);
+    setMobilePreviewOpen(true);
   };
 
   const showSnackbar = (message: string, severity: SnackbarState['severity'] = 'success') => {
@@ -584,8 +592,8 @@ const HeritageSitesManager: React.FC = () => {
                             {site.is_active ? <CheckCircleIcon /> : <CancelIcon />}
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="View details">
-                          <IconButton size="small" onClick={() => openViewDialog(site)}>
+                        <Tooltip title="Mobile Preview">
+                          <IconButton size="small" onClick={() => openMobilePreview(site)}>
                             <VisibilityIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -624,6 +632,15 @@ const HeritageSitesManager: React.FC = () => {
       />
 
       <HeritageSiteViewDialog open={viewDialogOpen} site={selectedSite} onClose={() => setViewDialogOpen(false)} />
+
+      <MobilePreviewDialog
+        open={mobilePreviewOpen}
+        siteId={mobilePreviewSiteId}
+        onClose={() => {
+          setMobilePreviewOpen(false);
+          setMobilePreviewSiteId(null);
+        }}
+      />
 
       <Dialog open={Boolean(deleteConfirm)} onClose={() => setDeleteConfirm(null)}>
         <DialogTitle>Delete Heritage Site</DialogTitle>
