@@ -4391,20 +4391,29 @@ const AddHeritageSite = () => {
                     inputProps={{ inputMode: 'decimal', pattern: '-?\\d*(\\.\\d*)?' }}
                   />
                 </Grid>
-                <Grid item xs={12}>
-                  <Box
-                    sx={{
-                      borderRadius: 3,
-                      overflow: 'hidden',
-                      border: '1px solid #E0E0E0',
-                      height: 240,
-                      backgroundImage:
-                        "url('https://public.readdy.ai/gen_page/map_placeholder_1280x720.png')",
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }}
-                  />
-                </Grid>
+                {formState.overview.latitude && formState.overview.longitude && (
+                  <Grid item xs={12}>
+                    <Box
+                      sx={{
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                        border: '1px solid #E0E0E0',
+                        height: 240,
+                        position: 'relative',
+                      }}
+                    >
+                      <iframe
+                        title="Location Map"
+                        width="100%"
+                        height="100%"
+                        style={{ border: 0 }}
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        src={`https://www.google.com/maps?q=${formState.overview.latitude},${formState.overview.longitude}&z=15&output=embed`}
+                      />
+                    </Box>
+                  </Grid>
+                )}
               </Grid>
             </Box>
           )}
