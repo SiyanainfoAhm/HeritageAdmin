@@ -78,6 +78,7 @@ import { TranslationService } from '@/services/translation.service';
 import { StorageService } from '@/services/storage.service';
 import { MasterDataService } from '@/services/masterData.service';
 import { MasterData } from '@/types';
+import { geocodeAddress } from '@/config/googleMaps';
 import { useAuth } from '@/context/AuthContext';
 
 type StepKey = 'overview' | 'about' | 'plan' | 'review';
@@ -384,6 +385,7 @@ const AddHeritageSite = () => {
     longitude: '',
     postalCode: '',
   });
+  const [geocoding, setGeocoding] = useState<boolean>(false);
   const [newSiteTypeTranslations, setNewSiteTypeTranslations] = useState<Record<LanguageCode, { displayName: string; description: string }>>({
     en: { displayName: '', description: '' },
     hi: { displayName: '', description: '' },
@@ -612,12 +614,18 @@ const AddHeritageSite = () => {
       };
       
       // Convert day_of_week from number to day name string for mapping
+      console.log('🕐 Loading visiting hours from database:', {
+        visitingHoursCount: details.visitingHours?.length || 0,
+        visitingHours: details.visitingHours,
+      });
+      
       const visitingMap = new Map(
         (details.visitingHours || []).map((item) => {
           // day_of_week can be number (1-7) or string (day name)
           const dayName = typeof item.day_of_week === 'number' 
             ? dayNumberToName[item.day_of_week] || DAY_ORDER[item.day_of_week - 1]
             : item.day_of_week;
+          console.log('🕐 Mapping day:', { original: item.day_of_week, mapped: dayName, item });
           return [dayName.toLowerCase(), item];
         })
       );
@@ -625,6 +633,7 @@ const AddHeritageSite = () => {
       const schedule = baseOpening.schedule.map((day) => {
         const match = visitingMap.get(day.day.toLowerCase());
         if (!match) {
+          console.log(`🕐 No match for ${day.day}, setting to closed`);
           return { ...day, is_open: false, opening_time: '09:00', closing_time: '18:00' };
         }
 
@@ -639,16 +648,25 @@ const AddHeritageSite = () => {
         const isOpen = matchAny.is_closed !== undefined ? !matchAny.is_closed : (matchAny.is_open ?? true);
         
         // Map database field names: open_time -> opening_time, close_time -> closing_time
-        const openingTime = matchAny.open_time || matchAny.opening_time;
-        const closingTime = matchAny.close_time || matchAny.closing_time;
+        // Use !== null/undefined check to handle '00:00:00' properly
+        const openingTime = matchAny.open_time !== null && matchAny.open_time !== undefined 
+          ? matchAny.open_time 
+          : matchAny.opening_time;
+        const closingTime = matchAny.close_time !== null && matchAny.close_time !== undefined 
+          ? matchAny.close_time 
+          : matchAny.closing_time;
+
+        console.log(`🕐 Match for ${day.day}:`, { isOpen, openingTime, closingTime, matchAny });
 
         return {
           ...day,
           is_open: isOpen,
-          opening_time: openingTime ? formatTime(openingTime) : '09:00',
-          closing_time: closingTime ? formatTime(closingTime) : '18:00',
+          opening_time: openingTime !== null && openingTime !== undefined ? formatTime(openingTime) : '09:00',
+          closing_time: closingTime !== null && closingTime !== undefined ? formatTime(closingTime) : '18:00',
         };
       });
+      
+      console.log('🕐 Final schedule:', schedule);
 
       // Filter out audio, document, and sitemap types (site maps are shown in site map section)
       const galleryMedia = (details.media || []).filter((item) => 
@@ -1446,6 +1464,56 @@ const AddHeritageSite = () => {
       setFieldErrors((prev) => ({ ...prev, postalCode: 'Pincode must contain only digits.' }));
     } else {
       setFieldErrors((prev) => ({ ...prev, postalCode: '' }));
+    }
+  };
+
+  const handlePinOnMap = async () => {
+    const address = formState.overview.locationAddress.trim();
+    if (!address) {
+      alert('Please enter an address first');
+      return;
+    }
+
+    setGeocoding(true);
+    try {
+      const result = await geocodeAddress(address);
+
+      if (result) {
+        const { lat, lng, city, state, postalCode } = result;
+
+        // Update form state with geocoded data
+        setFormState((prev) => ({
+          ...prev,
+          overview: {
+            ...prev.overview,
+            latitude: String(lat),
+            longitude: String(lng),
+            locationCity: city || prev.overview.locationCity,
+            locationState: state || prev.overview.locationState,
+            locationPostalCode: postalCode || prev.overview.locationPostalCode,
+          },
+        }));
+
+        // Sync translations for city and state
+        if (city) {
+          syncEnglishTranslation('locationCity', city);
+          autoTranslateField(city, 'city');
+        }
+        if (state) {
+          syncEnglishTranslation('locationState', state);
+          autoTranslateField(state, 'state');
+        }
+
+        markDirty();
+        console.log('📍 Geocoded address:', { lat, lng, city, state, postalCode });
+      } else {
+        alert('Could not find location for this address. Please try a different address.');
+      }
+    } catch (error) {
+      console.error('Geocoding error:', error);
+      alert('Failed to geocode address. Please try again.');
+    } finally {
+      setGeocoding(false);
     }
   };
 
@@ -4255,10 +4323,12 @@ const AddHeritageSite = () => {
                   <Button
                     fullWidth
                     variant="outlined"
-                    startIcon={<MapIcon />}
+                    startIcon={geocoding ? <CircularProgress size={18} /> : <MapIcon />}
                     sx={{ height: '100%', borderRadius: 3 }}
+                    onClick={handlePinOnMap}
+                    disabled={geocoding || !formState.overview.locationAddress.trim()}
                   >
-                    Pin on Map
+                    {geocoding ? 'Finding...' : 'Pin on Map'}
                   </Button>
                 </Grid>
                 <Grid item xs={12} md={4}>
@@ -4440,7 +4510,7 @@ const AddHeritageSite = () => {
                 fullWidth
                 label="Opening Time"
                 type="time"
-                value={formState.overview.openingHours.schedule[0]?.opening_time || ''}
+                value={formState.overview.openingHours.schedule.find(d => d.is_open)?.opening_time || formState.overview.openingHours.schedule[0]?.opening_time || ''}
                 InputLabelProps={{ shrink: true }}
                 onChange={(event) => {
                   const value = event.target.value;
@@ -4455,7 +4525,7 @@ const AddHeritageSite = () => {
                 fullWidth
                 label="Closing Time"
                 type="time"
-                value={formState.overview.openingHours.schedule[0]?.closing_time || ''}
+                value={formState.overview.openingHours.schedule.find(d => d.is_open)?.closing_time || formState.overview.openingHours.schedule[0]?.closing_time || ''}
                 InputLabelProps={{ shrink: true }}
                 onChange={(event) => {
                   const value = event.target.value;
@@ -4684,13 +4754,23 @@ const AddHeritageSite = () => {
                 variant="scrollable"
                 scrollButtons="auto"
               >
-                {LANGUAGES.map((lang) => (
-                  <Tab
-                    key={lang.code}
-                    label={`${lang.flag} ${lang.label}`}
-                    value={lang.code}
-                  />
-                ))}
+                {LANGUAGES.map((lang) => {
+                  const hasTranslation = newAccessibilityTranslations[lang.code]?.displayName?.trim();
+                  return (
+                    <Tab
+                      key={lang.code}
+                      label={
+                        <Stack direction="row" alignItems="center" spacing={0.5}>
+                          <span>{lang.flag} {lang.label}</span>
+                          {hasTranslation && lang.code !== 'en' && (
+                            <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                          )}
+                        </Stack>
+                      }
+                      value={lang.code}
+                    />
+                  );
+                })}
               </Tabs>
             </Box>
 
@@ -4894,13 +4974,23 @@ const AddHeritageSite = () => {
                 variant="scrollable"
                 scrollButtons="auto"
               >
-                {LANGUAGES.map((lang) => (
-                  <Tab
-                    key={lang.code}
-                    label={`${lang.flag} ${lang.label}`}
-                    value={lang.code}
-                  />
-                ))}
+                {LANGUAGES.map((lang) => {
+                  const hasTranslation = newSiteTypeTranslations[lang.code]?.displayName?.trim();
+                  return (
+                    <Tab
+                      key={lang.code}
+                      label={
+                        <Stack direction="row" alignItems="center" spacing={0.5}>
+                          <span>{lang.flag} {lang.label}</span>
+                          {hasTranslation && lang.code !== 'en' && (
+                            <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                          )}
+                        </Stack>
+                      }
+                      value={lang.code}
+                    />
+                  );
+                })}
               </Tabs>
             </Box>
             <TextField
@@ -5074,13 +5164,23 @@ const AddHeritageSite = () => {
                 variant="scrollable"
                 scrollButtons="auto"
               >
-                {LANGUAGES.map((lang) => (
-                  <Tab
-                    key={lang.code}
-                    label={`${lang.flag} ${lang.label}`}
-                    value={lang.code}
-                  />
-                ))}
+                {LANGUAGES.map((lang) => {
+                  const hasTranslation = newExperienceTranslations[lang.code]?.displayName?.trim();
+                  return (
+                    <Tab
+                      key={lang.code}
+                      label={
+                        <Stack direction="row" alignItems="center" spacing={0.5}>
+                          <span>{lang.flag} {lang.label}</span>
+                          {hasTranslation && lang.code !== 'en' && (
+                            <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                          )}
+                        </Stack>
+                      }
+                      value={lang.code}
+                    />
+                  );
+                })}
               </Tabs>
             </Box>
             <TextField
@@ -5548,13 +5648,23 @@ const AddHeritageSite = () => {
                 variant="scrollable"
                 scrollButtons="auto"
               >
-                {LANGUAGES.map((lang) => (
-                  <Tab
-                    key={lang.code}
-                    label={`${lang.flag} ${lang.label}`}
-                    value={lang.code}
-                  />
-                ))}
+                {LANGUAGES.map((lang) => {
+                  const hasTranslation = newEtiquetteTranslations[lang.code]?.displayName?.trim();
+                  return (
+                    <Tab
+                      key={lang.code}
+                      label={
+                        <Stack direction="row" alignItems="center" spacing={0.5}>
+                          <span>{lang.flag} {lang.label}</span>
+                          {hasTranslation && lang.code !== 'en' && (
+                            <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                          )}
+                        </Stack>
+                      }
+                      value={lang.code}
+                    />
+                  );
+                })}
               </Tabs>
             </Box>
             <TextField
@@ -6521,13 +6631,23 @@ const AddHeritageSite = () => {
                 variant="scrollable"
                 scrollButtons="auto"
               >
-                {LANGUAGES.map((lang) => (
-                  <Tab
-                    key={lang.code}
-                    label={`${lang.flag} ${lang.label}`}
-                    value={lang.code}
-                  />
-                ))}
+                {LANGUAGES.map((lang) => {
+                  const hasTranslation = newTicketTypeTranslations[lang.code]?.displayName?.trim();
+                  return (
+                    <Tab
+                      key={lang.code}
+                      label={
+                        <Stack direction="row" alignItems="center" spacing={0.5}>
+                          <span>{lang.flag} {lang.label}</span>
+                          {hasTranslation && lang.code !== 'en' && (
+                            <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                          )}
+                        </Stack>
+                      }
+                      value={lang.code}
+                    />
+                  );
+                })}
               </Tabs>
             </Box>
             <TextField
