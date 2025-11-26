@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Paper,
@@ -22,6 +22,8 @@ import {
   Stack,
   Pagination,
   Tooltip,
+  CircularProgress,
+  Alert,
 } from '@mui/material';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -30,18 +32,8 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import SearchIcon from '@mui/icons-material/Search';
-import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-
-interface VerificationRecord {
-  id: number;
-  name: string;
-  subtitle: string;
-  entityType: string;
-  status: 'Pending' | 'Approved' | 'Rejected';
-  location: string;
-  submittedOn: string;
-}
+import { VerificationService, VerificationRecord } from '@/services/verification.service';
 
 const ENTITY_OPTIONS = [
   'All',
@@ -72,121 +64,67 @@ const TYPE_COLOR: Record<string, string> = {
   'Tour Operator': '#845ef7',
 };
 
-const MOCK_DATA: VerificationRecord[] = [
-  {
-    id: 1,
-    name: 'Adalaj Stepwell',
-    subtitle: '15th Century',
-    entityType: 'Heritage Site',
-    status: 'Pending',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-14',
-  },
-  {
-    id: 2,
-    name: 'Rajesh Patel',
-    subtitle: 'Heritage Expert',
-    entityType: 'Local Guide',
-    status: 'Approved',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-13',
-  },
-  {
-    id: 3,
-    name: 'Garba Fest Organizers',
-    subtitle: 'Cultural Events',
-    entityType: 'Event Operator',
-    status: 'Rejected',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-13',
-  },
-  {
-    id: 4,
-    name: 'Manek Chowk Night Tour',
-    subtitle: 'Weekly Event',
-    entityType: 'Event Operator',
-    status: 'Pending',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-13',
-  },
-  {
-    id: 5,
-    name: 'Rekha Devi',
-    subtitle: 'Bandhej Craftsperson',
-    entityType: 'Artisan',
-    status: 'Pending',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-12',
-  },
-  {
-    id: 6,
-    name: 'Das Khaman House',
-    subtitle: 'Street Food',
-    entityType: 'Food Vendor',
-    status: 'Approved',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-12',
-  },
-  {
-    id: 7,
-    name: 'Manek Chowk Souvenirs',
-    subtitle: 'Handicrafts',
-    entityType: 'Artisan',
-    status: 'Pending',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-12',
-  },
-  {
-    id: 8,
-    name: 'House of MG',
-    subtitle: 'Heritage Hotel',
-    entityType: 'Hotel',
-    status: 'Rejected',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-11',
-  },
-  {
-    id: 9,
-    name: 'Sabarmati Tours',
-    subtitle: 'River Front Packages',
-    entityType: 'Tour Operator',
-    status: 'Pending',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-11',
-  },
-  {
-    id: 10,
-    name: 'Ahmedabad Heritage Walk',
-    subtitle: 'City Tours',
-    entityType: 'Tour Operator',
-    status: 'Approved',
-    location: 'Ahmedabad',
-    submittedOn: '2025-06-10',
-  },
-];
-
 const PAGE_SIZE = 9;
 
 const Verification = () => {
   const [entityFilter, setEntityFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | VerificationRecord['status']>('All');
-  const [dateFilter, setDateFilter] = useState<string>(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
+  const [dateFilter, setDateFilter] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [page, setPage] = useState<number>(1);
+  const [records, setRecords] = useState<VerificationRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+
+  const fetchRecords = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await VerificationService.getVerificationRecords({
+        entityType: entityFilter,
+        status: statusFilter,
+        search: searchTerm,
+        dateFrom: dateFilter || undefined,
+        dateTo: dateFilter || undefined,
+      });
+      setRecords(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch records');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecords();
+  }, [entityFilter, statusFilter, dateFilter, searchTerm]);
+
+  const handleApprove = async (record: VerificationRecord) => {
+    setActionLoading(record.id);
+    const result = await VerificationService.approveEntity(record.entityType, record.id);
+    if (result.success) {
+      fetchRecords();
+    } else {
+      setError(result.error || 'Failed to approve');
+    }
+    setActionLoading(null);
+  };
+
+  const handleReject = async (record: VerificationRecord) => {
+    setActionLoading(record.id);
+    const result = await VerificationService.rejectEntity(record.entityType, record.id);
+    if (result.success) {
+      fetchRecords();
+    } else {
+      setError(result.error || 'Failed to reject');
+    }
+    setActionLoading(null);
+  };
 
   const filteredData = useMemo(() => {
-    return MOCK_DATA.filter((item) => {
-      const matchesEntity = entityFilter === 'All' || item.entityType === entityFilter;
-      const matchesStatus = statusFilter === 'All' || item.status === statusFilter;
-      const matchesDate = !dateFilter || item.submittedOn === dateFilter;
-      const searchContent = `${item.name} ${item.subtitle} ${item.entityType}`.toLowerCase();
-      const matchesSearch = !searchTerm || searchContent.includes(searchTerm.toLowerCase());
-      return matchesEntity && matchesStatus && matchesDate && matchesSearch;
-    });
-  }, [entityFilter, statusFilter, dateFilter, searchTerm]);
+    return records;
+  }, [records]);
 
   const paginatedData = useMemo(() => {
     const startIndex = (page - 1) * PAGE_SIZE;
@@ -199,6 +137,7 @@ const Verification = () => {
     setDateFilter('');
     setSearchTerm('');
     setPage(1);
+    fetchRecords();
   };
 
   return (
@@ -305,6 +244,12 @@ const Verification = () => {
 
         <Divider sx={{ my: 3 }} />
 
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+            {error}
+          </Alert>
+        )}
+
         <TableContainer>
           <Table>
             <TableHead>
@@ -321,7 +266,7 @@ const Verification = () => {
             </TableHead>
             <TableBody>
               {paginatedData.map((record) => (
-                <TableRow key={record.id} hover sx={{ '&:last-of-type td, &:last-of-type th': { border: 0 } }}>
+                <TableRow key={`${record.entityType}-${record.id}`} hover sx={{ '&:last-of-type td, &:last-of-type th': { border: 0 } }}>
                   <TableCell>
                     <Stack direction="row" spacing={2} alignItems="center">
                       <Avatar
@@ -387,12 +332,22 @@ const Verification = () => {
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Approve">
-                        <IconButton size="small" color="success">
-                          <CheckCircleOutlineIcon fontSize="small" />
+                        <IconButton
+                          size="small"
+                          color="success"
+                          onClick={() => handleApprove(record)}
+                          disabled={actionLoading === record.id || record.status === 'Approved'}
+                        >
+                          {actionLoading === record.id ? <CircularProgress size={16} /> : <CheckCircleOutlineIcon fontSize="small" />}
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Reject">
-                        <IconButton size="small" color="error">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleReject(record)}
+                          disabled={actionLoading === record.id || record.status === 'Rejected'}
+                        >
                           <HighlightOffOutlinedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -400,7 +355,14 @@ const Verification = () => {
                   </TableCell>
                 </TableRow>
               ))}
-              {paginatedData.length === 0 && (
+              {loading && (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <CircularProgress />
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loading && paginatedData.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} align="center">
                     <Typography variant="body2" color="text.secondary">
