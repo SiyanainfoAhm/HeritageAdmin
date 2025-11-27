@@ -254,6 +254,14 @@ export class VerificationService {
           .eq('user_id', id);
       }
 
+      // For Local Guide, also update verification_status in heritage_local_guide_profile
+      if (entityType === 'Local Guide') {
+        await supabase
+          .from('heritage_local_guide_profile')
+          .update({ verification_status: 'verified' })
+          .eq('user_id', id);
+      }
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to approve entity' };
@@ -294,6 +302,14 @@ export class VerificationService {
           .eq('user_id', id);
       }
 
+      // For Local Guide, also update verification_status in heritage_local_guide_profile
+      if (entityType === 'Local Guide') {
+        await supabase
+          .from('heritage_local_guide_profile')
+          .update({ verification_status: 'pending' })
+          .eq('user_id', id);
+      }
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to reject entity' };
@@ -323,7 +339,7 @@ export class VerificationService {
 
       // Fetch business details based on entity type
       const businessTableMap: Record<string, string> = {
-        'Local Guide': 'heritage_guide',
+        'Local Guide': 'heritage_local_guide_profile',
         'Event Operator': 'heritage_eventorganizer_business_details',
         'Tour Operator': 'heritage_tour_operator_businessdetails',
         'Food Vendor': 'heritage_foodvendorbusinessdetails',
@@ -384,6 +400,84 @@ export class VerificationService {
     } catch (error) {
       console.error('Error fetching user details:', error);
       return null;
+    }
+  }
+
+  /**
+   * Update business details for an entity
+   */
+  static async updateBusinessDetails(
+    entityType: string,
+    userId: number,
+    data: Record<string, any>
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const tableMap: Record<string, string> = {
+        'Local Guide': 'heritage_local_guide_profile',
+        'Event Operator': 'heritage_eventorganizer_business_details',
+        'Tour Operator': 'heritage_tour_operator_businessdetails',
+        'Food Vendor': 'heritage_foodvendorbusinessdetails',
+        Hotel: 'heritage_hotelownerbusinessdetails',
+        Artisan: 'heritage_artisan',
+      };
+
+      const table = tableMap[entityType];
+      if (!table) {
+        return { success: false, error: 'Unknown entity type' };
+      }
+
+      // Remove fields that shouldn't be updated
+      const { id, user_id, created_at, updated_at, profile_id, artisan_id, ...updateData } = data;
+
+      const { error } = await supabase
+        .from(table)
+        .update(updateData)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (error: any) {
+      console.error('Error updating business details:', error);
+      return { success: false, error: error.message || 'Failed to update' };
+    }
+  }
+
+  /**
+   * Delete a document
+   */
+  static async deleteDocument(documentId: number): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from('heritage_user_documents')
+        .delete()
+        .eq('id', documentId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (error: any) {
+      console.error('Error deleting document:', error);
+      return { success: false, error: error.message || 'Failed to delete document' };
+    }
+  }
+
+  /**
+   * Update user basic info
+   */
+  static async updateUserInfo(
+    userId: number,
+    data: { full_name?: string; phone?: string; email?: string }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from('heritage_user')
+        .update(data)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (error: any) {
+      console.error('Error updating user info:', error);
+      return { success: false, error: error.message || 'Failed to update user' };
     }
   }
 }
