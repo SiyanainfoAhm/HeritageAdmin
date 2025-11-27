@@ -41,6 +41,10 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import SearchIcon from '@mui/icons-material/Search';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import SaveIcon from '@mui/icons-material/Save';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { format } from 'date-fns';
 import { VerificationService, VerificationRecord } from '@/services/verification.service';
 
@@ -87,6 +91,11 @@ const Verification = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<VerificationRecord | null>(null);
   const [userDetails, setUserDetails] = useState<{ user: any; businessDetails: any; documents: any[] } | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editedBusinessDetails, setEditedBusinessDetails] = useState<Record<string, any>>({});
+  const [saving, setSaving] = useState(false);
+  const [addItemDialog, setAddItemDialog] = useState<{ open: boolean; key: string; label: string }>({ open: false, key: '', label: '' });
+  const [newItemValue, setNewItemValue] = useState('');
 
   const fetchRecords = async () => {
     setLoading(true);
@@ -155,10 +164,69 @@ const Verification = () => {
     setSelectedRecord(record);
     setDetailOpen(true);
     setDetailLoading(true);
+    setEditMode(false);
     
     const details = await VerificationService.getUserDetails(record.id, record.entityType);
     setUserDetails(details);
+    if (details?.businessDetails) {
+      setEditedBusinessDetails({ ...details.businessDetails });
+    }
     setDetailLoading(false);
+  };
+
+  const handleEditToggle = () => {
+    if (editMode) {
+      // Cancel edit - restore original
+      if (userDetails?.businessDetails) {
+        setEditedBusinessDetails({ ...userDetails.businessDetails });
+      }
+    }
+    setEditMode(!editMode);
+  };
+
+  const handleFieldChange = (key: string, value: any) => {
+    setEditedBusinessDetails((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveChanges = async () => {
+    if (!selectedRecord || !userDetails) return;
+    
+    setSaving(true);
+    const result = await VerificationService.updateBusinessDetails(
+      selectedRecord.entityType,
+      selectedRecord.id,
+      editedBusinessDetails
+    );
+    
+    if (result.success) {
+      // Refresh details
+      const details = await VerificationService.getUserDetails(selectedRecord.id, selectedRecord.entityType);
+      setUserDetails(details);
+      if (details?.businessDetails) {
+        setEditedBusinessDetails({ ...details.businessDetails });
+      }
+      setEditMode(false);
+      fetchRecords(); // Refresh list as verification status may have changed
+    } else {
+      setError(result.error || 'Failed to save changes');
+    }
+    setSaving(false);
+  };
+
+  const handleDeleteDocument = async (docId: number) => {
+    if (!window.confirm('Are you sure you want to delete this document?')) return;
+    
+    const result = await VerificationService.deleteDocument(docId);
+    if (result.success) {
+      // Refresh details
+      if (selectedRecord) {
+        const details = await VerificationService.getUserDetails(selectedRecord.id, selectedRecord.entityType);
+        setUserDetails(details);
+      }
+      fetchRecords(); // Refresh list as verification status may have changed
+    } else {
+      setError(result.error || 'Failed to delete document');
+    }
   };
 
   return (
@@ -415,9 +483,31 @@ const Verification = () => {
       <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6">{selectedRecord?.name} - Details</Typography>
-          <IconButton onClick={() => setDetailOpen(false)}>
-            <CloseIcon />
-          </IconButton>
+          <Stack direction="row" spacing={1}>
+            {!editMode ? (
+              <Tooltip title="Edit">
+                <IconButton onClick={handleEditToggle} color="primary">
+                  <EditIcon />
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <>
+                <Tooltip title="Save">
+                  <IconButton onClick={handleSaveChanges} color="success" disabled={saving}>
+                    {saving ? <CircularProgress size={20} /> : <SaveIcon />}
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Cancel">
+                  <IconButton onClick={handleEditToggle} color="error">
+                    <CancelIcon />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+            <IconButton onClick={() => setDetailOpen(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Stack>
         </DialogTitle>
         <DialogContent dividers>
           {detailLoading ? (
@@ -474,17 +564,167 @@ const Verification = () => {
                 <Box>
                   <Divider sx={{ my: 2 }} />
                   <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                    Business Details
+                    Business Details {editMode && <Chip label="Editing" size="small" color="warning" sx={{ ml: 1 }} />}
                   </Typography>
                   <Grid container spacing={2}>
-                    {Object.entries(userDetails.businessDetails).map(([key, value]) => {
-                      if (key === 'id' || key === 'user_id' || key === 'created_at' || key === 'updated_at' || !value) return null;
+                    {Object.entries(editMode ? editedBusinessDetails : userDetails.businessDetails).map(([key, value]) => {
+                      // Skip system fields - not editable
+                      if (['id', 'user_id', 'created_at', 'updated_at', 'profile_id', 'artisan_id', 'guide_id', 'business_id', 'is_verified', 'verification_status'].includes(key)) return null;
+                      
+                      const label = key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+                      const currentValue = editMode ? editedBusinessDetails[key] : value;
+                      
+                      // Known array fields that should always be treated as arrays
+                      const knownArrayFields = ['awards', 'languages', 'specializations', 'certifications', 'service_areas', 'expertise', 'skills'];
+                      const isKnownArrayField = knownArrayFields.includes(key);
+                      
+                      // Handle arrays - show as chips with add/remove in edit mode
+                      // Also handle PostgreSQL text[] format which may come as string like '{"item1","item2"}'
+                      const isArrayField = isKnownArrayField || Array.isArray(currentValue) || Array.isArray(value) || 
+                        (typeof currentValue === 'string' && currentValue.startsWith('{') && currentValue.endsWith('}'));
+                      
+                      if (isArrayField) {
+                        let arrValue: string[] = [];
+                        if (Array.isArray(currentValue)) {
+                          arrValue = currentValue;
+                        } else if (typeof currentValue === 'string' && currentValue.startsWith('{') && currentValue.endsWith('}')) {
+                          // Parse PostgreSQL array format: {"item1","item2"}
+                          const inner = currentValue.slice(1, -1);
+                          if (inner) {
+                            arrValue = inner.split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean);
+                          }
+                        } else if (typeof currentValue === 'string' && currentValue) {
+                          // Handle comma-separated string as array
+                          arrValue = currentValue.split(',').map(s => s.trim()).filter(Boolean);
+                        } else if (Array.isArray(value)) {
+                          if (typeof value === 'string' && value) {
+                            arrValue = (value as unknown as string).split(',').map(s => s.trim()).filter(Boolean);
+                          } else if (Array.isArray(value)) {
+                            arrValue = value;
+                          } else {
+                            arrValue = [];
+                          }
+                        } else if (isKnownArrayField) {
+                          arrValue = [];
+                        }
+                        return (
+                          <Grid item xs={12} key={key}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>{label}</Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} alignItems="center">
+                              {arrValue.length > 0 ? arrValue.map((item, idx) => (
+                                <Chip 
+                                  key={idx} 
+                                  label={String(item)} 
+                                  size="small" 
+                                  variant="outlined"
+                                  onDelete={editMode ? () => {
+                                    const newArr = arrValue.filter((_, i) => i !== idx);
+                                    handleFieldChange(key, newArr);
+                                  } : undefined}
+                                />
+                              )) : (
+                                <Typography variant="body2" color="text.disabled">—</Typography>
+                              )}
+                              {editMode && (
+                                <Chip
+                                  label="+ Add"
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                  onClick={() => {
+                                    // Initialize array in editedBusinessDetails if not already
+                                    if (!Array.isArray(editedBusinessDetails[key])) {
+                                      handleFieldChange(key, arrValue);
+                                    }
+                                    setAddItemDialog({ open: true, key, label });
+                                    setNewItemValue('');
+                                  }}
+                                  sx={{ cursor: 'pointer' }}
+                                />
+                              )}
+                            </Stack>
+                          </Grid>
+                        );
+                      }
+                      
+                      // Handle objects - show as JSON or null
+                      if (typeof currentValue === 'object' && currentValue !== null) {
+                        return (
+                          <Grid item xs={6} key={key}>
+                            <Typography variant="body2" color="text.secondary">{label}</Typography>
+                            <Typography variant="body2">{JSON.stringify(currentValue)}</Typography>
+                          </Grid>
+                        );
+                      }
+                      
+                      // Handle booleans - show as Yes/No chips or select in edit mode
+                      if (typeof currentValue === 'boolean' || (typeof value === 'boolean')) {
+                        if (editMode) {
+                          return (
+                            <Grid item xs={6} key={key}>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>{label}</InputLabel>
+                                <Select
+                                  value={editedBusinessDetails[key] ? 'true' : 'false'}
+                                  label={label}
+                                  onChange={(e) => handleFieldChange(key, e.target.value === 'true')}
+                                >
+                                  <MenuItem value="true">Yes</MenuItem>
+                                  <MenuItem value="false">No</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                          );
+                        }
+                        return (
+                          <Grid item xs={6} key={key}>
+                            <Typography variant="body2" color="text.secondary">{label}</Typography>
+                            <Chip label={currentValue ? 'Yes' : 'No'} size="small" color={currentValue ? 'success' : 'default'} />
+                          </Grid>
+                        );
+                      }
+                      
+                      // Handle null/undefined - show "null" text
+                      if (currentValue === null || currentValue === undefined || currentValue === '') {
+                        return (
+                          <Grid item xs={6} key={key}>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label={label}
+                                defaultValue={editedBusinessDetails[key] || ''}
+                                onBlur={(e) => handleFieldChange(key, e.target.value)}
+                              />
+                            ) : (
+                              <>
+                                <Typography variant="body2" color="text.secondary">{label}</Typography>
+                                <Typography variant="body2" color="text.disabled">—</Typography>
+                              </>
+                            )}
+                          </Grid>
+                        );
+                      }
+                      
+                      // Handle regular text/numbers
+                      if (editMode) {
+                        return (
+                          <Grid item xs={6} key={key}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label={label}
+                              defaultValue={editedBusinessDetails[key] || ''}
+                              onBlur={(e) => handleFieldChange(key, e.target.value)}
+                            />
+                          </Grid>
+                        );
+                      }
+                      
                       return (
                         <Grid item xs={6} key={key}>
-                          <Typography variant="body2" color="text.secondary">
-                            {key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
-                          </Typography>
-                          <Typography>{String(value)}</Typography>
+                          <Typography variant="body2" color="text.secondary">{label}</Typography>
+                          <Typography>{String(currentValue)}</Typography>
                         </Grid>
                       );
                     })}
@@ -502,7 +742,17 @@ const Verification = () => {
                   <Grid container spacing={2}>
                     {userDetails.documents.map((doc) => (
                       <Grid item xs={12} sm={6} md={4} key={doc.id}>
-                        <Card variant="outlined">
+                        <Card variant="outlined" sx={{ position: 'relative' }}>
+                          {editMode && (
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDeleteDocument(doc.id)}
+                              sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'white', '&:hover': { bgcolor: '#ffebee' } }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          )}
                           {doc.url && (doc.url.endsWith('.jpg') || doc.url.endsWith('.jpeg') || doc.url.endsWith('.png')) ? (
                             <CardMedia
                               component="img"
@@ -584,6 +834,46 @@ const Verification = () => {
               Reject
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Item Dialog */}
+      <Dialog open={addItemDialog.open} onClose={() => setAddItemDialog({ open: false, key: '', label: '' })} maxWidth="xs" fullWidth>
+        <DialogTitle>Add {addItemDialog.label}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label={`New ${addItemDialog.label}`}
+            value={newItemValue}
+            onChange={(e) => setNewItemValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newItemValue.trim()) {
+                const arrValue = Array.isArray(editedBusinessDetails[addItemDialog.key]) ? editedBusinessDetails[addItemDialog.key] : [];
+                handleFieldChange(addItemDialog.key, [...arrValue, newItemValue.trim()]);
+                setAddItemDialog({ open: false, key: '', label: '' });
+                setNewItemValue('');
+              }
+            }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddItemDialog({ open: false, key: '', label: '' })}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (newItemValue.trim()) {
+                const arrValue = Array.isArray(editedBusinessDetails[addItemDialog.key]) ? editedBusinessDetails[addItemDialog.key] : [];
+                handleFieldChange(addItemDialog.key, [...arrValue, newItemValue.trim()]);
+                setAddItemDialog({ open: false, key: '', label: '' });
+                setNewItemValue('');
+              }
+            }}
+          >
+            Add
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
