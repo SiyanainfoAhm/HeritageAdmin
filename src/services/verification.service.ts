@@ -38,29 +38,6 @@ export class VerificationService {
     const records: VerificationRecord[] = [];
 
     try {
-      // Fetch Heritage Sites
-      if (!filters?.entityType || filters.entityType === 'All' || filters.entityType === 'Heritage Site') {
-        const { data: sites } = await supabase
-          .from('heritage_site')
-          .select('site_id, name_default, short_desc_default, meta_description_def, is_active, created_at')
-          .order('created_at', { ascending: false });
-
-        if (sites) {
-          for (const site of sites) {
-            records.push({
-              id: site.site_id,
-              name: site.name_default || 'Unnamed Site',
-              subtitle: site.short_desc_default || site.meta_description_def || '',
-              entityType: 'Heritage Site',
-              status: mapStatus(site.is_active),
-              location: 'India',
-              submittedOn: site.created_at?.split('T')[0] || '',
-              rawData: site,
-            });
-          }
-        }
-      }
-
       // Fetch Local Guides (user_type_id = 11)
       if (!filters?.entityType || filters.entityType === 'All' || filters.entityType === 'Local Guide') {
         const { data: guides } = await supabase
@@ -85,21 +62,22 @@ export class VerificationService {
         }
       }
 
-      // Fetch Hotels
+      // Fetch Hotels (user_type_id = 7)
       if (!filters?.entityType || filters.entityType === 'All' || filters.entityType === 'Hotel') {
         const { data: hotels } = await supabase
-          .from('heritage_hotel')
-          .select('hotel_id, hotel_name, subtitle, status, created_at')
+          .from('heritage_user')
+          .select('user_id, full_name, user_type_verified, created_at')
+          .eq('user_type_id', 7)
           .order('created_at', { ascending: false });
 
         if (hotels) {
           for (const hotel of hotels) {
             records.push({
-              id: hotel.hotel_id,
-              name: hotel.hotel_name || 'Unnamed Hotel',
-              subtitle: hotel.subtitle || 'Hotel',
+              id: hotel.user_id,
+              name: hotel.full_name || 'Unnamed Hotel',
+              subtitle: 'Hotel',
               entityType: 'Hotel',
-              status: mapStatus(hotel.status),
+              status: mapStatus(hotel.user_type_verified),
               location: 'India',
               submittedOn: hotel.created_at?.split('T')[0] || '',
               rawData: hotel,
@@ -156,21 +134,22 @@ export class VerificationService {
         }
       }
 
-      // Fetch Food Vendors
+      // Fetch Food Vendors (user_type_id = 6)
       if (!filters?.entityType || filters.entityType === 'All' || filters.entityType === 'Food Vendor') {
         const { data: vendors } = await supabase
-          .from('heritage_food')
-          .select('food_id, food_name, subtitle, status, created_at')
+          .from('heritage_user')
+          .select('user_id, full_name, user_type_verified, created_at')
+          .eq('user_type_id', 6)
           .order('created_at', { ascending: false });
 
         if (vendors) {
           for (const vendor of vendors) {
             records.push({
-              id: vendor.food_id,
-              name: vendor.food_name || 'Unnamed Vendor',
-              subtitle: vendor.subtitle || 'Food Vendor',
+              id: vendor.user_id,
+              name: vendor.full_name || 'Unnamed Food Vendor',
+              subtitle: 'Food Vendor',
               entityType: 'Food Vendor',
-              status: mapStatus(vendor.status),
+              status: mapStatus(vendor.user_type_verified),
               location: 'India',
               submittedOn: vendor.created_at?.split('T')[0] || '',
               rawData: vendor,
@@ -179,21 +158,22 @@ export class VerificationService {
         }
       }
 
-      // Fetch Artisans
+      // Fetch Artisans (user_type_id = 9)
       if (!filters?.entityType || filters.entityType === 'All' || filters.entityType === 'Artisan') {
         const { data: artisans } = await supabase
-          .from('heritage_artisan')
-          .select('artisan_id, artisan_name, short_bio, craft_type, is_verified, created_at')
+          .from('heritage_user')
+          .select('user_id, full_name, user_type_verified, created_at')
+          .eq('user_type_id', 9)
           .order('created_at', { ascending: false });
 
         if (artisans) {
           for (const artisan of artisans) {
             records.push({
-              id: artisan.artisan_id,
-              name: artisan.artisan_name || 'Unnamed Artisan',
-              subtitle: artisan.short_bio || artisan.craft_type || 'Artisan',
+              id: artisan.user_id,
+              name: artisan.full_name || 'Unnamed Artisan',
+              subtitle: 'Artisan',
               entityType: 'Artisan',
-              status: mapStatus(artisan.is_verified),
+              status: mapStatus(artisan.user_type_verified),
               location: 'India',
               submittedOn: artisan.created_at?.split('T')[0] || '',
               rawData: artisan,
@@ -243,13 +223,12 @@ export class VerificationService {
   static async approveEntity(entityType: string, id: number): Promise<{ success: boolean; error?: string }> {
     try {
       const tableMap: Record<string, { table: string; idField: string; statusField: string; approveValue: any }> = {
-        'Heritage Site': { table: 'heritage_site', idField: 'site_id', statusField: 'is_active', approveValue: true },
         'Local Guide': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
-        Hotel: { table: 'heritage_hotel', idField: 'hotel_id', statusField: 'status', approveValue: 'published' },
+        Hotel: { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
         'Event Operator': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
         'Tour Operator': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
-        'Food Vendor': { table: 'heritage_food', idField: 'food_id', statusField: 'status', approveValue: 'published' },
-        Artisan: { table: 'heritage_artisan', idField: 'artisan_id', statusField: 'is_verified', approveValue: true },
+        'Food Vendor': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
+        Artisan: { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
       };
 
       const config = tableMap[entityType];
@@ -259,10 +238,22 @@ export class VerificationService {
 
       const { error } = await supabase
         .from(config.table)
-        .update({ [config.statusField]: config.approveValue })
+        .update({ 
+          [config.statusField]: config.approveValue,
+          verified_on: new Date().toISOString()
+        })
         .eq(config.idField, id);
 
       if (error) throw error;
+
+      // For Artisan, also update is_verified in heritage_artisan table
+      if (entityType === 'Artisan') {
+        await supabase
+          .from('heritage_artisan')
+          .update({ is_verified: true })
+          .eq('user_id', id);
+      }
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to approve entity' };
@@ -275,13 +266,12 @@ export class VerificationService {
   static async rejectEntity(entityType: string, id: number): Promise<{ success: boolean; error?: string }> {
     try {
       const tableMap: Record<string, { table: string; idField: string; statusField: string; rejectValue: any }> = {
-        'Heritage Site': { table: 'heritage_site', idField: 'site_id', statusField: 'is_active', rejectValue: false },
         'Local Guide': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
-        Hotel: { table: 'heritage_hotel', idField: 'hotel_id', statusField: 'status', rejectValue: 'draft' },
+        Hotel: { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
         'Event Operator': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
         'Tour Operator': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
-        'Food Vendor': { table: 'heritage_food', idField: 'food_id', statusField: 'status', rejectValue: 'pending' },
-        Artisan: { table: 'heritage_artisan', idField: 'artisan_id', statusField: 'is_verified', rejectValue: false },
+        'Food Vendor': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
+        Artisan: { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
       };
 
       const config = tableMap[entityType];
@@ -295,9 +285,105 @@ export class VerificationService {
         .eq(config.idField, id);
 
       if (error) throw error;
+
+      // For Artisan, also update is_verified in heritage_artisan table
+      if (entityType === 'Artisan') {
+        await supabase
+          .from('heritage_artisan')
+          .update({ is_verified: false })
+          .eq('user_id', id);
+      }
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to reject entity' };
+    }
+  }
+
+  /**
+   * Get user details with business info and documents
+   */
+  static async getUserDetails(userId: number, entityType: string): Promise<{
+    user: any;
+    businessDetails: any;
+    documents: any[];
+  } | null> {
+    try {
+      // Fetch user basic info
+      const { data: user } = await supabase
+        .from('heritage_user')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (!user) return null;
+
+      let businessDetails = null;
+      const documents: any[] = [];
+
+      // Fetch business details based on entity type
+      const businessTableMap: Record<string, string> = {
+        'Local Guide': 'heritage_guide',
+        'Event Operator': 'heritage_eventorganizer_business_details',
+        'Tour Operator': 'heritage_tour_operator_businessdetails',
+        'Food Vendor': 'heritage_foodvendorbusinessdetails',
+        Hotel: 'heritage_hotelownerbusinessdetails',
+      };
+
+      // Also try alternate table names
+      const altBusinessTableMap: Record<string, string> = {
+        'Tour Operator': 'heritage_touroperator_businessdetails',
+      };
+
+      const businessTable = businessTableMap[entityType];
+      if (businessTable) {
+        const { data: business, error: bizError } = await supabase
+          .from(businessTable)
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+        
+        if (business) {
+          businessDetails = business;
+        } else if (bizError && altBusinessTableMap[entityType]) {
+          // Try alternate table name
+          const { data: altBusiness } = await supabase
+            .from(altBusinessTableMap[entityType])
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+          businessDetails = altBusiness;
+        }
+      }
+
+      // For Artisan, fetch from heritage_artisan table
+      if (entityType === 'Artisan') {
+        const { data: artisanData } = await supabase
+          .from('heritage_artisan')
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+        
+        if (artisanData) {
+          businessDetails = artisanData;
+        }
+      }
+
+      // Fetch documents
+      const { data: docs } = await supabase
+        .from('heritage_user_documents')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      return {
+        user,
+        businessDetails,
+        documents: docs || [],
+      };
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+      return null;
     }
   }
 }

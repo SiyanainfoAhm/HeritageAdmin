@@ -24,7 +24,16 @@ import {
   Tooltip,
   CircularProgress,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Grid,
+  Card,
+  CardMedia,
+  Link,
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
@@ -37,7 +46,6 @@ import { VerificationService, VerificationRecord } from '@/services/verification
 
 const ENTITY_OPTIONS = [
   'All',
-  'Heritage Site',
   'Local Guide',
   'Event Operator',
   'Food Vendor',
@@ -55,7 +63,6 @@ const STATUS_COLOR: Record<VerificationRecord['status'], 'warning' | 'success' |
 };
 
 const TYPE_COLOR: Record<string, string> = {
-  'Heritage Site': '#6c63ff',
   'Local Guide': '#00c49f',
   'Event Operator': '#ff9f43',
   'Food Vendor': '#ff6b6b',
@@ -76,6 +83,10 @@ const Verification = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState<VerificationRecord | null>(null);
+  const [userDetails, setUserDetails] = useState<{ user: any; businessDetails: any; documents: any[] } | null>(null);
 
   const fetchRecords = async () => {
     setLoading(true);
@@ -138,6 +149,16 @@ const Verification = () => {
     setSearchTerm('');
     setPage(1);
     fetchRecords();
+  };
+
+  const handleViewDetails = async (record: VerificationRecord) => {
+    setSelectedRecord(record);
+    setDetailOpen(true);
+    setDetailLoading(true);
+    
+    const details = await VerificationService.getUserDetails(record.id, record.entityType);
+    setUserDetails(details);
+    setDetailLoading(false);
   };
 
   return (
@@ -327,7 +348,7 @@ const Verification = () => {
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Tooltip title="View details">
-                        <IconButton size="small">
+                        <IconButton size="small" onClick={() => handleViewDetails(record)}>
                           <VisibilityOutlinedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -389,6 +410,182 @@ const Verification = () => {
           />
         </Stack>
       </Paper>
+
+      {/* Detail Dialog */}
+      <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">{selectedRecord?.name} - Details</Typography>
+          <IconButton onClick={() => setDetailOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {detailLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Stack spacing={3}>
+              {/* Basic Info */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Basic Information
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Name</Typography>
+                    <Typography>{selectedRecord?.name}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Type</Typography>
+                    <Typography>{selectedRecord?.entityType}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Status</Typography>
+                    <Chip label={selectedRecord?.status} color={STATUS_COLOR[selectedRecord?.status || 'Pending']} size="small" />
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Submitted On</Typography>
+                    <Typography>{selectedRecord?.submittedOn}</Typography>
+                  </Grid>
+                  {userDetails?.user?.email && (
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="text.secondary">Email</Typography>
+                      <Typography>{userDetails.user.email}</Typography>
+                    </Grid>
+                  )}
+                  {userDetails?.user?.phone && (
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="text.secondary">Phone</Typography>
+                      <Typography>{userDetails.user.phone}</Typography>
+                    </Grid>
+                  )}
+                  {userDetails?.user?.verified_on && (
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="text.secondary">Verified On</Typography>
+                      <Typography>{format(new Date(userDetails.user.verified_on), 'MMMM d, yyyy')}</Typography>
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+
+              {/* Business Details */}
+              {userDetails?.businessDetails && (
+                <Box>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                    Business Details
+                  </Typography>
+                  <Grid container spacing={2}>
+                    {Object.entries(userDetails.businessDetails).map(([key, value]) => {
+                      if (key === 'id' || key === 'user_id' || key === 'created_at' || key === 'updated_at' || !value) return null;
+                      return (
+                        <Grid item xs={6} key={key}>
+                          <Typography variant="body2" color="text.secondary">
+                            {key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </Typography>
+                          <Typography>{String(value)}</Typography>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                </Box>
+              )}
+
+              {/* Documents */}
+              {userDetails?.documents && userDetails.documents.length > 0 && (
+                <Box>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                    Documents ({userDetails.documents.length})
+                  </Typography>
+                  <Grid container spacing={2}>
+                    {userDetails.documents.map((doc) => (
+                      <Grid item xs={12} sm={6} md={4} key={doc.id}>
+                        <Card variant="outlined">
+                          {doc.url && (doc.url.endsWith('.jpg') || doc.url.endsWith('.jpeg') || doc.url.endsWith('.png')) ? (
+                            <CardMedia
+                              component="img"
+                              height="120"
+                              image={doc.url}
+                              alt={doc.document_name}
+                              sx={{ objectFit: 'cover' }}
+                            />
+                          ) : (
+                            <Box sx={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
+                              <Typography variant="body2" color="text.secondary">Document</Typography>
+                            </Box>
+                          )}
+                          <Box sx={{ p: 1 }}>
+                            <Typography variant="body2" fontWeight={500} noWrap>
+                              {doc.document_type || doc.document_name}
+                            </Typography>
+                            {doc.url && (
+                              <Link href={doc.url} target="_blank" rel="noopener" variant="caption">
+                                View Document
+                              </Link>
+                            )}
+                          </Box>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              )}
+
+              {selectedRecord?.entityType === 'Artisan' && selectedRecord?.rawData && (
+                <Box>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                    Artisan Details
+                  </Typography>
+                  <Grid container spacing={2}>
+                    {selectedRecord.rawData.craft_type && (
+                      <Grid item xs={6}>
+                        <Typography variant="body2" color="text.secondary">Craft Type</Typography>
+                        <Typography>{selectedRecord.rawData.craft_type}</Typography>
+                      </Grid>
+                    )}
+                    {selectedRecord.rawData.short_bio && (
+                      <Grid item xs={12}>
+                        <Typography variant="body2" color="text.secondary">Bio</Typography>
+                        <Typography>{selectedRecord.rawData.short_bio}</Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDetailOpen(false)}>Close</Button>
+          {selectedRecord && selectedRecord.status !== 'Approved' && (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => {
+                handleApprove(selectedRecord);
+                setDetailOpen(false);
+              }}
+            >
+              Approve
+            </Button>
+          )}
+          {selectedRecord && selectedRecord.status !== 'Rejected' && (
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => {
+                handleReject(selectedRecord);
+                setDetailOpen(false);
+              }}
+            >
+              Reject
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
