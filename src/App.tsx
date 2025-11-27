@@ -16,6 +16,7 @@ import Bookings from './pages/Bookings/Bookings';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import Verification from './pages/Verification/Verification';
 import Marketing from './pages/Marketing/Marketing';
+import NotificationTemplate from './pages/Manage/NotificationTemplate';
 
 const theme = createTheme({
   palette: {
@@ -57,6 +58,7 @@ function App() {
               <Route path="bookings" element={<Bookings />} />
               <Route path="masters/heritage-sites/new" element={<AddHeritageSite />} />
               <Route path="masters/heritage-sites/:siteId/edit" element={<AddHeritageSite />} />
+              <Route path="notification-templates" element={<NotificationTemplate />} />
             </Route>
           </Routes>
         </Router>
