@@ -23,6 +23,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
+import NotificationsIcon from '@mui/icons-material/Notifications';
 import { useAuth } from '@/context/AuthContext';
 
 const drawerWidth = 260;
@@ -58,7 +59,14 @@ const menuItems: MenuItem[] = [
     ],
   },
   { text: 'Analytics', icon: AnalyticsIcon, path: '/analytics' },
-  { text: 'Manage', icon: SettingsIcon, path: '/masters' },
+  { 
+    text: 'Manage', 
+    icon: SettingsIcon, 
+    path: '/masters',
+    children: [
+      { text: 'Notification Template', path: '/notification-templates', icon: NotificationsIcon },
+    ],
+  },
   { text: 'User Management', icon: PeopleAltIcon, path: '/users' },
   { text: 'Verification', icon: VerifiedUserIcon, path: '/verification' },
   { text: 'Marketing', icon: CampaignIcon, path: '/marketing' },
