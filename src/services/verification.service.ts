@@ -262,6 +262,25 @@ export class VerificationService {
           .eq('user_id', id);
       }
 
+      // For vendor business types (Hotel, Event Operator, Tour Operator, Food Vendor)
+      // Update is_verified and verification_date in heritage_vendorbusinessdetails
+      const vendorEntityTypes = ['Hotel', 'Event Operator', 'Tour Operator', 'Food Vendor'];
+      if (vendorEntityTypes.includes(entityType)) {
+        const currentTimestamp = new Date().toISOString();
+        const { error: vendorError } = await supabase
+          .from('heritage_vendorbusinessdetails')
+          .update({ 
+            is_verified: true,
+            verification_date: currentTimestamp
+          })
+          .eq('user_id', id);
+        
+        if (vendorError) {
+          console.error('Error updating vendor business verification:', vendorError);
+          // Don't fail the entire approval if vendor update fails, but log it
+        }
+      }
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to approve entity' };
@@ -337,7 +356,41 @@ export class VerificationService {
       let businessDetails = null;
       const documents: any[] = [];
 
-      // Fetch business details based on entity type
+      // Entity types that use vendor business details
+      const vendorBusinessEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
+
+      // Fetch vendor business details if applicable (with translations)
+      if (vendorBusinessEntityTypes.includes(entityType)) {
+        try {
+          const { data: vendorData, error: vendorError } = await supabase.rpc(
+            'heritage_get_vendor_business_details',
+            {
+              p_user_id: userId,
+              p_language_code: 'en',
+              p_include_all_translations: true
+            }
+          );
+
+          if (!vendorError && vendorData && vendorData.success) {
+            // Extract the business details from the JSONB response
+            const vendorDetails = { ...vendorData };
+            delete vendorDetails.success;
+            delete vendorDetails.error;
+            
+            // Merge translations if available
+            if (vendorDetails.translations) {
+              vendorDetails._translations = vendorDetails.translations;
+              delete vendorDetails.translations;
+            }
+            
+            businessDetails = vendorDetails;
+          }
+        } catch (vendorErr) {
+          console.warn('Error fetching vendor business details:', vendorErr);
+        }
+      }
+
+      // Fetch business details based on entity type (fallback or additional data)
       const businessTableMap: Record<string, string> = {
         'Local Guide': 'heritage_local_guide_profile',
         'Event Operator': 'heritage_eventorganizer_business_details',
@@ -352,7 +405,8 @@ export class VerificationService {
       };
 
       const businessTable = businessTableMap[entityType];
-      if (businessTable) {
+      if (businessTable && !vendorBusinessEntityTypes.includes(entityType)) {
+        // Only fetch from old tables if not using vendor business details
         const { data: business, error: bizError } = await supabase
           .from(businessTable)
           .select('*')
@@ -363,6 +417,24 @@ export class VerificationService {
           businessDetails = business;
         } else if (bizError && altBusinessTableMap[entityType]) {
           // Try alternate table name
+          const { data: altBusiness } = await supabase
+            .from(altBusinessTableMap[entityType])
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+          businessDetails = altBusiness;
+        }
+      } else if (businessTable && vendorBusinessEntityTypes.includes(entityType) && !businessDetails) {
+        // If vendor business details not found, try old table as fallback
+        const { data: business, error: bizError } = await supabase
+          .from(businessTable)
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+        
+        if (business) {
+          businessDetails = business;
+        } else if (bizError && altBusinessTableMap[entityType]) {
           const { data: altBusiness } = await supabase
             .from(altBusinessTableMap[entityType])
             .select('*')
@@ -412,6 +484,208 @@ export class VerificationService {
     data: Record<string, any>
   ): Promise<{ success: boolean; error?: string }> {
     try {
+      // Entity types that use vendor business details
+      const vendorBusinessEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
+
+      // Handle vendor business details updates
+      if (vendorBusinessEntityTypes.includes(entityType)) {
+        // Remove fields that shouldn't be updated, but keep verification_date to handle separately
+        const {
+          id,
+          user_id,
+          created_at,
+          updated_at,
+          profile_id,
+          artisan_id,
+          business_id,
+          is_verified,
+          verification_notes,
+          _translations,
+          ...updateData
+        } = data;
+        
+        // Extract verification_date separately as it needs special handling
+        const verificationDate = data.verification_date;
+
+        // Check if vendor business details exist
+        const { data: checkResult, error: checkError } = await supabase.rpc(
+          'heritage_check_vendor_business_details_exists',
+          { p_user_id: userId }
+        );
+
+        if (checkError) {
+          console.warn('Error checking vendor business details:', checkError);
+        }
+
+        // If vendor business details exist, update using the upsert function
+        if (checkResult && checkResult.exists) {
+          // Handle license_expiry - convert date string to date if needed
+          let licenseExpiry = updateData.license_expiry || null;
+          if (licenseExpiry && typeof licenseExpiry === 'string') {
+            // If it's a date string (YYYY-MM-DD), keep it as is (DATE type)
+            if (licenseExpiry.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              // Keep as date string for DATE type
+              licenseExpiry = licenseExpiry;
+            } else if (licenseExpiry.includes('T')) {
+              // If it's a timestamp, extract date part
+              licenseExpiry = licenseExpiry.split('T')[0];
+            }
+          }
+          
+          const { data: updateResult, error: updateError } = await supabase.rpc(
+            'heritage_upsert_vendor_business_details',
+            {
+              p_user_id: userId,
+              p_business_name: updateData.business_name || null,
+              p_business_type: updateData.business_type || 'Vendor/Business',
+              p_gstin: updateData.gstin || null,
+              p_business_phone: updateData.business_phone || null,
+              p_business_email: updateData.business_email || null,
+              p_business_address: updateData.business_address || null,
+              p_city: updateData.city || null,
+              p_state: updateData.state || null,
+              p_pincode: updateData.pincode || null,
+              p_business_description: updateData.business_description || null,
+              p_license_number: updateData.license_number || null,
+              p_license_expiry: licenseExpiry,
+              p_website: updateData.website || null,
+              p_instagram_handle: updateData.instagram_handle || null,
+              p_facebook_page: updateData.facebook_page || null,
+              p_twitter_handle: updateData.twitter_handle || null,
+              p_linkedin_profile: updateData.linkedin_profile || null,
+              p_youtube_channel: updateData.youtube_channel || null,
+              p_show_contact_info: updateData.show_contact_info !== undefined ? updateData.show_contact_info : true,
+            }
+          );
+          
+          if (updateError) throw updateError;
+          if (updateResult && !updateResult.success) {
+            return { success: false, error: updateResult.error || 'Failed to update vendor business details' };
+          }
+          
+          // Update verification_date separately if it exists (not in the upsert function parameters)
+          if (verificationDate !== undefined) {
+            try {
+              // Convert date string to timestamp if needed
+              let dateValue: string | null = null;
+              if (verificationDate) {
+                if (typeof verificationDate === 'string') {
+                  // If it's already an ISO timestamp, use it
+                  if (verificationDate.includes('T') || verificationDate.includes('Z')) {
+                    dateValue = verificationDate;
+                  } else if (verificationDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    // If it's a date string, convert to ISO timestamp
+                    const date = new Date(verificationDate);
+                    date.setHours(0, 0, 0, 0);
+                    dateValue = date.toISOString();
+                  } else {
+                    dateValue = verificationDate;
+                  }
+                } else if (verificationDate instanceof Date) {
+                  dateValue = verificationDate.toISOString();
+                }
+              }
+              
+              await supabase
+                .from('heritage_vendorbusinessdetails')
+                .update({ verification_date: dateValue })
+                .eq('user_id', userId);
+            } catch (err) {
+              console.error('Error updating verification_date:', err);
+            }
+          }
+        } else {
+          // If vendor business details don't exist, try to create them
+          // Fetch user name for default business name
+          let defaultBusinessName = 'Business';
+          try {
+            const { data: userData } = await supabase
+              .from('heritage_user')
+              .select('full_name')
+              .eq('user_id', userId)
+              .single();
+            if (userData?.full_name) {
+              defaultBusinessName = userData.full_name;
+            }
+          } catch (err) {
+            // Ignore error, use default
+          }
+
+          // Handle license_expiry for create path
+          let licenseExpiry = updateData.license_expiry || null;
+          if (licenseExpiry && typeof licenseExpiry === 'string') {
+            if (licenseExpiry.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              licenseExpiry = licenseExpiry;
+            } else if (licenseExpiry.includes('T')) {
+              licenseExpiry = licenseExpiry.split('T')[0];
+            }
+          }
+          
+          const { data: createResult, error: createError } = await supabase.rpc(
+            'heritage_upsert_vendor_business_details',
+            {
+              p_user_id: userId,
+              p_business_name: updateData.business_name || defaultBusinessName,
+              p_business_type: updateData.business_type || 'Vendor/Business',
+              p_gstin: updateData.gstin || null,
+              p_business_phone: updateData.business_phone || null,
+              p_business_email: updateData.business_email || null,
+              p_business_address: updateData.business_address || null,
+              p_city: updateData.city || null,
+              p_state: updateData.state || null,
+              p_pincode: updateData.pincode || null,
+              p_business_description: updateData.business_description || null,
+              p_license_number: updateData.license_number || null,
+              p_license_expiry: licenseExpiry,
+              p_website: updateData.website || null,
+              p_instagram_handle: updateData.instagram_handle || null,
+              p_facebook_page: updateData.facebook_page || null,
+              p_twitter_handle: updateData.twitter_handle || null,
+              p_linkedin_profile: updateData.linkedin_profile || null,
+              p_youtube_channel: updateData.youtube_channel || null,
+              p_show_contact_info: updateData.show_contact_info !== undefined ? updateData.show_contact_info : true,
+            }
+          );
+
+          if (createError) throw createError;
+          if (createResult && !createResult.success) {
+            return { success: false, error: createResult.error || 'Failed to create vendor business details' };
+          }
+          
+          // Update verification_date separately if it exists (for create path too)
+          if (verificationDate !== undefined) {
+            try {
+              let dateValue: string | null = null;
+              if (verificationDate) {
+                if (typeof verificationDate === 'string') {
+                  if (verificationDate.includes('T') || verificationDate.includes('Z')) {
+                    dateValue = verificationDate;
+                  } else if (verificationDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    const date = new Date(verificationDate);
+                    date.setHours(0, 0, 0, 0);
+                    dateValue = date.toISOString();
+                  } else {
+                    dateValue = verificationDate;
+                  }
+                } else if (verificationDate instanceof Date) {
+                  dateValue = verificationDate.toISOString();
+                }
+              }
+              
+              await supabase
+                .from('heritage_vendorbusinessdetails')
+                .update({ verification_date: dateValue })
+                .eq('user_id', userId);
+            } catch (err) {
+              console.error('Error updating verification_date:', err);
+            }
+          }
+        }
+
+        return { success: true };
+      }
+
+      // Handle other entity types (Local Guide, Artisan, etc.)
       const tableMap: Record<string, string> = {
         'Local Guide': 'heritage_local_guide_profile',
         'Event Operator': 'heritage_eventorganizer_business_details',
@@ -461,16 +735,27 @@ export class VerificationService {
   }
 
   /**
-   * Update user basic info
+   * Update user basic info (heritage_user table)
    */
   static async updateUserInfo(
     userId: number,
-    data: { full_name?: string; phone?: string; email?: string }
+    data: { full_name?: string; phone?: string; email?: string; user_type_id?: number }
   ): Promise<{ success: boolean; error?: string }> {
     try {
+      const updateData: Record<string, any> = {};
+
+      if (data.full_name !== undefined) updateData.full_name = data.full_name;
+      if (data.phone !== undefined) updateData.phone = data.phone;
+      if (data.email !== undefined) updateData.email = data.email;
+      if (data.user_type_id !== undefined) updateData.user_type_id = data.user_type_id;
+
+      if (Object.keys(updateData).length === 0) {
+        return { success: true };
+      }
+
       const { error } = await supabase
         .from('heritage_user')
-        .update(data)
+        .update(updateData)
         .eq('user_id', userId);
 
       if (error) throw error;
