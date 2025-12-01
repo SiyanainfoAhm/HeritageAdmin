@@ -227,6 +227,83 @@ AFTER DELETE ON heritage_user_documents
 FOR EACH ROW
 EXECUTE FUNCTION reset_user_verified_on_document_change();
 
+-- 9. Trigger for Heritage_VendorBusinessDetails changes
+CREATE OR REPLACE FUNCTION reset_user_verified_on_vendor_business_change()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (OLD.business_name IS DISTINCT FROM NEW.business_name OR
+      OLD.business_type IS DISTINCT FROM NEW.business_type OR
+      OLD.gstin IS DISTINCT FROM NEW.gstin OR
+      OLD.business_phone IS DISTINCT FROM NEW.business_phone OR
+      OLD.business_email IS DISTINCT FROM NEW.business_email OR
+      OLD.business_address IS DISTINCT FROM NEW.business_address OR
+      OLD.city IS DISTINCT FROM NEW.city OR
+      OLD.state IS DISTINCT FROM NEW.state OR
+      OLD.pincode IS DISTINCT FROM NEW.pincode OR
+      OLD.business_description IS DISTINCT FROM NEW.business_description OR
+      OLD.license_number IS DISTINCT FROM NEW.license_number OR
+      OLD.license_expiry IS DISTINCT FROM NEW.license_expiry OR
+      OLD.website IS DISTINCT FROM NEW.website) THEN
+    
+    UPDATE heritage_user 
+    SET user_type_verified = false, verified_on = NULL
+    WHERE user_id = NEW.user_id;
+    
+    NEW.is_verified := false;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_reset_verified_on_vendor_business_change ON Heritage_VendorBusinessDetails;
+CREATE TRIGGER trg_reset_verified_on_vendor_business_change
+BEFORE UPDATE ON Heritage_VendorBusinessDetails
+FOR EACH ROW
+EXECUTE FUNCTION reset_user_verified_on_vendor_business_change();
+
+-- 10. Trigger for Heritage_VendorBusinessDetailsTranslation changes
+CREATE OR REPLACE FUNCTION reset_user_verified_on_vendor_translation_change()
+RETURNS TRIGGER AS $$
+DECLARE
+  target_user_id BIGINT;
+BEGIN
+  -- Get user_id from business_id
+  SELECT user_id INTO target_user_id
+  FROM Heritage_VendorBusinessDetails
+  WHERE business_id = COALESCE(NEW.business_id, OLD.business_id);
+  
+  IF target_user_id IS NOT NULL THEN
+    UPDATE heritage_user 
+    SET user_type_verified = false, verified_on = NULL
+    WHERE user_id = target_user_id;
+  END IF;
+  
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_reset_verified_on_vendor_translation_insert ON Heritage_VendorBusinessDetailsTranslation;
+CREATE TRIGGER trg_reset_verified_on_vendor_translation_insert
+AFTER INSERT ON Heritage_VendorBusinessDetailsTranslation
+FOR EACH ROW
+EXECUTE FUNCTION reset_user_verified_on_vendor_translation_change();
+
+DROP TRIGGER IF EXISTS trg_reset_verified_on_vendor_translation_update ON Heritage_VendorBusinessDetailsTranslation;
+CREATE TRIGGER trg_reset_verified_on_vendor_translation_update
+AFTER UPDATE ON Heritage_VendorBusinessDetailsTranslation
+FOR EACH ROW
+EXECUTE FUNCTION reset_user_verified_on_vendor_translation_change();
+
+DROP TRIGGER IF EXISTS trg_reset_verified_on_vendor_translation_delete ON Heritage_VendorBusinessDetailsTranslation;
+CREATE TRIGGER trg_reset_verified_on_vendor_translation_delete
+AFTER DELETE ON Heritage_VendorBusinessDetailsTranslation
+FOR EACH ROW
+EXECUTE FUNCTION reset_user_verified_on_vendor_translation_change();
+
 -- =====================================================
 -- DONE! All triggers created successfully.
 -- =====================================================
