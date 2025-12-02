@@ -1,4 +1,5 @@
 import { supabase } from '@/config/supabase';
+import { NotificationTemplateService } from './notificationTemplate.service';
 
 export interface VerificationRecord {
   id: number;
@@ -222,6 +223,13 @@ export class VerificationService {
    */
   static async approveEntity(entityType: string, id: number): Promise<{ success: boolean; error?: string }> {
     try {
+      // Get user details before updating (for email notification)
+      const { data: userData } = await supabase
+        .from('heritage_user')
+        .select('user_id, full_name, email')
+        .eq('user_id', id)
+        .single();
+
       const tableMap: Record<string, { table: string; idField: string; statusField: string; approveValue: any }> = {
         'Local Guide': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
         Hotel: { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', approveValue: true },
@@ -281,6 +289,41 @@ export class VerificationService {
         }
       }
 
+      // Send email notification for approval
+      if (userData?.email) {
+        try {
+          const verificationDate = new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+
+          console.log(`📧 Attempting to send approval email to: ${userData.email}`);
+          const emailResult = await NotificationTemplateService.sendEmailNotification(
+            id,
+            'verification_approved',
+            userData.email,
+            {
+              userName: userData.full_name || 'User',
+              entityType: entityType,
+              verificationDate: verificationDate,
+            }
+          );
+
+          if (emailResult.success) {
+            console.log(`✅ Email notification logged successfully for: ${userData.email}`);
+          } else {
+            console.error(`❌ Email notification failed: ${emailResult.error}`);
+          }
+        } catch (emailError: any) {
+          console.error('❌ Error sending approval email notification:', emailError);
+          console.error('Error details:', emailError.message || emailError);
+          // Don't fail the approval if email fails, but log it
+        }
+      } else {
+        console.warn(`⚠️  No email found for user ID ${id}. Email notification skipped.`);
+      }
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to approve entity' };
@@ -292,6 +335,13 @@ export class VerificationService {
    */
   static async rejectEntity(entityType: string, id: number): Promise<{ success: boolean; error?: string }> {
     try {
+      // Get user details before updating (for email notification)
+      const { data: userData } = await supabase
+        .from('heritage_user')
+        .select('user_id, full_name, email')
+        .eq('user_id', id)
+        .single();
+
       const tableMap: Record<string, { table: string; idField: string; statusField: string; rejectValue: any }> = {
         'Local Guide': { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
         Hotel: { table: 'heritage_user', idField: 'user_id', statusField: 'user_type_verified', rejectValue: false },
@@ -327,6 +377,31 @@ export class VerificationService {
           .from('heritage_local_guide_profile')
           .update({ verification_status: 'pending' })
           .eq('user_id', id);
+      }
+
+      // Send email notification for rejection
+      if (userData?.email) {
+        try {
+          const rejectionDate = new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+
+          await NotificationTemplateService.sendEmailNotification(
+            id,
+            'verification_rejected',
+            userData.email,
+            {
+              userName: userData.full_name || 'User',
+              entityType: entityType,
+              rejectionDate: rejectionDate,
+            }
+          );
+        } catch (emailError) {
+          console.error('Error sending rejection email notification:', emailError);
+          // Don't fail the rejection if email fails, but log it
+        }
       }
 
       return { success: true };
