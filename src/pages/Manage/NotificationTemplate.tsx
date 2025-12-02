@@ -34,7 +34,6 @@ import {
 import {
   Add as AddIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon,
   Visibility as ViewIcon,
   Code as CodeIcon,
   Preview as PreviewIcon,
@@ -60,15 +59,19 @@ const NotificationTemplate = () => {
   const [formData, setFormData] = useState({
     template_key: '',
     template_name: '',
-    subject_template: '',
-    body_template: '',
+    email_subject: '',
+    email_body_html: '',
+    email_body_text: '',
+    sms_body: '',
+    whatsapp_body: '',
+    whatsapp_template_id: '',
+    push_title: '',
+    push_body: '',
+    push_image_url: '',
+    push_action_url: '',
     is_critical: false,
     is_active: true,
   });
-
-  // Delete dialog
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Editor mode: 'code' or 'preview'
   const [editorMode, setEditorMode] = useState<'code' | 'preview'>('code');
@@ -137,8 +140,16 @@ const NotificationTemplate = () => {
     setFormData({
       template_key: '',
       template_name: '',
-      subject_template: '',
-      body_template: '',
+      email_subject: '',
+      email_body_html: '',
+      email_body_text: '',
+      sms_body: '',
+      whatsapp_body: '',
+      whatsapp_template_id: '',
+      push_title: '',
+      push_body: '',
+      push_image_url: '',
+      push_action_url: '',
       is_critical: false,
       is_active: true,
     });
@@ -151,8 +162,16 @@ const NotificationTemplate = () => {
     setFormData({
       template_key: template.template_key,
       template_name: template.template_name,
-      subject_template: template.subject_template,
-      body_template: template.body_template,
+      email_subject: template.email_subject,
+      email_body_html: template.email_body_html,
+      email_body_text: template.email_body_text || '',
+      sms_body: template.sms_body || '',
+      whatsapp_body: template.whatsapp_body || '',
+      whatsapp_template_id: template.whatsapp_template_id || '',
+      push_title: template.push_title || '',
+      push_body: template.push_body || '',
+      push_image_url: template.push_image_url || '',
+      push_action_url: template.push_action_url || '',
       is_critical: template.is_critical,
       is_active: template.is_active,
     });
@@ -165,30 +184,6 @@ const NotificationTemplate = () => {
     setSelectedTemplate(template);
     setDialogMode('view');
     setDialogOpen(true);
-  };
-
-  const handleDelete = (template: EmailTemplate) => {
-    setSelectedTemplate(template);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!selectedTemplate) return;
-    setDeleteLoading(true);
-    try {
-      const result = await NotificationTemplateService.deleteEmailTemplate(selectedTemplate.id);
-      if (result.success) {
-        setSuccess('Template deleted successfully');
-        fetchTemplates();
-        setDeleteDialogOpen(false);
-      } else {
-        setError(result.error?.message || 'Failed to delete template');
-      }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
-    } finally {
-      setDeleteLoading(false);
-    }
   };
 
   const handleSave = async () => {
@@ -281,7 +276,7 @@ const NotificationTemplate = () => {
                     <TableCell>{template.template_name}</TableCell>
                     <TableCell>
                       <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 200 }}>
-                        {template.subject_template}
+                        {template.email_subject}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -304,14 +299,6 @@ const NotificationTemplate = () => {
                       </IconButton>
                       <IconButton size="small" onClick={() => handleEdit(template)} title="Edit">
                         <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleDelete(template)}
-                        title="Delete"
-                      >
-                        <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
                   </TableRow>
@@ -477,7 +464,7 @@ const NotificationTemplate = () => {
           variant="scrollable"
           scrollButtons="auto"
         >
-          <Tab label="Email Templates" value="templates" />
+          <Tab label="Notification Templates" value="templates" />
           <Tab label="Notification Logs" value="logs" />
         </Tabs>
       </Paper>
@@ -493,7 +480,7 @@ const NotificationTemplate = () => {
             ? 'Edit Template'
             : 'View Template'}
         </DialogTitle>
-        <DialogContent>
+        <DialogContent dividers sx={{ maxHeight: '70vh', overflowY: 'auto' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             <TextField
               label="Template Key"
@@ -512,22 +499,22 @@ const NotificationTemplate = () => {
               required
             />
             <TextField
-              label="Subject Template"
+              label="Email Subject"
               value={
                 dialogMode === 'view'
-                  ? selectedTemplate?.subject_template
-                  : formData.subject_template
+                  ? selectedTemplate?.email_subject
+                  : formData.email_subject
               }
-              onChange={(e) => setFormData({ ...formData, subject_template: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
               disabled={dialogMode === 'view'}
               fullWidth
               required
             />
-            {/* Body Template with Code/Preview Toggle */}
+            {/* Email Body HTML with Code/Preview Toggle */}
             <Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                 <Typography variant="subtitle2" color="text.secondary">
-                  Body Template (HTML) *
+                  Email Body (HTML) *
                 </Typography>
                 <ToggleButtonGroup
                   value={editorMode}
@@ -549,9 +536,9 @@ const NotificationTemplate = () => {
               {editorMode === 'code' ? (
                 <TextField
                   value={
-                    dialogMode === 'view' ? selectedTemplate?.body_template : formData.body_template
+                    dialogMode === 'view' ? selectedTemplate?.email_body_html : formData.email_body_html
                   }
-                  onChange={(e) => setFormData({ ...formData, body_template: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, email_body_html: e.target.value })}
                   disabled={dialogMode === 'view'}
                   fullWidth
                   multiline
@@ -579,13 +566,134 @@ const NotificationTemplate = () => {
                     dangerouslySetInnerHTML={{
                       __html:
                         dialogMode === 'view'
-                          ? selectedTemplate?.body_template || ''
-                          : formData.body_template,
+                          ? selectedTemplate?.email_body_html || ''
+                          : formData.email_body_html,
                     }}
                   />
                 </Paper>
               )}
             </Box>
+            
+            {/* Email Body Text */}
+            <TextField
+              label="Email Body (Plain Text)"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.email_body_text || ''
+                  : formData.email_body_text
+              }
+              onChange={(e) => setFormData({ ...formData, email_body_text: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              multiline
+              rows={4}
+              placeholder="Enter plain text version..."
+            />
+            
+            {/* SMS Body */}
+            <TextField
+              label="SMS Body"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.sms_body || ''
+                  : formData.sms_body
+              }
+              onChange={(e) => setFormData({ ...formData, sms_body: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              multiline
+              rows={3}
+              placeholder="Enter SMS content..."
+              helperText="Maximum 160 characters recommended"
+            />
+            
+            {/* WhatsApp Body */}
+            <TextField
+              label="WhatsApp Body"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.whatsapp_body || ''
+                  : formData.whatsapp_body
+              }
+              onChange={(e) => setFormData({ ...formData, whatsapp_body: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              multiline
+              rows={4}
+              placeholder="Enter WhatsApp content..."
+            />
+            
+            {/* WhatsApp Template ID */}
+            <TextField
+              label="WhatsApp Template ID"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.whatsapp_template_id || ''
+                  : formData.whatsapp_template_id
+              }
+              onChange={(e) => setFormData({ ...formData, whatsapp_template_id: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              placeholder="Enter WhatsApp template ID..."
+            />
+            
+            {/* Push Notification Title */}
+            <TextField
+              label="Push Notification Title"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.push_title || ''
+                  : formData.push_title
+              }
+              onChange={(e) => setFormData({ ...formData, push_title: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              placeholder="Enter push notification title..."
+            />
+            
+            {/* Push Notification Body */}
+            <TextField
+              label="Push Notification Body"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.push_body || ''
+                  : formData.push_body
+              }
+              onChange={(e) => setFormData({ ...formData, push_body: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              multiline
+              rows={3}
+              placeholder="Enter push notification body..."
+            />
+            
+            {/* Push Image URL */}
+            <TextField
+              label="Push Image URL"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.push_image_url || ''
+                  : formData.push_image_url
+              }
+              onChange={(e) => setFormData({ ...formData, push_image_url: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              placeholder="Enter push notification image URL..."
+            />
+            
+            {/* Push Action URL */}
+            <TextField
+              label="Push Action URL (Deep Link)"
+              value={
+                dialogMode === 'view'
+                  ? selectedTemplate?.push_action_url || ''
+                  : formData.push_action_url
+              }
+              onChange={(e) => setFormData({ ...formData, push_action_url: e.target.value })}
+              disabled={dialogMode === 'view'}
+              fullWidth
+              placeholder="Enter push notification deep link URL..."
+            />
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControlLabel
                 control={
@@ -623,27 +731,6 @@ const NotificationTemplate = () => {
               {loading ? <CircularProgress size={24} /> : 'Save'}
             </Button>
           )}
-        </DialogActions>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Template</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete the template "{selectedTemplate?.template_name}"?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button
-            onClick={handleDeleteConfirm}
-            color="error"
-            variant="contained"
-            disabled={deleteLoading}
-          >
-            {deleteLoading ? <CircularProgress size={24} /> : 'Delete'}
-          </Button>
         </DialogActions>
       </Dialog>
     </Box>

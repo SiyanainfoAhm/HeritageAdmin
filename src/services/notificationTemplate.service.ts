@@ -4,8 +4,16 @@ export interface EmailTemplate {
   id: number;
   template_key: string;
   template_name: string;
-  subject_template: string;
-  body_template: string;
+  email_subject: string;
+  email_body_html: string;
+  email_body_text?: string | null;
+  sms_body?: string | null;
+  whatsapp_body?: string | null;
+  whatsapp_template_id?: string | null;
+  push_title?: string | null;
+  push_body?: string | null;
+  push_image_url?: string | null;
+  push_action_url?: string | null;
   is_critical: boolean;
   is_active: boolean;
   created_at: string;
@@ -37,7 +45,7 @@ export class NotificationTemplateService {
   static async getEmailTemplates(): Promise<EmailTemplate[]> {
     try {
       const { data, error } = await supabase
-        .from('heritage_email_templates')
+        .from('heritage_notification_templates')
         .select('*')
         .order('template_name', { ascending: true });
 
@@ -59,7 +67,7 @@ export class NotificationTemplateService {
   static async getEmailTemplateById(id: number): Promise<EmailTemplate | null> {
     try {
       const { data, error } = await supabase
-        .from('heritage_email_templates')
+        .from('heritage_notification_templates')
         .select('*')
         .eq('id', id)
         .single();
@@ -84,12 +92,20 @@ export class NotificationTemplateService {
   ): Promise<{ success: boolean; data?: EmailTemplate; error?: any }> {
     try {
       const { data, error } = await supabase
-        .from('heritage_email_templates')
+        .from('heritage_notification_templates')
         .insert({
           template_key: template.template_key,
           template_name: template.template_name,
-          subject_template: template.subject_template,
-          body_template: template.body_template,
+          email_subject: template.email_subject,
+          email_body_html: template.email_body_html,
+          email_body_text: template.email_body_text || null,
+          sms_body: template.sms_body || null,
+          whatsapp_body: template.whatsapp_body || null,
+          whatsapp_template_id: template.whatsapp_template_id || null,
+          push_title: template.push_title || null,
+          push_body: template.push_body || null,
+          push_image_url: template.push_image_url || null,
+          push_action_url: template.push_action_url || null,
           is_critical: template.is_critical,
           is_active: template.is_active,
         })
@@ -115,7 +131,7 @@ export class NotificationTemplateService {
   ): Promise<{ success: boolean; data?: EmailTemplate; error?: any }> {
     try {
       const { data, error } = await supabase
-        .from('heritage_email_templates')
+        .from('heritage_notification_templates')
         .update({
           ...updates,
           updated_at: new Date().toISOString(),
@@ -140,7 +156,7 @@ export class NotificationTemplateService {
   static async deleteEmailTemplate(id: number): Promise<{ success: boolean; error?: any }> {
     try {
       const { error } = await supabase
-        .from('heritage_email_templates')
+        .from('heritage_notification_templates')
         .delete()
         .eq('id', id);
 
