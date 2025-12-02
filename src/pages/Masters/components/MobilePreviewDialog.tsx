@@ -14,6 +14,9 @@ import {
   Tab,
   Rating,
   Button,
+  FormControl,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -25,7 +28,8 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import DirectionsIcon from '@mui/icons-material/Directions';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
+import ViewInArIcon from '@mui/icons-material/ViewInAr';
 import StarIcon from '@mui/icons-material/Star';
 import HomeIcon from '@mui/icons-material/Home';
 import ExploreIcon from '@mui/icons-material/Explore';
@@ -55,6 +59,7 @@ interface MappedSiteData {
   longitude: number;
   image_url: string;
   vr_link: string | null;
+  ar_mode_available?: boolean;
   entry_type: string;
   entry_fee: number;
   photography_allowed: string;
@@ -70,29 +75,266 @@ interface MappedSiteData {
   reviews: { review_id: number; reviewer_name: string; rating: number; text: string; created_at: string }[];
 }
 
+type PreviewLanguageCode = 'EN' | 'HI' | 'GU' | 'JA' | 'ES' | 'FR';
+
+const PREVIEW_LANGUAGES: { code: PreviewLanguageCode; label: string }[] = [
+  { code: 'EN', label: 'English' },
+  { code: 'HI', label: 'Hindi' },
+  { code: 'GU', label: 'Gujarati' },
+  { code: 'JA', label: 'Japanese' },
+  { code: 'ES', label: 'Spanish' },
+  { code: 'FR', label: 'French' },
+];
+
+type UiStringKey =
+  | 'tabOverview'
+  | 'tabAbout'
+  | 'tabPlanVisit'
+  | 'tabReviews'
+  | 'immersiveExperience'
+  | 'quickInfo'
+  | 'openHours'
+  | 'entryFee'
+  | 'photography'
+  | 'gettingThere'
+  | 'historyArchitecture'
+  | 'accessibility'
+  | 'etiquettes'
+  | 'experience'
+  | 'openingHoursEntry'
+  | 'bookTickets'
+  | 'writeReview'
+  | 'noReviewsYet'
+  | 'beFirstReview'
+  | 'viewIn360'
+  | 'tapToExperience'
+  | 'openNow'
+  | 'vrAvailable'
+  | 'getDirections'
+  | 'bookNow'
+  | 'free';
+
+type UiStrings = Record<UiStringKey, string>;
+
+const EN_STRINGS: UiStrings = {
+  tabOverview: 'Overview',
+  tabAbout: 'About',
+  tabPlanVisit: 'Plan Visit',
+  tabReviews: 'Reviews',
+  immersiveExperience: 'Immersive Experience',
+  quickInfo: 'Quick Info',
+  openHours: 'Open Hours',
+  entryFee: 'Entry Fee',
+  photography: 'Photography',
+  gettingThere: 'Getting There',
+  historyArchitecture: 'History & Architecture',
+  accessibility: 'Accessibility',
+  etiquettes: 'Etiquettes',
+  experience: 'Experience',
+  openingHoursEntry: 'Opening Hours & Entry',
+  bookTickets: 'Book Tickets',
+  writeReview: 'Write a Review',
+  noReviewsYet: 'No reviews yet',
+  beFirstReview: 'Be the first to share your experience!',
+  viewIn360: 'View in 360°',
+  tapToExperience: 'Tap to experience',
+  openNow: 'Open Now',
+  vrAvailable: 'VR Available',
+  getDirections: 'Get Directions',
+  bookNow: 'Book Now',
+  free: 'Free',
+};
+
+const UI_STRINGS: Record<PreviewLanguageCode, UiStrings> = {
+  EN: EN_STRINGS,
+  HI: {
+    ...EN_STRINGS,
+    tabOverview: 'सारांश',
+    tabAbout: 'विवरण',
+    tabPlanVisit: 'यात्रा योजना',
+    tabReviews: 'समीक्षाएँ',
+    immersiveExperience: 'इमर्सिव अनुभव',
+    quickInfo: 'त्वरित जानकारी',
+    openHours: 'खुलने का समय',
+    entryFee: 'प्रवेश शुल्क',
+    photography: 'फोटो खींचना',
+    gettingThere: 'कैसे पहुँचे',
+    historyArchitecture: 'इतिहास और वास्तुकला',
+    accessibility: 'सुगम्यता',
+    etiquettes: 'आचार नियम',
+    experience: 'अनुभव',
+    openingHoursEntry: 'खुलने का समय और प्रवेश',
+    bookTickets: 'टिकट बुक करें',
+    writeReview: 'समीक्षा लिखें',
+    noReviewsYet: 'अभी तक कोई समीक्षा नहीं',
+    beFirstReview: 'अपना अनुभव साझा करने वाले पहले व्यक्ति बनें!',
+    viewIn360: '360° में देखें',
+    tapToExperience: 'अनुभव के लिए टैप करें',
+    openNow: 'खुला है',
+    vrAvailable: 'वीआर उपलब्ध',
+    getDirections: 'दिशा-निर्देश प्राप्त करें',
+    bookNow: 'अभी बुक करें',
+    free: 'नि:शुल्क',
+  },
+  GU: {
+    ...EN_STRINGS,
+    tabOverview: 'પરિચય',
+    tabAbout: 'વિગતો',
+    tabPlanVisit: 'મુલાકાત યોજના',
+    tabReviews: 'સમીક્ષાઓ',
+    immersiveExperience: 'ઈમર્સિવ અનુભવ',
+    quickInfo: 'ઝડપી માહિતી',
+    openHours: 'ખુલ્લા કલાકો',
+    entryFee: 'પ્રવેશ ફી',
+    photography: 'ફોટોગ્રાફી',
+    gettingThere: 'ત્યાં કેવી રીતે પહોંચવું',
+    historyArchitecture: 'ઇતિહાસ અને વાસ્તુશિલ્પ',
+    accessibility: 'સુગમતા',
+    etiquettes: 'નિયમો',
+    experience: 'અનુભવ',
+    openingHoursEntry: 'ખુલ્લા કલાકો અને પ્રવેશ',
+    bookTickets: 'ટિકિટ બુક કરો',
+    writeReview: 'સમિક્ષા લખો',
+    noReviewsYet: 'હજુ સુધી કોઈ સમિક્ષા નથી',
+    beFirstReview: 'તમારો અનુભવ શેર કરનાર પહેલા બનો!',
+    viewIn360: '૩૬૦° માં જુઓ',
+    tapToExperience: 'અનુભવ માટે ટેપ કરો',
+    openNow: 'હમણાં ખુલ્લું છે',
+    vrAvailable: 'વી.આર. ઉપલબ્ધ',
+    getDirections: 'દિશા મેળવો',
+    bookNow: 'હમણાં બુક કરો',
+    free: 'મફત',
+  },
+  JA: {
+    ...EN_STRINGS,
+    tabOverview: '概要',
+    tabAbout: '詳細',
+    tabPlanVisit: '訪問計画',
+    tabReviews: 'レビュー',
+    immersiveExperience: '没入型体験',
+    quickInfo: 'クイック情報',
+    openHours: '営業時間',
+    entryFee: '入場料',
+    photography: '写真撮影',
+    gettingThere: 'アクセス',
+    historyArchitecture: '歴史と建築',
+    accessibility: 'バリアフリー',
+    etiquettes: 'マナー',
+    experience: '体験',
+    openingHoursEntry: '営業時間と入場',
+    bookTickets: 'チケットを予約',
+    writeReview: 'レビューを書く',
+    noReviewsYet: 'まだレビューがありません',
+    beFirstReview: '最初に体験を共有しましょう！',
+    viewIn360: '360°で見る',
+    tapToExperience: 'タップして体験',
+    openNow: '営業中',
+    vrAvailable: 'VR 対応',
+    getDirections: '行き方を見る',
+    bookNow: '今すぐ予約',
+    free: '無料',
+  },
+  ES: {
+    ...EN_STRINGS,
+    tabOverview: 'Resumen',
+    tabAbout: 'Acerca de',
+    tabPlanVisit: 'Planificar visita',
+    tabReviews: 'Reseñas',
+    immersiveExperience: 'Experiencia inmersiva',
+    quickInfo: 'Información rápida',
+    openHours: 'Horario',
+    entryFee: 'Entrada',
+    photography: 'Fotografía',
+    gettingThere: 'Cómo llegar',
+    historyArchitecture: 'Historia y arquitectura',
+    accessibility: 'Accesibilidad',
+    etiquettes: 'Normas',
+    experience: 'Experiencia',
+    openingHoursEntry: 'Horario y entrada',
+    bookTickets: 'Reservar entradas',
+    writeReview: 'Escribir una reseña',
+    noReviewsYet: 'Aún no hay reseñas',
+    beFirstReview: '¡Sé el primero en compartir tu experiencia!',
+    viewIn360: 'Ver en 360°',
+    tapToExperience: 'Toca para vivir la experiencia',
+    openNow: 'Abierto ahora',
+    vrAvailable: 'VR disponible',
+    getDirections: 'Obtener indicaciones',
+    bookNow: 'Reservar ahora',
+    free: 'Gratis',
+  },
+  FR: {
+    ...EN_STRINGS,
+    tabOverview: 'Aperçu',
+    tabAbout: 'À propos',
+    tabPlanVisit: 'Planifier la visite',
+    tabReviews: 'Avis',
+    immersiveExperience: 'Expérience immersive',
+    quickInfo: 'Infos rapides',
+    openHours: 'Horaires',
+    entryFee: 'Tarif d’entrée',
+    photography: 'Photographie',
+    gettingThere: 'Comment y aller',
+    historyArchitecture: 'Histoire et architecture',
+    accessibility: 'Accessibilité',
+    etiquettes: 'Règles',
+    experience: 'Expérience',
+    openingHoursEntry: 'Horaires et entrée',
+    bookTickets: 'Réserver des billets',
+    writeReview: 'Écrire un avis',
+    noReviewsYet: 'Aucun avis pour le moment',
+    beFirstReview: 'Soyez le premier à partager votre expérience !',
+    viewIn360: 'Voir en 360°',
+    tapToExperience: 'Touchez pour découvrir',
+    openNow: 'Ouvert maintenant',
+    vrAvailable: 'VR disponible',
+    getDirections: 'Itinéraire',
+    bookNow: 'Réserver',
+    free: 'Gratuit',
+  },
+};
+
 const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [siteData, setSiteData] = useState<MappedSiteData | null>(null);
   const [currentTab, setCurrentTab] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [isWishlisted, setIsWishlisted] = useState(false);
+  const [showVrPlayer, setShowVrPlayer] = useState(false);
+  const [language, setLanguage] = useState<PreviewLanguageCode>('EN');
+
+  const t = (key: UiStringKey): string => {
+    const langStrings = UI_STRINGS[language] || EN_STRINGS;
+    return langStrings[key] || EN_STRINGS[key];
+  };
 
   useEffect(() => {
     if (open && siteId) {
-      fetchExtendedSiteData(siteId);
+      // Reset view state whenever a site is (re)opened or language changes
+      setCurrentImageIndex(0);
+      setCurrentTab(0);
+      setShowVrPlayer(false);
+      fetchExtendedSiteData(siteId, language);
+    } else if (!open) {
+      // Ensure VR overlay is closed when dialog is closed
+      setShowVrPlayer(false);
     }
-  }, [open, siteId]);
+  }, [open, siteId, language]);
 
-  const fetchExtendedSiteData = async (id: number) => {
+  const fetchExtendedSiteData = async (id: number, lang: PreviewLanguageCode) => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: rpcError } = await supabase.rpc('get_extended_heritage_site', {
-        p_site_id: id,
-        p_language_code: 'EN',
-        p_user_id: null,
-      });
+      const { data, error: rpcError } = await supabase.rpc(
+        'get_extended_heritage_site',
+        {
+          p_site_id: id,
+          p_language_code: lang,
+          p_user_id: null,
+        }
+      );
 
       if (rpcError) {
         throw rpcError;
@@ -106,6 +348,15 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
         // Map RPC response to our component structure
         const siteBasic = data.site_data || {};
         const ratings = data.ratings || {};
+
+        // Normalize ticket types to ensure we always have a name and price
+        const rawTickets = Array.isArray(data.ticket_types) ? data.ticket_types : [];
+        const ticketTypes = rawTickets.map((t: any) => ({
+          ticket_type_id: t.ticket_type_id ?? t.id ?? 0,
+          name: t.name ?? t.ticket_name ?? t.ticket ?? 'Ticket',
+          price: typeof t.price === 'number' ? t.price : Number(t.price ?? 0),
+          is_active: typeof t.is_active === 'boolean' ? t.is_active : true,
+        }));
         
         const mapped: MappedSiteData = {
           site_id: siteBasic.site_id || id,
@@ -122,6 +373,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           longitude: siteBasic.longitude || 0,
           image_url: siteBasic.image_url || '',
           vr_link: siteBasic.vr_link || null,
+          ar_mode_available: !!siteBasic.ar_mode_available,
           entry_type: siteBasic.entry_type || 'free',
           entry_fee: siteBasic.entry_fee || 0,
           photography_allowed: siteBasic.photography_allowed || 'Free',
@@ -129,7 +381,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           accessibility: Array.isArray(data.accessibility) ? data.accessibility : [],
           experience: Array.isArray(data.experience) ? data.experience : [],
           etiquettes: Array.isArray(data.etiquettes) ? data.etiquettes : [],
-          ticket_types: Array.isArray(data.ticket_types) ? data.ticket_types : [],
+          ticket_types: ticketTypes,
           visiting_hours: Array.isArray(data.visiting_hours) ? data.visiting_hours : [],
           images: Array.isArray(data.images) ? data.images : [],
           audios: Array.isArray(data.audios) ? data.audios : [],
@@ -196,14 +448,62 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
     return `${formatTime(firstHour.open_time)} - ${formatTime(firstHour.close_time)}`;
   };
 
+  const getOpeningDaysLabel = (): string => {
+    if (!siteData || !siteData.visiting_hours || siteData.visiting_hours.length === 0) {
+      return 'Not available';
+    }
+
+    const DAY_NAMES_MAP: Record<PreviewLanguageCode, string[]> = {
+      EN: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      HI: ['सोमवार', 'मंगलवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार', 'रविवार'],
+      GU: ['સોમવાર', 'મંગળવાર', 'બુધવાર', 'ગુરુવાર', 'શુક્રવાર', 'શનિવાર', 'રવિવાર'],
+      JA: ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日'],
+      ES: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+      FR: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'],
+    };
+
+    const dayNames = DAY_NAMES_MAP[language] || DAY_NAMES_MAP.EN;
+    const openDays = siteData.visiting_hours
+      .filter((h) => !h.is_closed)
+      .map((h) => h.day_of_week)
+      .filter((d) => typeof d === 'number' && d >= 1 && d <= 7)
+      .sort((a, b) => a - b);
+
+    if (!openDays.length) return 'Closed';
+
+    const firstDay = dayNames[openDays[0] - 1];
+    const lastDay = dayNames[openDays[openDays.length - 1] - 1];
+
+    // If open all week
+    if (openDays.length === 7 && openDays[0] === 1 && openDays[6] === 7) {
+      return 'Monday - Sunday';
+    }
+
+    // If open on a single day
+    if (openDays.length === 1) {
+      return firstDay;
+    }
+
+    // If open on a continuous range of days (e.g., Mon-Fri)
+    const isContiguous = openDays.every((day, index) =>
+      index === 0 ? true : day === openDays[index - 1] + 1
+    );
+
+    if (isContiguous) {
+      return `${firstDay} - ${lastDay}`;
+    }
+
+    // Non-contiguous days, list them comma-separated (e.g., Mon, Wed, Fri)
+    return openDays.map((d) => dayNames[d - 1]).join(', ');
+  };
+
   const getEntryFee = (): string => {
     if (siteData?.ticket_types?.length) {
       const activeTickets = siteData.ticket_types.filter((t) => t.is_active);
       if (activeTickets.length > 0) {
         const prices = activeTickets.map((t) => t.price).filter((p) => p > 0);
         if (prices.length > 0) {
-          const minPrice = Math.min(...prices);
-          return `₹${minPrice}`;
+          return `₹${Math.min(...prices)}`;
         }
         return 'Free';
       }
@@ -211,7 +511,39 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
     return 'Free';
   };
 
+  const handleOpenDirections = () => {
+    if (!siteData) return;
+
+    const { latitude, longitude } = siteData;
+    if (latitude == null || longitude == null) {
+      console.warn('No latitude/longitude available for this site');
+      return;
+    }
+
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) {
+      console.warn('Invalid latitude/longitude values:', latitude, longitude);
+      return;
+    }
+
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      `${lat},${lng}`
+    )}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const images = getImages();
+
+  const goToNextImage = () => {
+    if (!images.length) return;
+    setCurrentImageIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const goToPreviousImage = () => {
+    if (!images.length) return;
+    setCurrentImageIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
 
   const renderOverviewTab = () => (
     <Box sx={{ p: 2 }}>
@@ -223,7 +555,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
       {/* VR Experience Section */}
       {siteData?.vr_link && (
         <Box sx={{ mb: 3 }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1 }}>Immersive Experience</Typography>
+          <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1 }}>{t('immersiveExperience')}</Typography>
           <Box
             sx={{
               height: 140,
@@ -256,42 +588,76 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
                 gap: 0.5,
               }}
             >
-              <Typography sx={{ fontSize: 10, color: '#fff', fontWeight: 600 }}>VR Available</Typography>
+              <Typography sx={{ fontSize: 10, color: '#fff', fontWeight: 600 }}>{t('vrAvailable')}</Typography>
             </Box>
+
+            {/* Buttons Row */}
             <Box
               sx={{
                 position: 'absolute',
                 bottom: 12,
-                left: 12,
+                left: '50%',
+                transform: 'translateX(-50%)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 1,
+                gap: 1.5,
               }}
             >
+              {/* 360 Button */}
               <Box
                 sx={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: '50%',
                   backgroundColor: '#fff',
+                  borderRadius: 1.5,
+                  px: 2.5,
+                  py: 0.75,
+                  minWidth: 120,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  gap: 0.75,
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                  border: '1px solid #e0e0e0',
+                  cursor: 'pointer',
                 }}
+                onClick={() => setShowVrPlayer(true)}
               >
-                <PlayArrowIcon sx={{ color: '#7B1FA2', fontSize: 24 }} />
+                <AutorenewIcon sx={{ fontSize: 18, color: '#FF9800', mr: 0.5 }} />
+                <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#444' }}>
+                  {t('viewIn360')}
+                </Typography>
               </Box>
-              <Box>
-                <Typography sx={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>View in 360°</Typography>
-                <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.9)' }}>Tap to experience</Typography>
-              </Box>
+
+              {/* AR Button (only when ar_mode is available) */}
+              {siteData.ar_mode_available && (
+                <Box
+                  sx={{
+                    backgroundColor: '#fff',
+                    borderRadius: 1.5,
+                    px: 2.5,
+                    py: 0.75,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 0.75,
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                    border: '1px solid #e0e0e0',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setShowVrPlayer(true)}
+                >
+                  <ViewInArIcon sx={{ fontSize: 18, color: '#FF9800', mr: 0.5 }} />
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#444' }}>
+                    AR Mode
+                  </Typography>
+                </Box>
+              )}
             </Box>
           </Box>
         </Box>
       )}
 
       {/* Quick Info */}
-      <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1.5 }}>Quick Info</Typography>
+      <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1.5 }}>{t('quickInfo')}</Typography>
       <Stack direction="row" justifyContent="space-around" sx={{ mb: 3 }}>
         <Box sx={{ textAlign: 'center' }}>
           <Box
@@ -309,7 +675,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           >
             <AccessTimeIcon sx={{ color: '#FF9800', fontSize: 20 }} />
           </Box>
-          <Typography sx={{ fontSize: 11, color: '#666' }}>Open Hours</Typography>
+          <Typography sx={{ fontSize: 11, color: '#666' }}>{t('openHours')}</Typography>
           <Typography sx={{ fontSize: 10, color: '#999' }}>{getOperatingHours()}</Typography>
         </Box>
         <Box sx={{ textAlign: 'center' }}>
@@ -328,8 +694,14 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           >
             <AttachMoneyIcon sx={{ color: '#FF9800', fontSize: 20 }} />
           </Box>
-          <Typography sx={{ fontSize: 11, color: '#666' }}>Entry Fee</Typography>
-          <Typography sx={{ fontSize: 10, color: '#999' }}>{getEntryFee()}</Typography>
+          <Typography sx={{ fontSize: 11, color: '#666' }}>{t('entryFee')}</Typography>
+          {(() => {
+            const fee = getEntryFee();
+            const label = fee === 'Free' ? t('free') : fee;
+            return (
+              <Typography sx={{ fontSize: 10, color: '#999' }}>{label}</Typography>
+            );
+          })()}
         </Box>
         <Box sx={{ textAlign: 'center' }}>
           <Box
@@ -347,16 +719,19 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           >
             <CameraAltIcon sx={{ color: '#FF9800', fontSize: 20 }} />
           </Box>
-          <Typography sx={{ fontSize: 11, color: '#666' }}>Photography</Typography>
-          <Typography sx={{ fontSize: 10, color: '#999' }}>{siteData?.photography_allowed || 'Free'}</Typography>
+          <Typography sx={{ fontSize: 11, color: '#666' }}>{t('photography')}</Typography>
+          <Typography sx={{ fontSize: 10, color: '#999' }}>
+            {siteData?.photography_allowed || t('free')}
+          </Typography>
         </Box>
       </Stack>
 
       {/* Getting There */}
-      <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1.5 }}>Getting There</Typography>
+      <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1.5 }}>{t('gettingThere')}</Typography>
       <Button
         variant="contained"
         startIcon={<DirectionsIcon />}
+        onClick={handleOpenDirections}
         sx={{
           backgroundColor: '#FF9800',
           color: '#fff',
@@ -366,7 +741,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           '&:hover': { backgroundColor: '#F57C00' },
         }}
       >
-        Get Directions
+        {t('getDirections')}
       </Button>
     </Box>
   );
@@ -374,7 +749,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
   const renderAboutTab = () => (
     <Box sx={{ p: 2 }}>
       {/* History & Architecture */}
-      <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1 }}>History & Architecture</Typography>
+      <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1 }}>{t('historyArchitecture')}</Typography>
       <Typography sx={{ fontSize: 12, color: '#333', mb: 2, lineHeight: 1.5 }}>
         {siteData?.full_desc || 'This heritage site has a rich history and architectural significance.'}
       </Typography>
@@ -392,9 +767,9 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
       )}
 
       {/* Accessibility */}
-      {siteData?.accessibility?.length > 0 && (
+      {siteData && Array.isArray(siteData.accessibility) && siteData.accessibility.length > 0 && (
         <Box sx={{ mb: 2 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>Accessibility</Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>{t('accessibility')}</Typography>
           <Stack direction="row" flexWrap="wrap" gap={0.5}>
             {siteData.accessibility.map((item, idx) => (
               <Chip
@@ -409,9 +784,9 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
       )}
 
       {/* Etiquettes */}
-      {siteData?.etiquettes?.length > 0 && (
+      {siteData && Array.isArray(siteData.etiquettes) && siteData.etiquettes.length > 0 && (
         <Box sx={{ mb: 2 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>Etiquettes</Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>{t('etiquettes')}</Typography>
           <Stack spacing={0.5}>
             {siteData.etiquettes.map((item, idx) => (
               <Stack key={idx} direction="row" alignItems="center" spacing={1}>
@@ -424,9 +799,9 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
       )}
 
       {/* Experience */}
-      {siteData?.experience?.length > 0 && (
+      {siteData && Array.isArray(siteData.experience) && siteData.experience.length > 0 && (
         <Box sx={{ mb: 2 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>Experience</Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>{t('experience')}</Typography>
           <Stack direction="row" flexWrap="wrap" gap={0.5}>
             {siteData.experience.map((item, idx) => (
               <Chip
@@ -439,6 +814,42 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           </Stack>
         </Box>
       )}
+
+      {/* Sitemap */}
+      {(() => {
+        const sitemapItems = siteData?.sitemap?.filter(
+          (m) => m && m.media_url && String(m.media_url).trim().length > 0
+        );
+        if (!sitemapItems || sitemapItems.length === 0) return null;
+        return (
+          <Box sx={{ mb: 2 }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 1 }}>Sitemap</Typography>
+            <Stack spacing={1}>
+              {sitemapItems.map((mapItem, idx) => (
+                <Box
+                  key={mapItem.media_id ?? idx}
+                  sx={{
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    border: '1px solid {#e0e0e0',
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={mapItem.media_url}
+                    alt={`Sitemap ${idx + 1}`}
+                    sx={{
+                      width: '100%',
+                      display: 'block',
+                      objectFit: 'cover',
+                    }}
+                  />
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        );
+      })()}
     </Box>
   );
 
@@ -446,11 +857,12 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
     <Box sx={{ p: 2 }}>
       {/* Opening Hours & Entry */}
       <Box sx={{ backgroundColor: '#f5f5f5', borderRadius: 2, p: 2, mb: 2 }}>
-        <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#666', mb: 1 }}>Opening Hours & Entry</Typography>
-        <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography sx={{ fontSize: 11, color: '#666' }}>Monday - Sunday</Typography>
-          <Typography sx={{ fontSize: 11, fontWeight: 500 }}>{getOperatingHours()}</Typography>
-        </Stack>
+        <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#666', mb: 1 }}>
+          {t('openingHoursEntry')}
+        </Typography>
+        <Typography sx={{ fontSize: 11, color: '#666', fontWeight: 500, mb: 1 }}>
+          {getOpeningDaysLabel()} • {getOperatingHours()}
+        </Typography>
         <Divider sx={{ my: 1 }} />
         {siteData?.ticket_types?.filter((t) => t.is_active).map((ticket, idx) => (
           <Stack key={idx} direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
@@ -463,7 +875,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
       </Box>
 
       {/* Book Tickets */}
-      <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#666', mb: 1 }}>Book Tickets</Typography>
+      <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#666', mb: 1 }}>{t('bookTickets')}</Typography>
       <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 2, p: 2, mb: 2 }}>
         <Button
           fullWidth
@@ -478,7 +890,11 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
             '&:hover': { backgroundColor: '#FFB300' },
           }}
         >
-          Book Now - {getEntryFee()}
+          {(() => {
+            const fee = getEntryFee();
+            const label = fee === 'Free' ? t('free') : fee;
+            return `${t('bookNow')} - ${label}`;
+          })()}
         </Button>
       </Box>
     </Box>
@@ -500,7 +916,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
       </Box>
 
       {/* Reviews List */}
-      {siteData?.reviews?.length > 0 ? (
+      {siteData && Array.isArray(siteData.reviews) && siteData.reviews.length > 0 ? (
         siteData.reviews.slice(0, 3).map((review, idx) => (
           <Box key={idx} sx={{ backgroundColor: '#fff', borderRadius: 2, p: 2, mb: 1, border: '1px solid #e0e0e0' }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
@@ -531,8 +947,8 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
         ))
       ) : (
         <Box sx={{ textAlign: 'center', py: 3 }}>
-          <Typography sx={{ fontSize: 12, color: '#666' }}>No reviews yet</Typography>
-          <Typography sx={{ fontSize: 11, color: '#999' }}>Be the first to share your experience!</Typography>
+          <Typography sx={{ fontSize: 12, color: '#666' }}>{t('noReviewsYet')}</Typography>
+          <Typography sx={{ fontSize: 11, color: '#999' }}>{t('beFirstReview')}</Typography>
         </Box>
       )}
 
@@ -549,7 +965,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           '&:hover': { backgroundColor: '#F57C00' },
         }}
       >
-        Write a Review
+        {t('writeReview')}
       </Button>
     </Box>
   );
@@ -557,9 +973,25 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pr: 2, pb: 1 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
-          Mobile App Preview
-        </Typography>
+        <Stack direction="row" alignItems="center" spacing={2}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Mobile App Preview
+          </Typography>
+          <FormControl size="small" sx={{ minWidth: 110 }}>
+            <Select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as PreviewLanguageCode)}
+              displayEmpty
+              sx={{ fontSize: 12, height: 32 }}
+            >
+              {PREVIEW_LANGUAGES.map((lang) => (
+                <MenuItem key={lang.code} value={lang.code}>
+                  {lang.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
         <IconButton onClick={onClose}>
           <CloseIcon />
         </IconButton>
@@ -573,7 +1005,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
         ) : error ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400, flexDirection: 'column' }}>
             <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>
-            <Button onClick={() => siteId && fetchExtendedSiteData(siteId)}>Retry</Button>
+            <Button onClick={() => siteId && fetchExtendedSiteData(siteId, language)}>Retry</Button>
           </Box>
         ) : siteData ? (
           <Box
@@ -582,13 +1014,68 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
               maxWidth: 375,
               mx: 'auto',
               backgroundColor: '#fff',
-              borderRadius: 3,
               overflow: 'hidden',
               boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
               border: '8px solid #333',
               borderRadius: '24px',
+              position: 'relative',
             }}
           >
+            {/* VR Video Overlay */}
+            {showVrPlayer && siteData?.vr_link && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 20,
+                  backgroundColor: '#000',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    p: 1.5,
+                    background:
+                      'linear-gradient(to bottom, rgba(0,0,0,0.8), rgba(0,0,0,0.3))',
+                  }}
+                >
+                  <IconButton
+                    onClick={() => setShowVrPlayer(false)}
+                    sx={{ color: '#fff' }}
+                  >
+                    <ArrowBackIcon />
+                  </IconButton>
+                  <Typography sx={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                    {siteData.name} - 360° View
+                  </Typography>
+                  <Box width={40} />
+                </Box>
+                <Box
+                  sx={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#000',
+                  }}
+                  onClick={() => setShowVrPlayer(false)}
+                >
+                  <video
+                    src={siteData.vr_link}
+                    style={{ width: '100%', height: '100%' }}
+                    controls
+                    autoPlay
+                    playsInline
+                    controlsList="nodownload"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </Box>
+              </Box>
+            )}
             {/* Image Carousel */}
             <Box
               sx={{
@@ -599,6 +1086,25 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
                 backgroundPosition: 'center',
                 borderBottomLeftRadius: 16,
                 borderBottomRightRadius: 16,
+              }}
+              onClick={images.length > 1 ? goToNextImage : undefined}
+              onTouchStart={(e) => {
+                if (e.touches && e.touches[0]) {
+                  setTouchStartX(e.touches[0].clientX);
+                }
+              }}
+              onTouchEnd={(e) => {
+                if (!touchStartX) return;
+                const touchEndX = e.changedTouches[0]?.clientX || 0;
+                const deltaX = touchEndX - touchStartX;
+                if (Math.abs(deltaX) > 40) {
+                  if (deltaX < 0) {
+                    goToNextImage();
+                  } else {
+                    goToPreviousImage();
+                  }
+                }
+                setTouchStartX(null);
               }}
             >
               {/* Back Button */}
@@ -675,7 +1181,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
                 </Box>
               )}
 
-              {/* VR Button */}
+              {/* VR / AR Buttons */}
               {siteData.vr_link && (
                 <Box
                   sx={{
@@ -683,30 +1189,75 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
                     bottom: 12,
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    backgroundColor: '#fff',
-                    borderRadius: 20,
-                    px: 2,
-                    py: 1,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 1,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                    gap: 1.5,
                   }}
                 >
+                  {/* 360 Button */}
                   <Box
                     sx={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      backgroundColor: '#FF9800',
+                      backgroundColor: '#fff',
+                      borderRadius: 1.5,
+                      px: 2.5,
+                      py: 0.75,
+                      minWidth: 120,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      gap: 0.75,
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                      border: '1px solid #e0e0e0',
+                      cursor: 'pointer',
                     }}
+                    onClick={() => setShowVrPlayer(true)}
                   >
-                    <PlayArrowIcon sx={{ fontSize: 16, color: '#fff' }} />
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <AutorenewIcon sx={{ fontSize: 18, color: '#FF9800', mr: 0.5 }} />
+                    </Box>
+                    <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#444' }}>
+                      {t('viewIn360')}
+                    </Typography>
                   </Box>
-                  <Typography sx={{ fontSize: 12, fontWeight: 600 }}>View in 360°</Typography>
+
+                  {/* AR Button (only when ar_mode is available) */}
+                  {siteData.ar_mode_available && (
+                    <Box
+                      sx={{
+                        backgroundColor: '#fff',
+                        borderRadius: 1.5,
+                        px: 2.5,
+                        py: 0.75,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 0.75,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                        border: '1px solid #e0e0e0',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => setShowVrPlayer(true)}
+                    >
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <ViewInArIcon sx={{ fontSize: 18, color: '#FF9800', mr: 0.5 }} />
+                      </Box>
+                      <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#444' }}>
+                        AR Mode
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
               )}
             </Box>
@@ -781,10 +1332,10 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
                 '& .MuiTabs-indicator': { backgroundColor: '#FF9800' },
               }}
             >
-              <Tab label="Overview" />
-              <Tab label="About" />
-              <Tab label="Plan Visit" />
-              <Tab label="Reviews" />
+              <Tab label={t('tabOverview')} />
+              <Tab label={t('tabAbout')} />
+              <Tab label={t('tabPlanVisit')} />
+              <Tab label={t('tabReviews')} />
             </Tabs>
 
             {/* Tab Content */}
