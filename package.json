@@ -9,13 +9,19 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "create-admin": "node scripts/create-admin.js",
-    "review-site": "node scripts/review-site-structure.js"
+    "review-site": "node scripts/review-site-structure.js",
+    "create-verification-templates": "node scripts/create-verification-templates.js",
+    "check-notification-log": "node scripts/check-notification-log.js",
+    "deploy-email-function": "supabase functions deploy send-email",
+    "test-email-function": "node scripts/test-email-function.js",
+    "check-edge-function": "node scripts/check-edge-function.js"
   },
   "dependencies": {
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.14.0",
     "@mui/material": "^5.14.0",
+    "@sendgrid/mail": "^8.1.6",
     "@supabase/supabase-js": "^2.38.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/md5": "^2.3.6",
