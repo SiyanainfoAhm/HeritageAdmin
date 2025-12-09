@@ -67,7 +67,32 @@ const LANGUAGES: { code: LanguageCode; label: string; flag: string }[] = [
 ];
 
 // Translatable fields for vendor business details
-const TRANSLATABLE_FIELDS = ['business_name', 'business_address', 'city', 'state', 'business_description'];
+const VENDOR_TRANSLATABLE_FIELDS = ['business_name', 'business_address', 'city', 'state', 'business_description'];
+
+// Translatable fields for artisan details
+const ARTISAN_TRANSLATABLE_FIELDS = [
+  'artisan_name',
+  'short_bio',
+  'full_bio',
+  'craft_title',
+  'craft_specialty',
+  'awards',
+];
+
+// Preferred display order for artisan fields
+const ARTISAN_FIELD_ORDER = [
+  'artisan_name',
+  'short_bio',
+  'full_bio',
+  'craft_title',
+  'craft_specialty',
+  'experience_years',
+  'generation_number',
+  'verified_by',
+  'awards',
+  'intro_video_url',
+  'is_active',
+];
 
 // Field order for vendor business details
 const VENDOR_FIELD_ORDER = [
@@ -127,6 +152,49 @@ const TYPE_COLOR: Record<string, string> = {
 
 const PAGE_SIZE = 9;
 
+const VENDOR_ENTITY_TYPES = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'] as const;
+const ARTISAN_ENTITY_TYPES = ['Artisan'] as const;
+
+const getTranslatableFieldsForEntity = (entityType?: string | null): string[] => {
+  if (!entityType) return [];
+  if ((VENDOR_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+    return VENDOR_TRANSLATABLE_FIELDS;
+  }
+  if ((ARTISAN_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+    // For artisans, we support translations for BOTH vendor-style business fields and artisan-specific fields
+    return [...VENDOR_TRANSLATABLE_FIELDS, ...ARTISAN_TRANSLATABLE_FIELDS];
+  }
+  return [];
+};
+
+// Helper to safely extract a displayable string from possible JSON/string values
+const extractStringValue = (val: any): string => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    // Check if it's a JSON string and try to parse it
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        // If it's a translation result, extract the text
+        if (parsed.success && parsed.translations) {
+          const langCodes = Object.keys(parsed.translations);
+          if (langCodes.length > 0 && Array.isArray(parsed.translations[langCodes[0]])) {
+            return parsed.translations[langCodes[0]][0] || '';
+          }
+        }
+        // If it's just a JSON object, return empty string to avoid showing raw JSON
+        return '';
+      } catch {
+        // Not valid JSON, return as-is
+        return val;
+      }
+    }
+    return val;
+  }
+  return String(val);
+};
+
 const Verification = () => {
   const [entityFilter, setEntityFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | VerificationRecord['status']>('All');
@@ -147,6 +215,7 @@ const Verification = () => {
   const [saving, setSaving] = useState(false);
   const [addItemDialog, setAddItemDialog] = useState<{ open: boolean; key: string; label: string }>({ open: false, key: '', label: '' });
   const [newItemValue, setNewItemValue] = useState('');
+  const [newAwardText, setNewAwardText] = useState('');
   const [currentLanguageTab, setCurrentLanguageTab] = useState<LanguageCode>('en');
   const [translations, setTranslations] = useState<Record<string, Record<LanguageCode, string>>>({});
   const [translatingFields, setTranslatingFields] = useState<Set<string>>(new Set());
@@ -248,17 +317,17 @@ const Verification = () => {
       if (details?.businessDetails) {
         setEditedBusinessDetails({ ...details.businessDetails });
         
-        // Load translations if available
-        const vendorEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
-        if (vendorEntityTypes.includes(record.entityType)) {
+        // Load translations if available (vendor + artisan)
+        const translatableFieldsForEntity = getTranslatableFieldsForEntity(record.entityType);
+        if (translatableFieldsForEntity.length > 0) {
           const loadedTranslations: Record<string, Record<LanguageCode, string>> = {};
-          TRANSLATABLE_FIELDS.forEach(field => {
+          translatableFieldsForEntity.forEach(field => {
             loadedTranslations[field] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
             // Set English value from main business details
             if (details.businessDetails[field]) {
               loadedTranslations[field].en = String(details.businessDetails[field] || '');
             }
-            // Load other language translations
+            // Load other language translations from _translations array (combined vendor/artisan)
             if (details.businessDetails._translations && Array.isArray(details.businessDetails._translations)) {
               details.businessDetails._translations.forEach((trans: any) => {
                 if (trans && trans.language_code) {
@@ -291,11 +360,11 @@ const Verification = () => {
       // Cancel edit - restore original
       if (userDetails?.businessDetails) {
         setEditedBusinessDetails({ ...userDetails.businessDetails });
-        // Restore translations
-        const vendorEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
-        if (vendorEntityTypes.includes(selectedRecord?.entityType || '')) {
+        // Restore translations (vendor + artisan)
+        const translatableFieldsForEntity = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
+        if (translatableFieldsForEntity.length > 0) {
           const restoredTranslations: Record<string, Record<LanguageCode, string>> = {};
-          TRANSLATABLE_FIELDS.forEach(field => {
+          translatableFieldsForEntity.forEach(field => {
             restoredTranslations[field] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
             if (userDetails.businessDetails[field]) {
               restoredTranslations[field].en = userDetails.businessDetails[field];
@@ -330,16 +399,15 @@ const Verification = () => {
     setEditedBusinessDetails((prev) => ({ ...prev, [key]: value }));
     
     // Auto-translate if it's a translatable field and we're editing English
-    const vendorEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
-    if (vendorEntityTypes.includes(selectedRecord?.entityType || '') && 
-        TRANSLATABLE_FIELDS.includes(key) && 
+    const translatableFieldsForEntity = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
+    if (translatableFieldsForEntity.includes(key) && 
         currentLanguageTab === 'en' && 
         typeof value === 'string') {
       autoTranslateField(value, key);
     }
     
     // Update English translation when editing English tab
-    if (currentLanguageTab === 'en' && TRANSLATABLE_FIELDS.includes(key)) {
+    if (currentLanguageTab === 'en' && translatableFieldsForEntity.includes(key)) {
       setTranslations(prev => ({
         ...prev,
         [key]: {
@@ -445,8 +513,10 @@ const Verification = () => {
     
     if (result.success) {
       // Save translations if applicable
-      const vendorEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
-      if (vendorEntityTypes.includes(selectedRecord.entityType)) {
+      const isVendorEntity = (VENDOR_ENTITY_TYPES as readonly string[]).includes(selectedRecord.entityType) || selectedRecord.entityType === 'Artisan';
+      const isArtisanEntity = selectedRecord.entityType === 'Artisan';
+
+      if (isVendorEntity) {
         // Get business_id - fetch from database after update
         let businessId: number | null = null;
         try {
@@ -472,7 +542,7 @@ const Verification = () => {
           const translationsArray = LANGUAGES.filter(l => l.code !== 'en').map(lang => {
             const trans: any = { language_code: lang.code };
             let hasData = false;
-            TRANSLATABLE_FIELDS.forEach(field => {
+            VENDOR_TRANSLATABLE_FIELDS.forEach(field => {
               const translationValue = translations[field]?.[lang.code];
               if (translationValue && String(translationValue).trim()) {
                 trans[field] = String(translationValue).trim();
@@ -508,25 +578,117 @@ const Verification = () => {
           console.warn('Business ID not found, cannot save translations');
         }
       }
-      
+
+      // Save artisan translations (heritage_artisantranslations) if applicable
+      if (isArtisanEntity) {
+        try {
+          // First, fetch artisan_id for this user
+          const { data: artisanRow, error: artisanErr } = await supabase
+            .from('heritage_artisan')
+            .select('artisan_id')
+            .eq('user_id', selectedRecord.id)
+            .single();
+
+          if (artisanErr) {
+            console.error('Error fetching artisan_id for translations:', artisanErr);
+          } else if (artisanRow?.artisan_id) {
+            const artisanId = artisanRow.artisan_id;
+
+            // Build per-language translation payloads from translations state
+            const translationPayloads: any[] = LANGUAGES.filter(l => l.code !== 'en').map(lang => {
+              const langCode = lang.code;
+              const row: any = {
+                artisan_id: artisanId,
+                language_code: langCode,
+              };
+              let hasData = false;
+
+              ARTISAN_TRANSLATABLE_FIELDS.forEach((field) => {
+                let val = translations[field]?.[langCode];
+
+                // Awards column is text[] - send as an actual array, not a plain string
+                if (field === 'awards') {
+                  // If no explicit translation string for this lang, skip
+                  if (!val || !String(val).trim()) return;
+
+                  const baseStr = String(val).trim();
+                  const awardsArr = baseStr
+                    .split(/[,،、]/)
+                    .map((s: string) => s.trim())
+                    .filter(Boolean);
+
+                  if (awardsArr.length > 0) {
+                    row.awards = awardsArr;
+                    hasData = true;
+                  }
+                  return;
+                }
+
+                if (val && String(val).trim()) {
+                  row[field] = String(val).trim();
+                  hasData = true;
+                }
+              });
+
+              return hasData ? row : null;
+            }).filter(Boolean) as any[];
+
+            if (translationPayloads.length > 0) {
+              // Upsert each language row individually (no RPC available in client)
+              for (const payload of translationPayloads) {
+                try {
+                  const { artisan_id, language_code, ...fields } = payload;
+                  const { error: upsertErr } = await supabase
+                    .from('heritage_artisantranslation')
+                    .upsert(
+                      {
+                        artisan_id,
+                        language_code,
+                        ...fields,
+                      },
+                      {
+                        onConflict: 'artisan_id,language_code',
+                      }
+                    );
+
+                  if (upsertErr) {
+                    console.error('Error saving artisan translation row:', upsertErr);
+                    setError(`Failed to save artisan translations: ${upsertErr.message}`);
+                  }
+                } catch (rowErr) {
+                  console.error('Error during artisan translation upsert:', rowErr);
+                }
+              }
+            }
+          }
+        } catch (artisanSaveErr: any) {
+          console.error('Error saving artisan translations:', artisanSaveErr);
+          setError(`Failed to save artisan translations: ${artisanSaveErr.message || 'Unknown error'}`);
+        }
+      }
+
       // Refresh details
       const details = await VerificationService.getUserDetails(selectedRecord.id, selectedRecord.entityType);
       setUserDetails(details);
       if (details?.businessDetails) {
         setEditedBusinessDetails({ ...details.businessDetails });
-        // Reload translations
-        if (vendorEntityTypes.includes(selectedRecord.entityType)) {
+
+        // Reload translations for the current entity (vendor + artisan)
+        const translatableFieldsForEntity = getTranslatableFieldsForEntity(selectedRecord.entityType);
+        if (translatableFieldsForEntity.length > 0) {
           const loadedTranslations: Record<string, Record<LanguageCode, string>> = {};
-          TRANSLATABLE_FIELDS.forEach(field => {
+          translatableFieldsForEntity.forEach((field) => {
             loadedTranslations[field] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+            // English/base value from main business details
             if (details.businessDetails[field]) {
               loadedTranslations[field].en = String(details.businessDetails[field] || '');
             }
+            // Other languages from combined _translations array
             if (details.businessDetails._translations && Array.isArray(details.businessDetails._translations)) {
               details.businessDetails._translations.forEach((trans: any) => {
                 if (trans && trans.language_code) {
                   const langCode = String(trans.language_code).toLowerCase() as LanguageCode;
-                  if (langCode && LANGUAGES.some(l => l.code === langCode) && trans[field]) {
+                  if (langCode && LANGUAGES.some((l) => l.code === langCode) && trans[field]) {
                     loadedTranslations[field][langCode] = String(trans[field] || '');
                   }
                 }
@@ -534,6 +696,8 @@ const Verification = () => {
             }
           });
           setTranslations(loadedTranslations);
+        } else {
+          setTranslations({});
         }
       }
       setEditMode(false);
@@ -981,8 +1145,8 @@ const Verification = () => {
                     Business Details {editMode && <Chip label="Editing" size="small" color="warning" sx={{ ml: 1 }} />}
                   </Typography>
                   
-                  {/* Translation Tabs - Only show for vendor business details */}
-                  {['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'].includes(selectedRecord?.entityType || '') && (
+                  {/* Translation Tabs - Show for vendor business details & artisan details */}
+                  {getTranslatableFieldsForEntity(selectedRecord?.entityType || '').length > 0 && (
                     <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3, mt: 2 }}>
                       <Tabs 
                         value={currentLanguageTab} 
@@ -991,10 +1155,21 @@ const Verification = () => {
                         scrollButtons="auto"
                       >
                         {LANGUAGES.map((lang) => {
-                          const hasTranslations = lang.code === 'en' || TRANSLATABLE_FIELDS.some(field => {
+                          const entityTransFields = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
+
+                          const hasTranslations = lang.code === 'en' || entityTransFields.some(field => {
                             const fieldTranslations = translations[field];
-                            return fieldTranslations && fieldTranslations[lang.code] && String(fieldTranslations[lang.code]).trim();
+                            return (
+                              fieldTranslations &&
+                              fieldTranslations[lang.code] &&
+                              String(fieldTranslations[lang.code]).trim() &&
+                              !translatingFields.has(field)
+                            );
                           });
+
+                          const isTranslatingForLang =
+                            lang.code !== 'en' &&
+                            entityTransFields.some(field => translatingFields.has(field));
                           
                           return (
                             <Tab 
@@ -1002,8 +1177,13 @@ const Verification = () => {
                               label={
                                 <Stack direction="row" spacing={1} alignItems="center">
                                   <span>{lang.flag} {lang.label}</span>
-                                  {hasTranslations && lang.code !== 'en' && (
-                                    <CheckCircleIcon fontSize="small" sx={{ color: '#4CAF50' }} />
+                                  {isTranslatingForLang ? (
+                                    <CircularProgress size={14} />
+                                  ) : (
+                                    hasTranslations &&
+                                    lang.code !== 'en' && (
+                                      <CheckCircleIcon fontSize="small" sx={{ color: '#4CAF50' }} />
+                                    )
                                   )}
                                 </Stack>
                               }
@@ -1021,13 +1201,24 @@ const Verification = () => {
                       const entries = Object.entries(editMode ? editedBusinessDetails : userDetails.businessDetails);
                       
                       // Filter out system fields
-                      const filteredEntries = entries.filter(([key]) => 
+                      let filteredEntries = entries.filter(([key]) => 
                         !['id', 'user_id', 'created_at', 'updated_at', 'profile_id', 'artisan_id', 'guide_id', 'business_id', 'is_verified', 'verification_status', '_translations'].includes(key)
                       );
+
+                      const isArtisan = selectedRecord?.entityType === 'Artisan';
+
+                      // For artisans, Business Details should only display vendor-style fields
+                      if (isArtisan) {
+                        const vendorFieldSet = new Set<string>([
+                          ...VENDOR_FIELD_ORDER,
+                          'latitude',
+                          'longitude',
+                        ]);
+                        filteredEntries = filteredEntries.filter(([key]) => vendorFieldSet.has(key));
+                      }
                       
-                      // Check if this is a vendor business type
-                      const vendorEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
-                      const isVendorBusiness = vendorEntityTypes.includes(selectedRecord?.entityType || '');
+                      // Check if this is a vendor business type (also treat artisan as vendor-style for ordering)
+                      const isVendorBusiness = (VENDOR_ENTITY_TYPES as readonly string[]).includes(selectedRecord?.entityType || '') || isArtisan;
                       
                       // Sort entries by field order if vendor business
                       const sortedEntries = isVendorBusiness
@@ -1049,38 +1240,9 @@ const Verification = () => {
                       
                       const label = key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
                       
-                      // Check if this is a translatable field and we're viewing a vendor business
-                      const vendorEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
-                      const isTranslatableField = TRANSLATABLE_FIELDS.includes(key) && 
-                                                  vendorEntityTypes.includes(selectedRecord?.entityType || '');
-                      
-                      // Helper function to extract string from value (handles JSON objects)
-                      const extractStringValue = (val: any): string => {
-                        if (val === null || val === undefined) return '';
-                        if (typeof val === 'string') {
-                          // Check if it's a JSON string and try to parse it
-                          if (val.trim().startsWith('{') && val.trim().endsWith('}')) {
-                            try {
-                              const parsed = JSON.parse(val);
-                              // If it's a translation result, extract the text
-                              if (parsed.success && parsed.translations) {
-                                // Try to get the first available translation
-                                const langCodes = Object.keys(parsed.translations);
-                                if (langCodes.length > 0 && Array.isArray(parsed.translations[langCodes[0]])) {
-                                  return parsed.translations[langCodes[0]][0] || '';
-                                }
-                              }
-                              // If it's just a JSON object, return empty string
-                              return '';
-                            } catch {
-                              // Not valid JSON, return as is
-                              return val;
-                            }
-                          }
-                          return val;
-                        }
-                        return String(val);
-                      };
+                      // Check if this is a translatable field for the current entity (vendor-style fields only in Business Details)
+                      const entityTransFields = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
+                      const isTranslatableField = entityTransFields.includes(key) && VENDOR_TRANSLATABLE_FIELDS.includes(key);
 
                       // Get the value based on language tab for translatable fields
                       let currentValue = editMode ? editedBusinessDetails[key] : value;
@@ -1425,25 +1587,299 @@ const Verification = () => {
                 </Box>
               )}
 
-              {selectedRecord?.entityType === 'Artisan' && selectedRecord?.rawData && (
+              {selectedRecord?.entityType === 'Artisan' && userDetails?.businessDetails && (
                 <Box>
                   <Divider sx={{ my: 2 }} />
                   <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                     Artisan Details
                   </Typography>
                   <Grid container spacing={2}>
-                    {selectedRecord.rawData.craft_type && (
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">Craft Type</Typography>
-                        <Typography>{selectedRecord.rawData.craft_type}</Typography>
-                      </Grid>
-                    )}
-                    {selectedRecord.rawData.short_bio && (
-                      <Grid item xs={12}>
-                        <Typography variant="body2" color="text.secondary">Bio</Typography>
-                        <Typography>{selectedRecord.rawData.short_bio}</Typography>
-                      </Grid>
-                    )}
+                    {ARTISAN_FIELD_ORDER.map((fieldKey) => {
+                      if (!(fieldKey in userDetails.businessDetails)) return null;
+
+                      const rawVal = userDetails.businessDetails[fieldKey];
+                      const label = fieldKey.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+
+                      // Layout: make Full Bio span full width, others half width
+                      const gridSize = fieldKey === 'full_bio' ? 12 : 6;
+
+                      const isTranslatableField = ARTISAN_TRANSLATABLE_FIELDS.includes(fieldKey);
+                      const entityTransFields = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
+                      const isEntityTranslatable = isTranslatableField && entityTransFields.includes(fieldKey);
+
+                      let currentValue: any = editMode ? editedBusinessDetails[fieldKey] ?? rawVal : rawVal;
+
+                      if (isEntityTranslatable && !editMode) {
+                        if (currentLanguageTab === 'en') {
+                          currentValue = extractStringValue(rawVal);
+                        } else {
+                          currentValue =
+                            (translations[fieldKey] && translations[fieldKey][currentLanguageTab]) ||
+                            '';
+                        }
+                      } else if (isEntityTranslatable && editMode) {
+                        if (currentLanguageTab === 'en') {
+                          currentValue = extractStringValue(editedBusinessDetails[fieldKey] ?? rawVal ?? '');
+                        } else {
+                          currentValue =
+                            (translations[fieldKey] && translations[fieldKey][currentLanguageTab]) ||
+                            '';
+                        }
+                      } else {
+                        currentValue = extractStringValue(currentValue);
+                      }
+
+                      const isBoolean = typeof rawVal === 'boolean';
+
+                      // Special handling for Awards as choice chips with add/remove and translations
+                      if (fieldKey === 'awards') {
+                        const langCode = currentLanguageTab;
+                        // Determine base string for this language
+                        let baseStr = '';
+                        if (isEntityTranslatable) {
+                          if (langCode === 'en') {
+                            baseStr = String(
+                              (editMode ? editedBusinessDetails[fieldKey] : rawVal) || ''
+                            );
+                          } else {
+                            baseStr =
+                              (translations[fieldKey] &&
+                                translations[fieldKey][langCode]) ||
+                              '';
+                          }
+                        } else {
+                          baseStr = String(
+                            (editMode ? editedBusinessDetails[fieldKey] : rawVal) || ''
+                          );
+                        }
+
+                        // Parse awards as list; support both normal comma and Japanese comma "、"
+                        const awardsArr =
+                          baseStr
+                            .split(/[,、]/)
+                            .map((s: string) => s.trim())
+                            .filter(Boolean) || [];
+
+                        const updateAwardsForLang = (nextAwards: string[]) => {
+                          const separator = langCode === 'ja' ? '、 ' : ', ';
+                          const joined = nextAwards.join(separator);
+
+                          if (isEntityTranslatable) {
+                            if (langCode === 'en') {
+                              // Update base field and English translation
+                              handleFieldChange(fieldKey, joined);
+                              setTranslations((prev) => ({
+                                ...prev,
+                                [fieldKey]: {
+                                  ...(prev[fieldKey] || {
+                                    en: '',
+                                    hi: '',
+                                    gu: '',
+                                    ja: '',
+                                    es: '',
+                                    fr: '',
+                                  }),
+                                  en: joined,
+                                },
+                              }));
+                            } else {
+                              // Only update translation for current non-English language
+                              setTranslations((prev) => ({
+                                ...prev,
+                                [fieldKey]: {
+                                  ...(prev[fieldKey] || {
+                                    en: String(
+                                      (editedBusinessDetails[fieldKey] ?? rawVal ?? '') || ''
+                                    ),
+                                    hi: '',
+                                    gu: '',
+                                    ja: '',
+                                    es: '',
+                                    fr: '',
+                                  }),
+                                  [langCode]: joined,
+                                },
+                              }));
+                            }
+                          } else {
+                            handleFieldChange(fieldKey, joined);
+                          }
+                        };
+
+                        if (!editMode) {
+                          return (
+                            <Grid item xs={12} key={fieldKey}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                {label}
+                              </Typography>
+                              <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+                                {awardsArr.length > 0 ? (
+                                  awardsArr.map((item, idx) => (
+                                    <Chip key={idx} label={item} size="small" />
+                                  ))
+                                ) : (
+                                  <Typography variant="body2" color="text.disabled">
+                                    —
+                                  </Typography>
+                                )}
+                              </Stack>
+                            </Grid>
+                          );
+                        }
+
+                        // Edit mode UI: selectable chips + add new
+                        return (
+                          <Grid item xs={12} key={fieldKey}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              {label}
+                              {isEntityTranslatable &&
+                                ` (${LANGUAGES.find((l) => l.code === langCode)?.label})`}
+                            </Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} mb={1}>
+                              {awardsArr.map((item, idx) => (
+                                <Chip
+                                  key={`${item}-${idx}`}
+                                  label={item}
+                                  size="small"
+                                  color="primary"
+                                  variant="filled"
+                                  onClick={() => {
+                                    // Toggle off (unselect) by removing from list
+                                    const next = awardsArr.filter((_, i) => i !== idx);
+                                    updateAwardsForLang(next);
+                                  }}
+                                />
+                              ))}
+                              {awardsArr.length === 0 && (
+                                <Typography variant="body2" color="text.disabled">
+                                  No awards added yet.
+                                </Typography>
+                              )}
+                            </Stack>
+                            <Stack direction="row" spacing={1}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                placeholder="Add award"
+                                value={newAwardText}
+                                onChange={(e) => setNewAwardText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && newAwardText.trim()) {
+                                    const next = [...awardsArr, newAwardText.trim()];
+                                    updateAwardsForLang(next);
+                                    setNewAwardText('');
+                                  }
+                                }}
+                              />
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={() => {
+                                  if (!newAwardText.trim()) return;
+                                  const next = [...awardsArr, newAwardText.trim()];
+                                  updateAwardsForLang(next);
+                                  setNewAwardText('');
+                                }}
+                              >
+                                Add
+                              </Button>
+                            </Stack>
+                          </Grid>
+                        );
+                      }
+
+                      if (!editMode) {
+                        return (
+                          <Grid item xs={gridSize} key={fieldKey}>
+                            <Typography variant="body2" color="text.secondary">
+                              {label}
+                            </Typography>
+                            {isBoolean ? (
+                              <Chip
+                                label={currentValue ? 'Yes' : 'No'}
+                                size="small"
+                                color={currentValue ? 'success' : 'default'}
+                              />
+                            ) : (
+                              <Typography variant="body2" color={currentValue ? 'text.primary' : 'text.disabled'}>
+                                {currentValue || '—'}
+                              </Typography>
+                            )}
+                          </Grid>
+                        );
+                      }
+
+                      // Edit mode
+                      if (isBoolean) {
+                        return (
+                          <Grid item xs={gridSize} key={fieldKey}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>{label}</InputLabel>
+                              <Select
+                                label={label}
+                                value={editedBusinessDetails[fieldKey] ? 'true' : 'false'}
+                                onChange={(e) => handleFieldChange(fieldKey, e.target.value === 'true')}
+                              >
+                                <MenuItem value="true">Yes</MenuItem>
+                                <MenuItem value="false">No</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                        );
+                      }
+
+                      const isMultiline = fieldKey === 'short_bio' || fieldKey === 'full_bio';
+
+                      return (
+                        <Grid item xs={gridSize} key={fieldKey}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label={`${label}${
+                              isEntityTranslatable
+                                ? ` (${LANGUAGES.find((l) => l.code === currentLanguageTab)?.label})`
+                                : ''
+                            }`}
+                            value={currentValue || ''}
+                            onChange={(e) => {
+                              const newVal = e.target.value;
+                              if (isEntityTranslatable && currentLanguageTab !== 'en') {
+                                // Update translation state only for non-English
+                                setTranslations((prev) => ({
+                                  ...prev,
+                                  [fieldKey]: {
+                                    ...(prev[fieldKey] || {
+                                      en: '',
+                                      hi: '',
+                                      gu: '',
+                                      ja: '',
+                                      es: '',
+                                      fr: '',
+                                    }),
+                                    [currentLanguageTab]: newVal,
+                                  },
+                                }));
+                              } else {
+                                handleFieldChange(fieldKey, newVal);
+                              }
+                            }}
+                            multiline={isMultiline}
+                            minRows={isMultiline ? 3 : undefined}
+                            maxRows={isMultiline ? 6 : undefined}
+                            InputProps={{
+                              endAdornment:
+                                isEntityTranslatable &&
+                                currentLanguageTab === 'en' &&
+                                translatingFields.has(fieldKey) ? (
+                                  <InputAdornment position="end">
+                                    <CircularProgress size={16} />
+                                  </InputAdornment>
+                                ) : undefined,
+                            }}
+                          />
+                        </Grid>
+                      );
+                    })}
                   </Grid>
                 </Box>
               )}
