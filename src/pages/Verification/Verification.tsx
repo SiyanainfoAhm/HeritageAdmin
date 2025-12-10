@@ -51,6 +51,8 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import { format } from 'date-fns';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MapIcon from '@mui/icons-material/Map';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { VerificationService, VerificationRecord } from '@/services/verification.service';
 import { UserService } from '@/services/user.service';
 import { TranslationService } from '@/services/translation.service';
@@ -239,6 +241,9 @@ const Verification = () => {
   const translationTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
   const [userTypes, setUserTypes] = useState<Array<{ user_type_id: number; type_name: string }>>([]);
   const [geocodingLocation, setGeocodingLocation] = useState(false);
+  const [sortBy, setSortBy] = useState<string>('submittedOn');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [exportLoading, setExportLoading] = useState(false);
 
   const fetchRecords = async () => {
     setLoading(true);
@@ -295,8 +300,45 @@ const Verification = () => {
   };
 
   const filteredData = useMemo(() => {
-    return records;
-  }, [records]);
+    let filtered = [...records];
+    
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name?.toLowerCase() || '';
+          bValue = b.name?.toLowerCase() || '';
+          break;
+        case 'entityType':
+          aValue = a.entityType?.toLowerCase() || '';
+          bValue = b.entityType?.toLowerCase() || '';
+          break;
+        case 'location':
+          aValue = a.location?.toLowerCase() || '';
+          bValue = b.location?.toLowerCase() || '';
+          break;
+        case 'status':
+          aValue = a.status?.toLowerCase() || '';
+          bValue = b.status?.toLowerCase() || '';
+          break;
+        case 'submittedOn':
+          aValue = new Date(a.submittedOn).getTime();
+          bValue = new Date(b.submittedOn).getTime();
+          break;
+        default:
+          return 0;
+      }
+      
+      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return filtered;
+  }, [records, sortBy, sortOrder]);
 
   const paginatedData = useMemo(() => {
     const startIndex = (page - 1) * PAGE_SIZE;
@@ -310,6 +352,108 @@ const Verification = () => {
     setSearchTerm('');
     setPage(1);
     fetchRecords();
+  };
+
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      // Toggle sort order if clicking the same column
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column and default to ascending
+      setSortBy(column);
+      setSortOrder('asc');
+    }
+    setPage(1); // Reset to first page when sorting changes
+  };
+
+  const handleExport = () => {
+    setExportLoading(true);
+    try {
+      // Prepare data for export with proper date formatting for Excel
+      const exportData = filteredData.map((record) => {
+        let formattedDate = '';
+        
+        // Handle date formatting with proper error handling
+        if (record.submittedOn && record.submittedOn.trim()) {
+          try {
+            // submittedOn comes as YYYY-MM-DD format from the service
+            const dateStr = record.submittedOn.trim();
+            
+            // Check if it's already in YYYY-MM-DD format
+            if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              const [year, month, day] = dateStr.split('-');
+              // Format as MM/DD/YYYY for Excel
+              formattedDate = `${month}/${day}/${year}`;
+            } else {
+              // Try parsing as Date object
+              const date = new Date(record.submittedOn);
+              if (!isNaN(date.getTime())) {
+                // Format date as MM/DD/YYYY for Excel recognition
+                formattedDate = format(date, 'MM/dd/yyyy');
+              } else {
+                // If date parsing fails, use the original value
+                formattedDate = dateStr;
+              }
+            }
+          } catch (error) {
+            // If formatting fails, use the original value
+            formattedDate = String(record.submittedOn || '');
+          }
+        }
+        
+        return {
+          Name: record.name || '',
+          Type: record.entityType || '',
+          Location: record.location || '',
+          Status: record.status || '',
+          'Submitted On': formattedDate,
+        };
+      });
+
+      // Create CSV content (Excel can open CSV files)
+      const headers = Object.keys(exportData[0] || {});
+      const csvContent = [
+        headers.join(','),
+        ...exportData.map((row) =>
+          headers
+            .map((header) => {
+              const value = row[header as keyof typeof row];
+              if (value === null || value === undefined || value === '') return '';
+              const stringValue = String(value);
+              // For dates, always quote them to ensure Excel recognizes them
+              if (header === 'Submitted On') {
+                return `"${stringValue}"`;
+              }
+              if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+                return `"${stringValue.replace(/"/g, '""')}"`;
+              }
+              return stringValue;
+            })
+            .join(',')
+        ),
+      ].join('\n');
+
+      // Add BOM for UTF-8 Excel compatibility
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `verification_records_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+      setError('Failed to export data');
+    } finally {
+      setExportLoading(false);
+    }
   };
 
   const handleViewDetails = async (record: VerificationRecord) => {
@@ -1063,10 +1207,12 @@ const Verification = () => {
             <Button
               variant="contained"
               color="primary"
-              startIcon={<DownloadOutlinedIcon />}
+              startIcon={exportLoading ? <CircularProgress size={16} /> : <DownloadOutlinedIcon />}
+              onClick={handleExport}
+              disabled={exportLoading || filteredData.length === 0}
               sx={{ borderRadius: 2, textTransform: 'none' }}
             >
-              Export
+              {exportLoading ? 'Exporting...' : 'Export'}
             </Button>
           </Stack>
         </Stack>
@@ -1083,11 +1229,61 @@ const Verification = () => {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Location</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Submitted On</TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('name')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Name</span>
+                    {sortBy === 'name' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('entityType')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Type</span>
+                    {sortBy === 'entityType' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('location')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Location</span>
+                    {sortBy === 'location' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('status')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Status</span>
+                    {sortBy === 'status' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('submittedOn')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Submitted On</span>
+                    {sortBy === 'submittedOn' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
                 <TableCell align="right" sx={{ fontWeight: 600 }}>
                   Actions
                 </TableCell>
