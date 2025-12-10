@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -20,6 +20,7 @@ import {
   IconButton,
   Alert,
   Menu,
+  Stack,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -29,6 +30,8 @@ import {
   MoreVert as MoreVertIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon,
 } from '@mui/icons-material';
 import { UserService, UserFilters } from '@/services/user.service';
 import { User, UserType } from '@/types';
@@ -40,11 +43,12 @@ import { getDefaultDateRange } from '@/utils/dateRange';
 
 const Users = () => {
   const [users, setUsers] = useState<User[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [userTypes, setUserTypes] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [sortBy, setSortBy] = useState<string>('created_at');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Filter states
   const [filters, setFilters] = useState<UserFilters>(() => {
@@ -79,7 +83,6 @@ const Users = () => {
     try {
       const data = await UserService.getAllUsers(filters);
       setUsers(data);
-      setFilteredUsers(data);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch users');
     } finally {
@@ -160,6 +163,65 @@ const Users = () => {
   const handleMenuClose = () => {
     setMenuAnchor(null);
     setMenuUser(null);
+  };
+
+  const sortedUsers = useMemo(() => {
+    const sorted = [...users];
+    
+    sorted.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
+      switch (sortBy) {
+        case 'user_id':
+          aValue = a.user_id;
+          bValue = b.user_id;
+          break;
+        case 'full_name':
+          aValue = a.full_name?.toLowerCase() || '';
+          bValue = b.full_name?.toLowerCase() || '';
+          break;
+        case 'email':
+          aValue = a.email?.toLowerCase() || '';
+          bValue = b.email?.toLowerCase() || '';
+          break;
+        case 'phone':
+          aValue = a.phone?.toLowerCase() || '';
+          bValue = b.phone?.toLowerCase() || '';
+          break;
+        case 'user_type_name':
+          aValue = a.user_type_name?.toLowerCase() || '';
+          bValue = b.user_type_name?.toLowerCase() || '';
+          break;
+        case 'is_verified':
+          aValue = a.is_verified ? 1 : 0;
+          bValue = b.is_verified ? 1 : 0;
+          break;
+        case 'created_at':
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+          break;
+        default:
+          return 0;
+      }
+      
+      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return sorted;
+  }, [users, sortBy, sortOrder]);
+
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      // Toggle sort order if clicking the same column
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column and default to ascending
+      setSortBy(column);
+      setSortOrder('asc');
+    }
   };
 
   return (
@@ -270,25 +332,97 @@ const Users = () => {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>ID</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Phone</TableCell>
-                <TableCell>User Type</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Created At</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('user_id')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>ID</span>
+                    {sortBy === 'user_id' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('full_name')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Name</span>
+                    {sortBy === 'full_name' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('email')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Email</span>
+                    {sortBy === 'email' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('phone')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Phone</span>
+                    {sortBy === 'phone' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('user_type_name')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>User Type</span>
+                    {sortBy === 'user_type_name' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('is_verified')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Status</span>
+                    {sortBy === 'is_verified' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('created_at')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Created At</span>
+                    {sortBy === 'created_at' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell align="right" sx={{ fontWeight: 600 }}>
+                  Actions
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredUsers.length === 0 ? (
+              {sortedUsers.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} align="center">
                     {users.length === 0 ? 'No users found' : 'No results match your filters'}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredUsers.map((user) => (
+                sortedUsers.map((user) => (
                   <TableRow key={user.user_id} hover>
                     <TableCell>{user.user_id}</TableCell>
                     <TableCell>
