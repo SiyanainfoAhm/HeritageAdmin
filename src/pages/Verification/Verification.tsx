@@ -50,10 +50,12 @@ import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import { format } from 'date-fns';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import MapIcon from '@mui/icons-material/Map';
 import { VerificationService, VerificationRecord } from '@/services/verification.service';
 import { UserService } from '@/services/user.service';
 import { TranslationService } from '@/services/translation.service';
 import { supabase } from '@/config/supabase';
+import { geocodeAddress } from '@/config/googleMaps';
 
 type LanguageCode = 'en' | 'hi' | 'gu' | 'ja' | 'es' | 'fr';
 
@@ -68,6 +70,16 @@ const LANGUAGES: { code: LanguageCode; label: string; flag: string }[] = [
 
 // Translatable fields for vendor business details
 const VENDOR_TRANSLATABLE_FIELDS = ['business_name', 'business_address', 'city', 'state', 'business_description'];
+
+// Translatable fields for local guide profile
+const LOCAL_GUIDE_TRANSLATABLE_FIELDS = [
+  'guide_name',
+  'bio',
+  'primary_city',
+  'primary_state',
+  'service_areas',
+  'specializations',
+];
 
 // Translatable fields for artisan details
 const ARTISAN_TRANSLATABLE_FIELDS = [
@@ -154,6 +166,7 @@ const PAGE_SIZE = 9;
 
 const VENDOR_ENTITY_TYPES = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'] as const;
 const ARTISAN_ENTITY_TYPES = ['Artisan'] as const;
+const LOCAL_GUIDE_ENTITY_TYPES = ['Local Guide'] as const;
 
 const getTranslatableFieldsForEntity = (entityType?: string | null): string[] => {
   if (!entityType) return [];
@@ -163,6 +176,9 @@ const getTranslatableFieldsForEntity = (entityType?: string | null): string[] =>
   if ((ARTISAN_ENTITY_TYPES as readonly string[]).includes(entityType)) {
     // For artisans, we support translations for BOTH vendor-style business fields and artisan-specific fields
     return [...VENDOR_TRANSLATABLE_FIELDS, ...ARTISAN_TRANSLATABLE_FIELDS];
+  }
+  if ((LOCAL_GUIDE_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+    return LOCAL_GUIDE_TRANSLATABLE_FIELDS;
   }
   return [];
 };
@@ -216,11 +232,13 @@ const Verification = () => {
   const [addItemDialog, setAddItemDialog] = useState<{ open: boolean; key: string; label: string }>({ open: false, key: '', label: '' });
   const [newItemValue, setNewItemValue] = useState('');
   const [newAwardText, setNewAwardText] = useState('');
+  const [addingItem, setAddingItem] = useState(false);
   const [currentLanguageTab, setCurrentLanguageTab] = useState<LanguageCode>('en');
   const [translations, setTranslations] = useState<Record<string, Record<LanguageCode, string>>>({});
   const [translatingFields, setTranslatingFields] = useState<Set<string>>(new Set());
   const translationTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
   const [userTypes, setUserTypes] = useState<Array<{ user_type_id: number; type_name: string }>>([]);
+  const [geocodingLocation, setGeocodingLocation] = useState(false);
 
   const fetchRecords = async () => {
     setLoading(true);
@@ -474,6 +492,139 @@ const Verification = () => {
     }
   };
 
+  // Geocode business address for vendor-style entities and update lat/long + city/state/pincode
+  const handlePinOnMap = async () => {
+    if (!userDetails?.businessDetails) return;
+
+    const currentDetails = editMode ? editedBusinessDetails : userDetails.businessDetails;
+
+    // Use the address exactly as shown in the current language tab
+    let address = '';
+    if (currentLanguageTab === 'en') {
+      address = String(currentDetails.business_address || '').trim();
+    } else {
+      const translatedAddress = translations['business_address']?.[currentLanguageTab];
+      address = String(translatedAddress || '').trim();
+    }
+
+    // Fallback to base address if translation is empty
+    if (!address) {
+      address = String(currentDetails.business_address || '').trim();
+    }
+
+    if (!address) {
+      alert('Please enter Business Address first');
+      return;
+    }
+
+    setGeocodingLocation(true);
+    try {
+      const result = await geocodeAddress(address);
+      if (result) {
+        const { lat, lng, city, state, postalCode, formattedAddress } = result;
+
+        const newAddress = formattedAddress || currentDetails.business_address || address;
+
+        const updated: Record<string, any> = {
+          ...currentDetails,
+          business_address: newAddress,
+          city: city || currentDetails.city,
+          state: state || currentDetails.state,
+          pincode: postalCode || currentDetails.pincode,
+          latitude: String(lat),
+          longitude: String(lng),
+        };
+
+        setEditedBusinessDetails((prev) => ({
+          ...prev,
+          ...updated,
+        }));
+
+        // Trigger auto-translate for address/city/state since they are translatable vendor fields
+        if (newAddress) {
+          autoTranslateField(newAddress, 'business_address');
+          setTranslations((prev) => ({
+            ...prev,
+            business_address: {
+              ...(prev.business_address || {
+                en: '',
+                hi: '',
+                gu: '',
+                ja: '',
+                es: '',
+                fr: '',
+              }),
+              en: newAddress,
+            },
+          }));
+        }
+        if (city) {
+          autoTranslateField(city, 'city');
+        }
+        if (state) {
+          autoTranslateField(state, 'state');
+        }
+      } else {
+        alert('Could not find location for this address. Please try a different address.');
+      }
+    } catch (error) {
+      console.error('Geocoding error in Verification:', error);
+      alert('Failed to geocode address. Please try again.');
+    } finally {
+      setGeocodingLocation(false);
+    }
+  };
+
+  // Geocode service area for Local Guide and populate primary_city/primary_state with translations
+  const handlePinServiceAreaOnMap = async (serviceArea: string) => {
+    if (!serviceArea || !serviceArea.trim()) {
+      alert('Please select a service area first');
+      return;
+    }
+
+    setGeocodingLocation(true);
+    try {
+      const result = await geocodeAddress(serviceArea.trim());
+      if (result) {
+        const { lat, lng, city, state, formattedAddress } = result;
+
+        // Update primary_city, primary_state, and add lat/long for map display
+        const updated: Record<string, any> = {
+          ...editedBusinessDetails,
+          primary_city: city || editedBusinessDetails.primary_city,
+          primary_state: state || editedBusinessDetails.primary_state,
+          latitude: String(lat),
+          longitude: String(lng),
+        };
+
+        // If service_areas exists, update the first one with the formatted address
+        if (Array.isArray(editedBusinessDetails.service_areas) && editedBusinessDetails.service_areas.length > 0) {
+          updated.service_areas = [formattedAddress || serviceArea, ...editedBusinessDetails.service_areas.slice(1)];
+        }
+
+        setEditedBusinessDetails((prev) => ({
+          ...prev,
+          ...updated,
+        }));
+
+        // Trigger auto-translate for primary_city/primary_state since they are translatable
+        if (city) {
+          autoTranslateField(city, 'primary_city');
+        }
+        if (state) {
+          autoTranslateField(state, 'primary_state');
+        }
+      } else {
+        alert('Could not find location for this service area. Please try a different area.');
+      }
+    } catch (error) {
+      console.error('Geocoding error for service area:', error);
+      alert('Failed to geocode service area. Please try again.');
+    } finally {
+      setGeocodingLocation(false);
+    }
+  };
+
   const handleSaveChanges = async () => {
     if (!selectedRecord || !userDetails) return;
     
@@ -515,6 +666,7 @@ const Verification = () => {
       // Save translations if applicable
       const isVendorEntity = (VENDOR_ENTITY_TYPES as readonly string[]).includes(selectedRecord.entityType) || selectedRecord.entityType === 'Artisan';
       const isArtisanEntity = selectedRecord.entityType === 'Artisan';
+      const isLocalGuideEntity = selectedRecord.entityType === 'Local Guide';
 
       if (isVendorEntity) {
         // Get business_id - fetch from database after update
@@ -579,7 +731,7 @@ const Verification = () => {
         }
       }
 
-      // Save artisan translations (heritage_artisantranslations) if applicable
+      // Save artisan translations (heritage_artisantranslation) if applicable
       if (isArtisanEntity) {
         try {
           // First, fetch artisan_id for this user
@@ -664,6 +816,86 @@ const Verification = () => {
         } catch (artisanSaveErr: any) {
           console.error('Error saving artisan translations:', artisanSaveErr);
           setError(`Failed to save artisan translations: ${artisanSaveErr.message || 'Unknown error'}`);
+        }
+      }
+
+      // Save Local Guide translations (heritage_local_guide_profile_translations) if applicable
+      if (isLocalGuideEntity) {
+        try {
+          // Fetch profile_id for this local guide
+          const { data: profileRow, error: profileErr } = await supabase
+            .from('heritage_local_guide_profile')
+            .select('profile_id')
+            .eq('user_id', selectedRecord.id)
+            .single();
+
+          if (profileErr) {
+            console.error('Error fetching local guide profile_id for translations:', profileErr);
+          } else if (profileRow?.profile_id) {
+            const profileId = profileRow.profile_id;
+
+            const arrayFields = ['service_areas', 'specializations'] as const;
+
+            const translationPayloads: any[] = LANGUAGES.filter(l => l.code !== 'en').map(lang => {
+              const langCode = lang.code;
+              const row: any = {
+                profile_id: profileId,
+                language_code: langCode,
+              };
+              let hasData = false;
+
+              LOCAL_GUIDE_TRANSLATABLE_FIELDS.forEach((field) => {
+                let val = translations[field]?.[langCode];
+                if (!val || !String(val).trim()) return;
+
+                if (arrayFields.includes(field as any)) {
+                  const arr = String(val)
+                    .split(/[,،،、]/)
+                    .map((s: string) => s.trim())
+                    .filter(Boolean);
+                  if (arr.length > 0) {
+                    row[field] = arr;
+                    hasData = true;
+                  }
+                } else {
+                  row[field] = String(val).trim();
+                  hasData = true;
+                }
+              });
+
+              return hasData ? row : null;
+            }).filter(Boolean) as any[];
+
+            if (translationPayloads.length > 0) {
+              for (const payload of translationPayloads) {
+                try {
+                  const { profile_id, language_code, ...fields } = payload;
+                  const { error: upsertErr } = await supabase
+                    .from('heritage_local_guide_profile_translations')
+                    .upsert(
+                      {
+                        profile_id,
+                        language_code,
+                        ...fields,
+                      },
+                      {
+                        onConflict: 'profile_id,language_code',
+                      }
+                    );
+
+                  if (upsertErr) {
+                    console.error('Error saving local guide translation row:', upsertErr);
+                    setError(`Failed to save local guide translations: ${upsertErr.message}`);
+                  }
+                } catch (rowErr) {
+                  console.error('Error during local guide translation upsert:', rowErr);
+                }
+              }
+            }
+          }
+        } catch (guideSaveErr: any) {
+          console.error('Error saving local guide translations:', guideSaveErr);
+          setError(`Failed to save local guide translations: ${guideSaveErr.message || 'Unknown error'}`);
         }
       }
 
@@ -1021,7 +1253,7 @@ const Verification = () => {
           {detailLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
               <CircularProgress />
-            </Box>
+    </Box>
           ) : (
             <Stack spacing={3}>
               {/* Basic Info */}
@@ -1195,17 +1427,375 @@ const Verification = () => {
                     </Box>
                   )}
                   
+                  {/* Vendor location block with Pin on Map + embedded map */}
+                  {(VENDOR_ENTITY_TYPES as readonly string[]).includes(selectedRecord?.entityType || '') && (
+                    <Box sx={{ mt: 2, mb: 2 }}>
+                      <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                        Location
+                      </Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} md={8}>
+                          {editMode ? (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label={`Business Address${
+                                LANGUAGES.find((l) => l.code === currentLanguageTab)?.label
+                                  ? ` (${LANGUAGES.find((l) => l.code === currentLanguageTab)?.label})`
+                                  : ''
+                              }`}
+                              value={
+                                currentLanguageTab === 'en'
+                                  ? editedBusinessDetails.business_address || ''
+                                  : (translations['business_address'] &&
+                                      translations['business_address'][currentLanguageTab]) ||
+                                    ''
+                              }
+                              onChange={(e) => {
+                                const newVal = e.target.value;
+                                if (currentLanguageTab === 'en') {
+                                  // Update base field and English translation
+                                  handleFieldChange('business_address', newVal);
+                                  setTranslations((prev) => ({
+                                    ...prev,
+                                    business_address: {
+                                      ...(prev.business_address || {
+                                        en: '',
+                                        hi: '',
+                                        gu: '',
+                                        ja: '',
+                                        es: '',
+                                        fr: '',
+                                      }),
+                                      en: newVal,
+                                    },
+                                  }));
+                                } else {
+                                  // Only update translation for current non-English language
+                                  setTranslations((prev) => ({
+                                    ...prev,
+                                    business_address: {
+                                      ...(prev.business_address || {
+                                        en: String(
+                                          editedBusinessDetails.business_address ??
+                                            userDetails.businessDetails.business_address ??
+                                            ''
+                                        ),
+                                        hi: '',
+                                        gu: '',
+                                        ja: '',
+                                        es: '',
+                                        fr: '',
+                                      }),
+                                      [currentLanguageTab]: newVal,
+                                    },
+                                  }));
+                                }
+                              }}
+                              InputProps={{
+                                endAdornment:
+                                  currentLanguageTab === 'en' &&
+                                  translatingFields.has('business_address') ? (
+                                    <InputAdornment position="end">
+                                      <CircularProgress size={16} />
+                                    </InputAdornment>
+                                  ) : undefined,
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                Business Address
+                              </Typography>
+                              <Typography variant="body2">
+                                {currentLanguageTab === 'en'
+                                  ? userDetails.businessDetails.business_address || '—'
+                                  : (translations['business_address'] &&
+                                      translations['business_address'][currentLanguageTab]) ||
+                                    userDetails.businessDetails.business_address ||
+                                    '—'}
+                              </Typography>
+                            </>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          {editMode && (
+                            <Button
+                              fullWidth
+                              variant="outlined"
+                              startIcon={geocodingLocation ? <CircularProgress size={18} /> : <MapIcon />}
+                              sx={{ height: '100%', borderRadius: 3 }}
+                              onClick={handlePinOnMap}
+                              disabled={
+                                geocodingLocation ||
+                                !String(
+                                  currentLanguageTab === 'en'
+                                    ? editedBusinessDetails.business_address ??
+                                      userDetails.businessDetails.business_address ??
+                                      ''
+                                    : (translations['business_address'] &&
+                                        translations['business_address'][currentLanguageTab]) ||
+                                      editedBusinessDetails.business_address ||
+                                      userDetails.businessDetails.business_address ||
+                                      ''
+                                ).trim()
+                              }
+                            >
+                              {geocodingLocation ? 'Finding...' : 'Pin on Map'}
+                            </Button>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          {editMode ? (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label={`City${
+                                LANGUAGES.find((l) => l.code === currentLanguageTab)?.label
+                                  ? ` (${LANGUAGES.find((l) => l.code === currentLanguageTab)?.label})`
+                                  : ''
+                              }`}
+                              value={
+                                currentLanguageTab === 'en'
+                                  ? editedBusinessDetails.city || ''
+                                  : (translations['city'] && translations['city'][currentLanguageTab]) || ''
+                              }
+                              onChange={(e) => {
+                                const newVal = e.target.value;
+                                if (currentLanguageTab === 'en') {
+                                  handleFieldChange('city', newVal);
+                                } else {
+                                  setTranslations((prev) => ({
+                                    ...prev,
+                                    city: {
+                                      ...(prev.city || {
+                                        en: String(
+                                          editedBusinessDetails.city ??
+                                            userDetails.businessDetails.city ??
+                                            ''
+                                        ),
+                                        hi: '',
+                                        gu: '',
+                                        ja: '',
+                                        es: '',
+                                        fr: '',
+                                      }),
+                                      [currentLanguageTab]: newVal,
+                                    },
+                                  }));
+                                }
+                              }}
+                              InputProps={{
+                                endAdornment:
+                                  currentLanguageTab === 'en' && translatingFields.has('city') ? (
+                                    <InputAdornment position="end">
+                                      <CircularProgress size={16} />
+                                    </InputAdornment>
+                                  ) : undefined,
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                City
+                              </Typography>
+                              <Typography variant="body2">
+                                {currentLanguageTab === 'en'
+                                  ? userDetails.businessDetails.city || '—'
+                                  : (translations['city'] &&
+                                      translations['city'][currentLanguageTab]) ||
+                                    userDetails.businessDetails.city ||
+                                    '—'}
+                              </Typography>
+                            </>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          {editMode ? (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label={`State${
+                                LANGUAGES.find((l) => l.code === currentLanguageTab)?.label
+                                  ? ` (${LANGUAGES.find((l) => l.code === currentLanguageTab)?.label})`
+                                  : ''
+                              }`}
+                              value={
+                                currentLanguageTab === 'en'
+                                  ? editedBusinessDetails.state || ''
+                                  : (translations['state'] && translations['state'][currentLanguageTab]) || ''
+                              }
+                              onChange={(e) => {
+                                const newVal = e.target.value;
+                                if (currentLanguageTab === 'en') {
+                                  handleFieldChange('state', newVal);
+                                } else {
+                                  setTranslations((prev) => ({
+                                    ...prev,
+                                    state: {
+                                      ...(prev.state || {
+                                        en: String(
+                                          editedBusinessDetails.state ??
+                                            userDetails.businessDetails.state ??
+                                            ''
+                                        ),
+                                        hi: '',
+                                        gu: '',
+                                        ja: '',
+                                        es: '',
+                                        fr: '',
+                                      }),
+                                      [currentLanguageTab]: newVal,
+                                    },
+                                  }));
+                                }
+                              }}
+                              InputProps={{
+                                endAdornment:
+                                  currentLanguageTab === 'en' && translatingFields.has('state') ? (
+                                    <InputAdornment position="end">
+                                      <CircularProgress size={16} />
+                                    </InputAdornment>
+                                  ) : undefined,
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                State
+                              </Typography>
+                              <Typography variant="body2">
+                                {currentLanguageTab === 'en'
+                                  ? userDetails.businessDetails.state || '—'
+                                  : (translations['state'] &&
+                                      translations['state'][currentLanguageTab]) ||
+                                    userDetails.businessDetails.state ||
+                                    '—'}
+                              </Typography>
+                            </>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          {editMode ? (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Pincode"
+                              value={editedBusinessDetails.pincode || ''}
+                              onChange={(e) => handleFieldChange('pincode', e.target.value)}
+                            />
+                          ) : (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                Pincode
+                              </Typography>
+                              <Typography variant="body2">
+                                {userDetails.businessDetails.pincode || '—'}
+                              </Typography>
+                            </>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                          {editMode ? (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Latitude"
+                              value={editedBusinessDetails.latitude || ''}
+                              onChange={(e) => handleFieldChange('latitude', e.target.value)}
+                            />
+                          ) : (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                Latitude
+                              </Typography>
+                              <Typography variant="body2">
+                                {userDetails.businessDetails.latitude || '—'}
+                              </Typography>
+                            </>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                          {editMode ? (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Longitude"
+                              value={editedBusinessDetails.longitude || ''}
+                              onChange={(e) => handleFieldChange('longitude', e.target.value)}
+                            />
+                          ) : (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                Longitude
+                              </Typography>
+                              <Typography variant="body2">
+                                {userDetails.businessDetails.longitude || '—'}
+                              </Typography>
+                            </>
+                          )}
+                        </Grid>
+                        {((editMode ? editedBusinessDetails.latitude : userDetails.businessDetails.latitude) &&
+                          (editMode ? editedBusinessDetails.longitude : userDetails.businessDetails.longitude)) && (
+                          <Grid item xs={12}>
+                            <Box
+                              sx={{
+                                borderRadius: 3,
+                                overflow: 'hidden',
+                                border: '1px solid #E0E0E0',
+                                height: 240,
+                                position: 'relative',
+                              }}
+                            >
+                              <iframe
+                                title="Location Map"
+                                width="100%"
+                                height="100%"
+                                style={{ border: 0 }}
+                                loading="lazy"
+                                referrerPolicy="no-referrer-when-downgrade"
+                                src={`https://www.google.com/maps?q=${
+                                  editMode ? editedBusinessDetails.latitude : userDetails.businessDetails.latitude
+                                },${
+                                  editMode ? editedBusinessDetails.longitude : userDetails.businessDetails.longitude
+                                }&z=15&output=embed`}
+                              />
+                            </Box>
+                          </Grid>
+                        )}
+                      </Grid>
+                    </Box>
+                  )}
+                  
                   <Grid container spacing={2}>
                     {(() => {
                       // Get all entries
                       const entries = Object.entries(editMode ? editedBusinessDetails : userDetails.businessDetails);
                       
-                      // Filter out system fields
+                      // Filter out system / internal fields
                       let filteredEntries = entries.filter(([key]) => 
-                        !['id', 'user_id', 'created_at', 'updated_at', 'profile_id', 'artisan_id', 'guide_id', 'business_id', 'is_verified', 'verification_status', '_translations'].includes(key)
+                        ![
+                          'id',
+                          'user_id',
+                          'created_at',
+                          'updated_at',
+                          'profile_id',
+                          'artisan_id',
+                          'guide_id',
+                          'business_id',
+                          'is_verified',
+                          'verification_status',
+                          '_translations',
+                          // Hide certifications from generic view
+                          'certifications',
+                          // Hide bio_language field
+                          'bio_language',
+                        ].includes(key)
                       );
 
                       const isArtisan = selectedRecord?.entityType === 'Artisan';
+                      const isPureVendorEntity = (VENDOR_ENTITY_TYPES as readonly string[]).includes(selectedRecord?.entityType || '');
+                      const isLocalGuide = selectedRecord?.entityType === 'Local Guide';
 
                       // For artisans, Business Details should only display vendor-style fields
                       if (isArtisan) {
@@ -1215,6 +1805,20 @@ const Verification = () => {
                           'longitude',
                         ]);
                         filteredEntries = filteredEntries.filter(([key]) => vendorFieldSet.has(key));
+                      }
+                      
+                      // For pure vendor entities, Location fields are handled separately with map,
+                      // so remove them from the generic grid
+                      if (isPureVendorEntity) {
+                        const locationFieldSet = new Set<string>([
+                          'business_address',
+                          'city',
+                          'state',
+                          'pincode',
+                          'latitude',
+                          'longitude',
+                        ]);
+                        filteredEntries = filteredEntries.filter(([key]) => !locationFieldSet.has(key));
                       }
                       
                       // Check if this is a vendor business type (also treat artisan as vendor-style for ordering)
@@ -1236,13 +1840,40 @@ const Verification = () => {
                           })
                         : filteredEntries;
                       
+                      // Helper: parse availability_days for Local Guide
+                      let availabilityDaysSet = new Set<string>();
+                      if (isLocalGuide) {
+                        const availRaw = editMode ? editedBusinessDetails.availability_days : userDetails.businessDetails.availability_days;
+                        if (Array.isArray(availRaw)) {
+                          availabilityDaysSet = new Set(availRaw.map(String));
+                        } else if (typeof availRaw === 'string') {
+                          // Handle comma separated or PostgreSQL array format
+                          if (availRaw.startsWith('{') && availRaw.endsWith('}')) {
+                            const inner = availRaw.slice(1, -1);
+                            if (inner) {
+                              availabilityDaysSet = new Set(
+                                inner.split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean)
+                              );
+                            }
+                          } else {
+                            availabilityDaysSet = new Set(
+                              availRaw.split(',').map(s => s.trim()).filter(Boolean)
+                            );
+                          }
+                        }
+                      }
+
+                      const weekendSelected =
+                        isLocalGuide &&
+                        (availabilityDaysSet.has('Saturday') || availabilityDaysSet.has('Sunday'));
+
                       return sortedEntries.map(([key, value]) => {
                       
                       const label = key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
                       
-                      // Check if this is a translatable field for the current entity (vendor-style fields only in Business Details)
+                      // Check if this is a translatable field for the current entity
                       const entityTransFields = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
-                      const isTranslatableField = entityTransFields.includes(key) && VENDOR_TRANSLATABLE_FIELDS.includes(key);
+                      const isTranslatableField = entityTransFields.includes(key);
 
                       // Get the value based on language tab for translatable fields
                       let currentValue = editMode ? editedBusinessDetails[key] : value;
@@ -1265,6 +1896,170 @@ const Verification = () => {
                         currentValue = extractStringValue(currentValue);
                       }
                       
+                      // Local Guide: custom UI for availability_days
+                      if (isLocalGuide && key === 'availability_days') {
+                        const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+                        const selectedDays = Array.from(availabilityDaysSet);
+                        const selectedSet = new Set(selectedDays);
+
+                        const toggleDay = (day: string) => {
+                          if (!editMode) return;
+                          const next = selectedSet.has(day)
+                            ? selectedDays.filter(d => d !== day)
+                            : [...selectedDays, day];
+                          handleFieldChange('availability_days', next);
+                        };
+
+                        return (
+                          <Grid item xs={12} key={key}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              {label}
+                            </Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} alignItems="center">
+                              {DAYS.map((day) => {
+                                const isSelected = selectedSet.has(day);
+                                return (
+                                  <Chip
+                                    key={day}
+                                    label={day}
+                                    size="small"
+                                    color={isSelected ? 'primary' : 'default'}
+                                    variant={isSelected ? 'filled' : 'outlined'}
+                                    onClick={editMode ? () => toggleDay(day) : undefined}
+                                  />
+                                );
+                              })}
+                            </Stack>
+                          </Grid>
+                        );
+                      }
+
+                      // Local Guide: custom UI for service_areas with Pin on Map
+                      if (isLocalGuide && key === 'service_areas') {
+                        let serviceAreasArr: string[] = [];
+                        if (Array.isArray(currentValue)) {
+                          serviceAreasArr = currentValue;
+                        } else if (typeof currentValue === 'string' && currentValue.startsWith('{') && currentValue.endsWith('}')) {
+                          const inner = currentValue.slice(1, -1);
+                          if (inner) {
+                            serviceAreasArr = inner.split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean);
+                          }
+                        } else if (typeof currentValue === 'string' && currentValue) {
+                          serviceAreasArr = currentValue.split(',').map(s => s.trim()).filter(Boolean);
+                        } else if (Array.isArray(value)) {
+                          serviceAreasArr = value;
+                        }
+
+                        const handleRemoveServiceArea = (idx: number) => {
+                          if (!editMode) return;
+                          const itemToRemove = serviceAreasArr[idx];
+                          const newArr = serviceAreasArr.filter((_, i) => i !== idx);
+                          handleFieldChange(key, newArr);
+                          
+                          // Remove from all language translations
+                          if (translations[key]) {
+                            const updatedTranslations: Record<LanguageCode, string> = { ...translations[key] };
+                            LANGUAGES.forEach(lang => {
+                              if (updatedTranslations[lang.code]) {
+                                const langArr = String(updatedTranslations[lang.code])
+                                  .split(/[,،،、]/)
+                                  .map(s => s.trim())
+                                  .filter(Boolean);
+                                const filteredLangArr = langArr.filter(item => item !== itemToRemove);
+                                updatedTranslations[lang.code] = filteredLangArr.join(', ');
+                              }
+                            });
+                            setTranslations(prev => ({
+                              ...prev,
+                              [key]: updatedTranslations,
+                            }));
+                          }
+                        };
+
+                        return (
+                          <Grid item xs={12} key={key}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>{label}</Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} alignItems="center">
+                              {serviceAreasArr.length > 0 ? serviceAreasArr.map((item, idx) => (
+                                <Chip 
+                                  key={idx} 
+                                  label={String(item)} 
+                                  size="small" 
+                                  variant="outlined"
+                                  onDelete={editMode ? () => handleRemoveServiceArea(idx) : undefined}
+                                />
+                              )) : (
+                                <Typography variant="body2" color="text.disabled">—</Typography>
+                              )}
+                              {editMode && (
+                                <>
+                                  <Chip
+                                    label="+ Add"
+                                    size="small"
+                                    color="primary"
+                                    variant="outlined"
+                                    onClick={() => {
+                                      if (!Array.isArray(editedBusinessDetails[key])) {
+                                        handleFieldChange(key, serviceAreasArr);
+                                      }
+                                      setAddItemDialog({ open: true, key, label });
+                                      setNewItemValue('');
+                                    }}
+                                    sx={{ cursor: 'pointer' }}
+                                  />
+                                  {serviceAreasArr.length > 0 && (
+                                    <Button
+                                      variant="outlined"
+                                      size="small"
+                                      startIcon={geocodingLocation ? <CircularProgress size={16} /> : <MapIcon />}
+                                      onClick={() => {
+                                        // Use the first service area for geocoding
+                                        const firstArea = serviceAreasArr[0];
+                                        if (firstArea) {
+                                          handlePinServiceAreaOnMap(firstArea);
+                                        }
+                                      }}
+                                      disabled={geocodingLocation || serviceAreasArr.length === 0}
+                                    >
+                                      {geocodingLocation ? 'Finding...' : 'Pin on Map'}
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+                            </Stack>
+                            {/* Map display for Local Guide when lat/long are available */}
+                            {isLocalGuide && 
+                             ((editMode ? editedBusinessDetails.latitude : userDetails.businessDetails.latitude) &&
+                              (editMode ? editedBusinessDetails.longitude : userDetails.businessDetails.longitude)) && (
+                              <Box
+                                sx={{
+                                  mt: 2,
+                                  borderRadius: 3,
+                                  overflow: 'hidden',
+                                  border: '1px solid #E0E0E0',
+                                  height: 240,
+                                  position: 'relative',
+                                }}
+                              >
+                                <iframe
+                                  title="Service Area Map"
+                                  width="100%"
+                                  height="100%"
+                                  style={{ border: 0 }}
+                                  loading="lazy"
+                                  referrerPolicy="no-referrer-when-downgrade"
+                                  src={`https://www.google.com/maps?q=${
+                                    editMode ? editedBusinessDetails.latitude : userDetails.businessDetails.latitude
+                                  },${
+                                    editMode ? editedBusinessDetails.longitude : userDetails.businessDetails.longitude
+                                  }&z=15&output=embed`}
+                                />
+                              </Box>
+                            )}
+                          </Grid>
+                        );
+                      }
+
                       // Known array fields that should always be treated as arrays
                       const knownArrayFields = ['awards', 'languages', 'specializations', 'certifications', 'service_areas', 'expertise', 'skills'];
                       const isKnownArrayField = knownArrayFields.includes(key);
@@ -1298,6 +2093,34 @@ const Verification = () => {
                         } else if (isKnownArrayField) {
                           arrValue = [];
                         }
+                        // For Local Guide translatable array fields (service_areas, specializations), handle removal from all languages
+                        const isLocalGuideTranslatableArray = isLocalGuide && (key === 'service_areas' || key === 'specializations');
+                        const handleRemoveArrayItem = (idx: number) => {
+                          if (!editMode) return;
+                          const itemToRemove = arrValue[idx];
+                          const newArr = arrValue.filter((_, i) => i !== idx);
+                          handleFieldChange(key, newArr);
+                          
+                          // Remove from all language translations for Local Guide translatable arrays
+                          if (isLocalGuideTranslatableArray && translations[key]) {
+                            const updatedTranslations: Record<LanguageCode, string> = { ...translations[key] };
+                            LANGUAGES.forEach(lang => {
+                              if (updatedTranslations[lang.code]) {
+                                const langArr = String(updatedTranslations[lang.code])
+                                  .split(/[,،،、]/)
+                                  .map(s => s.trim())
+                                  .filter(Boolean);
+                                const filteredLangArr = langArr.filter(item => item !== itemToRemove);
+                                updatedTranslations[lang.code] = filteredLangArr.join(', ');
+                              }
+                            });
+                            setTranslations(prev => ({
+                              ...prev,
+                              [key]: updatedTranslations,
+                            }));
+                          }
+                        };
+
                         return (
                           <Grid item xs={12} key={key}>
                             <Typography variant="body2" color="text.secondary" gutterBottom>{label}</Typography>
@@ -1308,10 +2131,7 @@ const Verification = () => {
                                   label={String(item)} 
                                   size="small" 
                                   variant="outlined"
-                                  onDelete={editMode ? () => {
-                                    const newArr = arrValue.filter((_, i) => i !== idx);
-                                    handleFieldChange(key, newArr);
-                                  } : undefined}
+                                  onDelete={editMode ? () => handleRemoveArrayItem(idx) : undefined}
                                 />
                               )) : (
                                 <Typography variant="body2" color="text.disabled">—</Typography>
@@ -1375,6 +2195,62 @@ const Verification = () => {
                         );
                       }
                       
+                      // Local Guide: custom time pickers for weekday/weekend start/end times
+                      if (
+                        isLocalGuide &&
+                        ['weekday_start_time', 'weekday_end_time', 'weekend_start_time', 'weekend_end_time'].includes(
+                          key
+                        )
+                      ) {
+                        const labelMap: Record<string, string> = {
+                          weekday_start_time: 'Weekday Start Time',
+                          weekday_end_time: 'Weekday End Time',
+                          weekend_start_time: 'Weekend Start Time',
+                          weekend_end_time: 'Weekend End Time',
+                        };
+
+                        // Hide weekend fields if Saturday/Sunday not selected
+                        if (
+                          (key === 'weekend_start_time' || key === 'weekend_end_time') &&
+                          !weekendSelected
+                        ) {
+                          return null;
+                        }
+
+                        const timeValue =
+                          typeof currentValue === 'string'
+                            ? currentValue.slice(0, 5) // HH:MM from HH:MM:SS
+                            : '';
+
+                        if (editMode) {
+                          return (
+                            <Grid item xs={6} key={key}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label={labelMap[key] || label}
+                                type="time"
+                                value={timeValue}
+                                onChange={(e) => handleFieldChange(key, e.target.value)}
+                                InputLabelProps={{ shrink: true }}
+                                inputProps={{ step: 60 }}
+                              />
+                            </Grid>
+                          );
+                        }
+
+                        return (
+                          <Grid item xs={6} key={key}>
+                            <Typography variant="body2" color="text.secondary">
+                              {labelMap[key] || label}
+                            </Typography>
+                            <Typography variant="body2">
+                              {currentValue ? String(currentValue) : '—'}
+                            </Typography>
+                          </Grid>
+                        );
+                      }
+
                       // Check if this is a date field
                       const isDateField = DATE_FIELDS.includes(key);
                       const isTimestampField = key === 'verification_date';
@@ -1916,7 +2792,18 @@ const Verification = () => {
       </Dialog>
 
       {/* Add Item Dialog */}
-      <Dialog open={addItemDialog.open} onClose={() => setAddItemDialog({ open: false, key: '', label: '' })} maxWidth="xs" fullWidth>
+      <Dialog 
+        open={addItemDialog.open} 
+        onClose={() => {
+          if (!addingItem) {
+            setAddItemDialog({ open: false, key: '', label: '' });
+            setNewItemValue('');
+            setAddingItem(false);
+          }
+        }} 
+        maxWidth="xs" 
+        fullWidth
+      >
         <DialogTitle>Add {addItemDialog.label}</DialogTitle>
         <DialogContent>
           <TextField
@@ -1926,31 +2813,193 @@ const Verification = () => {
             label={`New ${addItemDialog.label}`}
             value={newItemValue}
             onChange={(e) => setNewItemValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newItemValue.trim()) {
-                const arrValue = Array.isArray(editedBusinessDetails[addItemDialog.key]) ? editedBusinessDetails[addItemDialog.key] : [];
-                handleFieldChange(addItemDialog.key, [...arrValue, newItemValue.trim()]);
-                setAddItemDialog({ open: false, key: '', label: '' });
-                setNewItemValue('');
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter' && newItemValue.trim() && !addingItem) {
+                setAddingItem(true);
+                try {
+                  const arrValue = Array.isArray(editedBusinessDetails[addItemDialog.key]) ? editedBusinessDetails[addItemDialog.key] : [];
+                  const newItem = newItemValue.trim();
+                  handleFieldChange(addItemDialog.key, [...arrValue, newItem]);
+                  
+                  // For Local Guide translatable arrays (service_areas, specializations), translate the new item
+                  const isLocalGuideTranslatableArray = selectedRecord?.entityType === 'Local Guide' && 
+                    (addItemDialog.key === 'service_areas' || addItemDialog.key === 'specializations');
+                  if (isLocalGuideTranslatableArray) {
+                    // Translate the new item and append to existing translations
+                    const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+                    setTranslatingFields(prev => new Set(prev).add(addItemDialog.key));
+                    
+                    try {
+                      // Collect all translations first, then update state once
+                      const currentTranslations = translations[addItemDialog.key] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                      
+                      // Initialize with current translations
+                      const translationUpdates: Record<LanguageCode, string> = {
+                        en: currentTranslations.en || '',
+                        hi: currentTranslations.hi || '',
+                        gu: currentTranslations.gu || '',
+                        ja: currentTranslations.ja || '',
+                        es: currentTranslations.es || '',
+                        fr: currentTranslations.fr || '',
+                      };
+                      
+                      // Update English translation first
+                      const existingEnArr = translationUpdates.en ? translationUpdates.en.split(/[,，،、]/).map(s => s.trim()).filter(Boolean) : [];
+                      translationUpdates.en = [...existingEnArr, newItem].join(', ');
+                      
+                      // Translate to other languages
+                      for (const lang of targetLanguages) {
+                        try {
+                          const result = await TranslationService.translate(newItem, lang.code, 'en');
+                          if (result.success && result.translations && result.translations[lang.code]) {
+                            const translatedText = Array.isArray(result.translations[lang.code]) 
+                              ? result.translations[lang.code][0] 
+                              : String(result.translations[lang.code] || '');
+                            
+                            const existingLangArr = translationUpdates[lang.code] 
+                              ? translationUpdates[lang.code].split(/[,，،、]/).map(s => s.trim()).filter(Boolean) 
+                              : [];
+                            translationUpdates[lang.code] = [...existingLangArr, translatedText].join(', ');
+                          }
+                        } catch (langError) {
+                          console.error(`Translation error for ${lang.code}:`, langError);
+                          // Keep existing translation if new translation fails
+                          translationUpdates[lang.code] = currentTranslations[lang.code] || '';
+                        }
+                      }
+                      
+                      // Update all translations in a single state update
+                      setTranslations(prev => ({
+                        ...prev,
+                        [addItemDialog.key]: translationUpdates,
+                      }));
+                    } catch (error) {
+                      console.error('Translation error:', error);
+                    } finally {
+                      setTranslatingFields(prev => {
+                        const next = new Set(prev);
+                        next.delete(addItemDialog.key);
+                        return next;
+                      });
+                    }
+                  }
+                  
+                  setAddItemDialog({ open: false, key: '', label: '' });
+                  setNewItemValue('');
+                } catch (error) {
+                  console.error('Error adding item:', error);
+                  // Still close dialog even if translation fails
+                  setAddItemDialog({ open: false, key: '', label: '' });
+                  setNewItemValue('');
+                } finally {
+                  setAddingItem(false);
+                }
               }
             }}
             sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddItemDialog({ open: false, key: '', label: '' })}>Cancel</Button>
-          <Button
-            variant="contained"
+          <Button 
             onClick={() => {
-              if (newItemValue.trim()) {
-                const arrValue = Array.isArray(editedBusinessDetails[addItemDialog.key]) ? editedBusinessDetails[addItemDialog.key] : [];
-                handleFieldChange(addItemDialog.key, [...arrValue, newItemValue.trim()]);
+              if (!addingItem) {
                 setAddItemDialog({ open: false, key: '', label: '' });
                 setNewItemValue('');
               }
             }}
+            disabled={addingItem}
           >
-            Add
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={addingItem || !newItemValue.trim()}
+            startIcon={addingItem ? <CircularProgress size={16} /> : undefined}
+            onClick={async () => {
+              if (newItemValue.trim() && !addingItem) {
+                setAddingItem(true);
+                try {
+                  const arrValue = Array.isArray(editedBusinessDetails[addItemDialog.key]) ? editedBusinessDetails[addItemDialog.key] : [];
+                  const newItem = newItemValue.trim();
+                  handleFieldChange(addItemDialog.key, [...arrValue, newItem]);
+                  
+                  // For Local Guide translatable arrays (service_areas, specializations), translate the new item
+                  const isLocalGuideTranslatableArray = selectedRecord?.entityType === 'Local Guide' && 
+                    (addItemDialog.key === 'service_areas' || addItemDialog.key === 'specializations');
+                  if (isLocalGuideTranslatableArray) {
+                    // Translate the new item and append to existing translations
+                    const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+                    setTranslatingFields(prev => new Set(prev).add(addItemDialog.key));
+                    
+                    try {
+                      // Collect all translations first, then update state once
+                      const currentTranslations = translations[addItemDialog.key] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                      
+                      // Initialize with current translations
+                      const translationUpdates: Record<LanguageCode, string> = {
+                        en: currentTranslations.en || '',
+                        hi: currentTranslations.hi || '',
+                        gu: currentTranslations.gu || '',
+                        ja: currentTranslations.ja || '',
+                        es: currentTranslations.es || '',
+                        fr: currentTranslations.fr || '',
+                      };
+                      
+                      // Update English translation first
+                      const existingEnArr = translationUpdates.en ? translationUpdates.en.split(/[,，،、]/).map(s => s.trim()).filter(Boolean) : [];
+                      translationUpdates.en = [...existingEnArr, newItem].join(', ');
+                      
+                      // Translate to other languages
+                      for (const lang of targetLanguages) {
+                        try {
+                          const result = await TranslationService.translate(newItem, lang.code, 'en');
+                          if (result.success && result.translations && result.translations[lang.code]) {
+                            const translatedText = Array.isArray(result.translations[lang.code]) 
+                              ? result.translations[lang.code][0] 
+                              : String(result.translations[lang.code] || '');
+                            
+                            const existingLangArr = translationUpdates[lang.code] 
+                              ? translationUpdates[lang.code].split(/[,，،、]/).map(s => s.trim()).filter(Boolean) 
+                              : [];
+                            translationUpdates[lang.code] = [...existingLangArr, translatedText].join(', ');
+                          }
+                        } catch (langError) {
+                          console.error(`Translation error for ${lang.code}:`, langError);
+                          // Keep existing translation if new translation fails
+                          translationUpdates[lang.code] = currentTranslations[lang.code] || '';
+                        }
+                      }
+                      
+                      // Update all translations in a single state update
+                      setTranslations(prev => ({
+                        ...prev,
+                        [addItemDialog.key]: translationUpdates,
+                      }));
+                    } catch (error) {
+                      console.error('Translation error:', error);
+                    } finally {
+                      setTranslatingFields(prev => {
+                        const next = new Set(prev);
+                        next.delete(addItemDialog.key);
+                        return next;
+                      });
+                    }
+                  }
+                  
+                  setAddItemDialog({ open: false, key: '', label: '' });
+                  setNewItemValue('');
+                } catch (error) {
+                  console.error('Error adding item:', error);
+                  // Still close dialog even if translation fails
+                  setAddItemDialog({ open: false, key: '', label: '' });
+                  setNewItemValue('');
+                } finally {
+                  setAddingItem(false);
+                }
+              }
+            }}
+          >
+            {addingItem ? 'Adding...' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
