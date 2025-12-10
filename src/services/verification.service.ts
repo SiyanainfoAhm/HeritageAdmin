@@ -553,6 +553,23 @@ export class VerificationService {
         }
       }
 
+      // For Local Guide, load profile translations from heritage_local_guide_profile_translations
+      if (entityType === 'Local Guide' && businessDetails && businessDetails.profile_id) {
+        try {
+          const { data: guideTranslations, error: guideTransError } = await supabase
+            .from('heritage_local_guide_profile_translations')
+            .select('*')
+            .eq('profile_id', businessDetails.profile_id);
+
+          if (!guideTransError && Array.isArray(guideTranslations) && guideTranslations.length > 0) {
+            // Attach raw translations; UI will map per-field by language_code
+            (businessDetails as any)._translations = guideTranslations;
+          }
+        } catch (guideTransErr) {
+          console.warn('Error fetching local guide translations:', guideTransErr);
+        }
+      }
+
       // For Artisan, fetch from heritage_artisan table + vendor business/location & translations
       if (entityType === 'Artisan') {
         const { data: artisanData } = await supabase
