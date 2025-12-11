@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -30,6 +30,7 @@ import {
   MenuItem,
   ToggleButton,
   ToggleButtonGroup,
+  Stack,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -37,6 +38,8 @@ import {
   Visibility as ViewIcon,
   Code as CodeIcon,
   Preview as PreviewIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon,
 } from '@mui/icons-material';
 import {
   NotificationTemplateService,
@@ -76,6 +79,10 @@ const NotificationTemplate = () => {
   // Editor mode: 'code' or 'preview'
   const [editorMode, setEditorMode] = useState<'code' | 'preview'>('code');
 
+  // Templates sorting
+  const [templatesSortBy, setTemplatesSortBy] = useState<'key' | 'name' | 'subject' | 'critical' | 'status'>('key');
+  const [templatesSortOrder, setTemplatesSortOrder] = useState<'asc' | 'desc'>('asc');
+
   // Logs pagination and filters
   const [logsPage, setLogsPage] = useState(0);
   const [logsRowsPerPage, setLogsRowsPerPage] = useState(20);
@@ -85,6 +92,8 @@ const NotificationTemplate = () => {
     channel: '',
     status: '',
   });
+  const [logsSortBy, setLogsSortBy] = useState<'id' | 'type' | 'channel' | 'recipient' | 'status' | 'created'>('created');
+  const [logsSortOrder, setLogsSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     if (activeTab === 'templates') {
@@ -233,6 +242,110 @@ const NotificationTemplate = () => {
     }
   };
 
+  // Sort templates
+  const sortedTemplates = useMemo(() => {
+    const sorted = [...templates];
+    
+    sorted.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
+      switch (templatesSortBy) {
+        case 'key':
+          aValue = a.template_key?.toLowerCase() || '';
+          bValue = b.template_key?.toLowerCase() || '';
+          break;
+        case 'name':
+          aValue = a.template_name?.toLowerCase() || '';
+          bValue = b.template_name?.toLowerCase() || '';
+          break;
+        case 'subject':
+          aValue = a.email_subject?.toLowerCase() || '';
+          bValue = b.email_subject?.toLowerCase() || '';
+          break;
+        case 'critical':
+          aValue = a.is_critical ? 1 : 0;
+          bValue = b.is_critical ? 1 : 0;
+          break;
+        case 'status':
+          aValue = a.is_active ? 1 : 0;
+          bValue = b.is_active ? 1 : 0;
+          break;
+        default:
+          return 0;
+      }
+      
+      if (aValue < bValue) return templatesSortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return templatesSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return sorted;
+  }, [templates, templatesSortBy, templatesSortOrder]);
+
+  const handleTemplatesSort = (column: 'key' | 'name' | 'subject' | 'critical' | 'status') => {
+    if (templatesSortBy === column) {
+      setTemplatesSortOrder(templatesSortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setTemplatesSortBy(column);
+      setTemplatesSortOrder('asc');
+    }
+  };
+
+  // Sort logs
+  const sortedLogs = useMemo(() => {
+    const sorted = [...logs];
+    
+    sorted.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
+      switch (logsSortBy) {
+        case 'id':
+          aValue = a.id;
+          bValue = b.id;
+          break;
+        case 'type':
+          aValue = a.notification_type?.toLowerCase() || '';
+          bValue = b.notification_type?.toLowerCase() || '';
+          break;
+        case 'channel':
+          aValue = a.channel?.toLowerCase() || '';
+          bValue = b.channel?.toLowerCase() || '';
+          break;
+        case 'recipient':
+          aValue = a.recipient?.toLowerCase() || '';
+          bValue = b.recipient?.toLowerCase() || '';
+          break;
+        case 'status':
+          aValue = a.status?.toLowerCase() || '';
+          bValue = b.status?.toLowerCase() || '';
+          break;
+        case 'created':
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+          break;
+        default:
+          return 0;
+      }
+      
+      if (aValue < bValue) return logsSortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return logsSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return sorted;
+  }, [logs, logsSortBy, logsSortOrder]);
+
+  const handleLogsSort = (column: 'id' | 'type' | 'channel' | 'recipient' | 'status' | 'created') => {
+    if (logsSortBy === column) {
+      setLogsSortOrder(logsSortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setLogsSortBy(column);
+      setLogsSortOrder('asc');
+    }
+  };
+
   const renderTemplatesTab = () => (
     <>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
@@ -250,23 +363,73 @@ const NotificationTemplate = () => {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Template Key</TableCell>
-                <TableCell>Template Name</TableCell>
-                <TableCell>Subject</TableCell>
-                <TableCell>Critical</TableCell>
-                <TableCell>Status</TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleTemplatesSort('key')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Template Key</span>
+                    {templatesSortBy === 'key' && (
+                      templatesSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleTemplatesSort('name')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Template Name</span>
+                    {templatesSortBy === 'name' && (
+                      templatesSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleTemplatesSort('subject')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Subject</span>
+                    {templatesSortBy === 'subject' && (
+                      templatesSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleTemplatesSort('critical')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Critical</span>
+                    {templatesSortBy === 'critical' && (
+                      templatesSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleTemplatesSort('status')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Status</span>
+                    {templatesSortBy === 'status' && (
+                      templatesSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {templates.length === 0 ? (
+              {sortedTemplates.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} align="center">
                     No templates found
                   </TableCell>
                 </TableRow>
               ) : (
-                templates.map((template) => (
+                sortedTemplates.map((template) => (
                   <TableRow key={template.id} hover>
                     <TableCell>
                       <Typography variant="body2" fontWeight="medium">
@@ -373,24 +536,84 @@ const NotificationTemplate = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>ID</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Channel</TableCell>
-                  <TableCell>Recipient</TableCell>
+                  <TableCell 
+                    sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleLogsSort('id')}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <span>ID</span>
+                      {logsSortBy === 'id' && (
+                        logsSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                      )}
+                    </Stack>
+                  </TableCell>
+                  <TableCell 
+                    sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleLogsSort('type')}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <span>Type</span>
+                      {logsSortBy === 'type' && (
+                        logsSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                      )}
+                    </Stack>
+                  </TableCell>
+                  <TableCell 
+                    sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleLogsSort('channel')}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <span>Channel</span>
+                      {logsSortBy === 'channel' && (
+                        logsSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                      )}
+                    </Stack>
+                  </TableCell>
+                  <TableCell 
+                    sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleLogsSort('recipient')}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <span>Recipient</span>
+                      {logsSortBy === 'recipient' && (
+                        logsSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                      )}
+                    </Stack>
+                  </TableCell>
                   <TableCell>Subject</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Created At</TableCell>
+                  <TableCell 
+                    sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleLogsSort('status')}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <span>Status</span>
+                      {logsSortBy === 'status' && (
+                        logsSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                      )}
+                    </Stack>
+                  </TableCell>
+                  <TableCell 
+                    sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleLogsSort('created')}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <span>Created At</span>
+                      {logsSortBy === 'created' && (
+                        logsSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                      )}
+                    </Stack>
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {logs.length === 0 ? (
+                {sortedLogs.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} align="center">
                       No logs found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  logs.map((log) => (
+                  sortedLogs.map((log) => (
                     <TableRow key={log.id} hover>
                       <TableCell>{log.id}</TableCell>
                       <TableCell>
