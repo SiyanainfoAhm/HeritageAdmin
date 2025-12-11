@@ -35,6 +35,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 
 import { HeritageSite, MasterData } from '@/types';
 import { HeritageSiteService, HeritageSiteFilters, HeritageSitePayload, HeritageSiteExperience } from '@/services/heritageSite.service';
@@ -60,6 +62,8 @@ const HeritageSitesManager: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [experienceFilter, setExperienceFilter] = useState<HeritageSiteExperience[]>([]);
   const [siteTypeFilter, setSiteTypeFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'name' | 'description' | 'experience' | 'entry' | 'status' | 'updated'>('updated');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   
   // Master data for filters
   const [experienceMasterData, setExperienceMasterData] = useState<MasterData[]>([]);
@@ -328,6 +332,95 @@ const HeritageSitesManager: React.FC = () => {
     return siteTypeMasterData.filter((item) => item.is_active);
   }, [siteTypeMasterData]);
 
+  // Sort sites based on sortBy and sortOrder
+  const sortedSites = useMemo(() => {
+    const sorted = [...sites];
+    
+    sorted.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name_default?.toLowerCase() || '';
+          bValue = b.name_default?.toLowerCase() || '';
+          break;
+        case 'description':
+          aValue = a.short_desc_default?.toLowerCase() || a.full_desc_default?.toLowerCase() || '';
+          bValue = b.short_desc_default?.toLowerCase() || b.full_desc_default?.toLowerCase() || '';
+          break;
+        case 'experience':
+          // Get first experience and sort by first letter
+          const aExp = Array.isArray(a.experience) 
+            ? (a.experience.length > 0 ? getLabelFromCode(a.experience[0], experienceMasterData) : '')
+            : (a.experience ? getLabelFromCode(a.experience, experienceMasterData) : '');
+          const bExp = Array.isArray(b.experience)
+            ? (b.experience.length > 0 ? getLabelFromCode(b.experience[0], experienceMasterData) : '')
+            : (b.experience ? getLabelFromCode(b.experience, experienceMasterData) : '');
+          aValue = aExp?.toLowerCase().charAt(0) || '';
+          bValue = bExp?.toLowerCase().charAt(0) || '';
+          break;
+        case 'entry':
+          // Custom sorting: Free Entry (0), External (1), Paid (2+ with amount)
+          const getEntrySortValue = (site: HeritageSite) => {
+            const firstTicketPrice = (site as any)._firstTicketPrice;
+            const firstTicketName = ((site as any)._firstTicketName || '') as string;
+            const hasExternalTicket = site.entry_type === 'paid' && firstTicketName.toLowerCase().includes('external');
+            
+            if (!site.entry_type || site.entry_type === 'free') {
+              return { order: 0, amount: 0 }; // Free Entry comes first
+            } else if (hasExternalTicket) {
+              return { order: 1, amount: 0 }; // External comes second
+            } else if (site.entry_type === 'paid') {
+              const amount = firstTicketPrice !== null && firstTicketPrice !== undefined
+                ? firstTicketPrice
+                : (site.entry_fee !== null && site.entry_fee !== undefined ? site.entry_fee : 0);
+              return { order: 2, amount: amount }; // Paid comes third, sorted by amount
+            }
+            return { order: 3, amount: 0 };
+          };
+          
+          const aEntry = getEntrySortValue(a);
+          const bEntry = getEntrySortValue(b);
+          
+          if (aEntry.order !== bEntry.order) {
+            return sortOrder === 'asc' ? aEntry.order - bEntry.order : bEntry.order - aEntry.order;
+          }
+          // If same order (both paid), sort by amount
+          aValue = aEntry.amount;
+          bValue = bEntry.amount;
+          break;
+        case 'status':
+          aValue = a.is_active ? 1 : 0;
+          bValue = b.is_active ? 1 : 0;
+          break;
+        case 'updated':
+          aValue = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+          bValue = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+          break;
+        default:
+          return 0;
+      }
+      
+      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return sorted;
+  }, [sites, sortBy, sortOrder, experienceMasterData]);
+
+  const handleSort = (column: 'name' | 'description' | 'experience' | 'entry' | 'status' | 'updated') => {
+    if (sortBy === column) {
+      // Toggle sort order if clicking the same column
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column and default to ascending
+      setSortBy(column);
+      setSortOrder('asc');
+    }
+  };
+
   useEffect(() => {
     const state = location.state as { heritageAction?: 'created' | 'updated' } | null;
     if (state?.heritageAction) {
@@ -481,16 +574,67 @@ const HeritageSitesManager: React.FC = () => {
           <Table>
             <TableHead>
               <TableRow sx={{ backgroundColor: '#fdf8f4' }}>
-                <TableCell>Site</TableCell>
-                <TableCell>Experience</TableCell>
-                <TableCell>Entry</TableCell>
-                <TableCell align="center">Status</TableCell>
-                <TableCell>Updated</TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('name')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Site</span>
+                    {sortBy === 'name' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('experience')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Experience</span>
+                    {sortBy === 'experience' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('entry')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Entry</span>
+                    {sortBy === 'entry' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  align="center"
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('status')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+                    <span>Status</span>
+                    {sortBy === 'status' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('updated')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Updated</span>
+                    {sortBy === 'updated' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {sites.length === 0 ? (
+              {sortedSites.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                     <Typography variant="body2" color="text.secondary">
@@ -499,7 +643,7 @@ const HeritageSitesManager: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                sites.map((site) => {
+                sortedSites.map((site) => {
                   const firstTicketPrice = (site as any)._firstTicketPrice;
                   const firstTicketName = ((site as any)._firstTicketName || '') as string;
                   const hasExternalTicket =
