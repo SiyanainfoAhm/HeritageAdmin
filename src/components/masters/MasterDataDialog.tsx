@@ -53,7 +53,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
   const [activeTab, setActiveTab] = useState(0);
   const [translatingFields, setTranslatingFields] = useState<Set<string>>(new Set());
   const translationTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const pendingTranslationRef = useRef<{ field: 'displayName' | 'description'; value: string } | null>(null);
+  const pendingTranslationsQueueRef = useRef<Array<{ field: 'displayName' | 'description'; value: string }>>([]);
   const isTranslatingRef = useRef(false);
 
   // Form state
@@ -80,7 +80,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
       }
       setError('');
       setTranslatingFields(new Set());
-      pendingTranslationRef.current = null;
+      pendingTranslationsQueueRef.current = [];
       isTranslatingRef.current = false;
     }
 
@@ -89,7 +89,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
       if (translationTimerRef.current) {
         clearTimeout(translationTimerRef.current);
       }
-      pendingTranslationRef.current = null;
+      pendingTranslationsQueueRef.current = [];
       isTranslatingRef.current = false;
     };
   }, [open, mode, masterData, category]);
@@ -155,11 +155,38 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
     
     try {
       const result = await TranslationService.translate(text, targetLang.toLowerCase(), sourceLang);
+      console.log('🔄 Translation result for', targetLang, ':', result);
+      
       if (result.success && result.translations) {
         const langKey = targetLang.toLowerCase();
-        const translations = result.translations[langKey];
-        return translations && translations.length > 0 ? translations[0] : '';
+        let translations = result.translations[langKey];
+        
+        // Handle case where API returns target language in uppercase or mixed case
+        if (!translations) {
+          // Try uppercase
+          translations = result.translations[langKey.toUpperCase()];
+        }
+        if (!translations) {
+          // Try to find any matching key (case insensitive)
+          const matchingKey = Object.keys(result.translations).find(
+            key => key.toLowerCase() === langKey
+          );
+          if (matchingKey) {
+            translations = result.translations[matchingKey];
+          }
+        }
+        
+        if (translations) {
+          // Handle array or string
+          const translatedText = Array.isArray(translations) 
+            ? (translations.length > 0 ? translations[0] : '')
+            : String(translations || '');
+          
+          console.log('✅ Translated text:', translatedText);
+          return translatedText;
+        }
       }
+      console.warn('⚠️ No translation found for', targetLang);
       return '';
     } catch (error) {
       console.warn(`Failed to auto-translate to ${targetLang}:`, error);
@@ -170,19 +197,24 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
   // Perform translation for a field
   const performTranslation = async (field: 'displayName' | 'description', value: string) => {
     if (!value || !value.trim()) {
-      isTranslatingRef.current = false;
+      // Process next in queue if available
+      processNextPendingTranslation();
       return;
     }
     
     // If already translating, queue this one
     if (isTranslatingRef.current) {
-      pendingTranslationRef.current = { field, value };
+      // Add to queue instead of replacing
+      pendingTranslationsQueueRef.current.push({ field, value });
+      console.log(`📋 Queued translation: ${field}, queue length:`, pendingTranslationsQueueRef.current.length);
       return;
     }
     
     isTranslatingRef.current = true;
     const otherLangs = LANGUAGES.filter(l => l.code !== 'EN');
     setTranslatingFields(new Set(otherLangs.map(l => l.code)));
+
+    console.log(`🔄 Starting translation for ${field}:`, value);
 
     try {
       // Perform all translations
@@ -199,21 +231,25 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
         const updated = { ...prev };
         
         translationResults.forEach(({ langCode, translatedValue }) => {
-          // Only update if the target field is empty
+          if (!translatedValue || !translatedValue.trim()) {
+            console.warn(`⚠️ Empty translation for ${langCode}`);
+            return; // Skip empty translations
+          }
+          
+          // Always update translations when translating from English (source language)
+          // This ensures we get the latest translated values
           if (field === 'displayName') {
-            if (!updated[langCode]?.displayName || updated[langCode].displayName.trim() === '') {
-              updated[langCode] = {
-                displayName: translatedValue,
-                description: updated[langCode]?.description || '',
-              };
-            }
+            updated[langCode] = {
+              displayName: translatedValue,
+              description: updated[langCode]?.description || prev[langCode]?.description || '',
+            };
+            console.log(`✅ Updated ${langCode} displayName:`, translatedValue);
           } else {
-            if (!updated[langCode]?.description || updated[langCode].description.trim() === '') {
-              updated[langCode] = {
-                displayName: updated[langCode]?.displayName || '',
-                description: translatedValue,
-              };
-            }
+            updated[langCode] = {
+              displayName: updated[langCode]?.displayName || prev[langCode]?.displayName || '',
+              description: translatedValue,
+            };
+            console.log(`✅ Updated ${langCode} description:`, translatedValue);
           }
         });
         
@@ -223,19 +259,27 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
       setTranslatingFields(new Set());
       isTranslatingRef.current = false;
       
-      // Check if there's a pending translation
-      if (pendingTranslationRef.current) {
-        const pending = pendingTranslationRef.current;
-        pendingTranslationRef.current = null;
-        // Use setTimeout to avoid recursion issues
-        setTimeout(() => {
-          performTranslation(pending.field, pending.value);
-        }, 100);
-      }
+      // Process next pending translation
+      processNextPendingTranslation();
     } catch (error) {
       console.error('Translation error:', error);
       setTranslatingFields(new Set());
       isTranslatingRef.current = false;
+      // Process next pending translation even on error
+      processNextPendingTranslation();
+    }
+  };
+
+  // Process next pending translation from queue
+  const processNextPendingTranslation = () => {
+    if (pendingTranslationsQueueRef.current.length > 0 && !isTranslatingRef.current) {
+      const next = pendingTranslationsQueueRef.current.shift();
+      if (next) {
+        console.log(`📤 Processing queued translation: ${next.field}`);
+        setTimeout(() => {
+          performTranslation(next.field, next.value);
+        }, 100);
+      }
     }
   };
 
@@ -263,11 +307,17 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
         // Clear existing timer
         if (translationTimerRef.current) {
           clearTimeout(translationTimerRef.current);
+          translationTimerRef.current = null;
         }
 
-        // If translation is in progress, store this as pending
+        // If translation is in progress, queue this translation
         if (isTranslatingRef.current) {
-          pendingTranslationRef.current = { field, value };
+          // Remove any existing pending translation for this field from queue
+          pendingTranslationsQueueRef.current = pendingTranslationsQueueRef.current.filter(
+            item => !(item.field === field)
+          );
+          // Add to queue
+          pendingTranslationsQueueRef.current.push({ field, value });
         } else {
           // Debounce translation - translate after 1 second of no typing (like other screens)
           translationTimerRef.current = setTimeout(() => {
@@ -275,6 +325,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
             setTranslations((current) => {
               const latestValue = current['EN']?.[field];
               if (latestValue && latestValue.trim()) {
+                console.log(`⏱️ Timer fired for ${field}, translating:`, latestValue);
                 performTranslation(field, latestValue);
               }
               return current; // Don't modify state, just read it
@@ -299,8 +350,17 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
       // Get current value and translate if not already translating
       setTranslations((current) => {
         const englishValue = current['EN']?.[field];
-        if (englishValue && englishValue.trim() && !isTranslatingRef.current) {
-          performTranslation(field, englishValue);
+        if (englishValue && englishValue.trim()) {
+          // Remove any pending translation for this field from queue
+          pendingTranslationsQueueRef.current = pendingTranslationsQueueRef.current.filter(
+            item => !(item.field === field)
+          );
+          // Queue the translation (or execute if not translating)
+          if (isTranslatingRef.current) {
+            pendingTranslationsQueueRef.current.push({ field, value: englishValue });
+          } else {
+            performTranslation(field, englishValue);
+          }
         }
         return current;
       });
