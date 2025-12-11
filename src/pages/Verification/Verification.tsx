@@ -214,9 +214,18 @@ const extractStringValue = (val: any): string => {
 };
 
 const Verification = () => {
+  // Get current date in YYYY-MM-DD format for default date filter
+  const getCurrentDate = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [entityFilter, setEntityFilter] = useState<string>('All');
-  const [statusFilter, setStatusFilter] = useState<'All' | VerificationRecord['status']>('All');
-  const [dateFilter, setDateFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'All' | VerificationRecord['status']>('Pending');
+  const [dateFilter, setDateFilter] = useState<string>(getCurrentDate());
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [page, setPage] = useState<number>(1);
   const [records, setRecords] = useState<VerificationRecord[]>([]);
@@ -347,8 +356,8 @@ const Verification = () => {
 
   const handleClearFilters = () => {
     setEntityFilter('All');
-    setStatusFilter('All');
-    setDateFilter('');
+    setStatusFilter('Pending');
+    setDateFilter(getCurrentDate());
     setSearchTerm('');
     setPage(1);
     fetchRecords();
