@@ -294,11 +294,11 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
         },
       };
 
-      // Auto-generate code from English display name in add mode
-      if (mode === 'add' && langCode === 'EN' && field === 'displayName' && value.trim()) {
+      // Auto-generate code from English display name in add mode (except for language category)
+      if (mode === 'add' && category !== 'language' && langCode === 'EN' && field === 'displayName' && value.trim()) {
         const generatedCode = generateCodeFromName(value);
         if (generatedCode) {
-          setCode(generatedCode);
+          setCode(generatedCode.toUpperCase());
         }
       }
 
@@ -390,7 +390,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
         // Create master data
         const result = await MasterDataService.createMasterData(
           category,
-          code.trim(),
+          code.trim().toUpperCase(),
           displayOrder
         );
 
@@ -416,7 +416,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
       } else if (mode === 'edit' && masterData) {
         // Update master data
         const result = await MasterDataService.updateMasterData(masterData.master_id, {
-          code: code.trim(),
+          code: code.trim().toUpperCase(),
           display_order: displayOrder,
           is_active: isActive,
         });
@@ -466,11 +466,17 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
             fullWidth
             label="Code"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
             margin="normal"
             required
-            disabled={true}
-            helperText="Auto-generated from English display name"
+            helperText={
+              mode === 'add' 
+                ? category === 'language' 
+                  ? "Enter language code (will be stored in uppercase)" 
+                  : "Auto-generated from English display name (can be edited)"
+                : "Code cannot be changed"
+            }
+            disabled={mode === 'edit'}
           />
           <TextField
             fullWidth
@@ -495,7 +501,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
         </Typography>
 
         <Tabs value={activeTab} onChange={(_, newValue) => setActiveTab(newValue)}>
-          {LANGUAGES.map((lang, index) => {
+          {LANGUAGES.map((lang) => {
             const hasTranslation = translations[lang.code]?.displayName && translations[lang.code].displayName.trim();
             const isTranslating = translatingFields.has(lang.code);
             
