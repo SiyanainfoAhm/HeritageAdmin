@@ -20,7 +20,53 @@ export class MasterDataService {
         return [];
       }
 
-      return data || [];
+      const masterDataList = data || [];
+
+      // Normalize description field - check for various possible field names from RPC
+      masterDataList.forEach((item: any) => {
+        // Check for description in various possible field names
+        if (!item.description && (item.desc || item.translation_description || item.desc_text)) {
+          item.description = item.desc || item.translation_description || item.desc_text || '';
+        }
+      });
+
+      // If description is still missing, fetch it from translations table
+      const masterIdsNeedingDescription = masterDataList
+        .filter((item: any) => !item.description || item.description === null || item.description === '')
+        .map((item: any) => item.master_id);
+
+      if (masterIdsNeedingDescription.length > 0) {
+        const { data: translations, error: transError } = await supabase
+          .from('heritage_masterdatatranslation')
+          .select('master_id, description')
+          .in('master_id', masterIdsNeedingDescription)
+          .eq('language_code', languageCode.toUpperCase());
+
+        if (!transError && translations) {
+          const descriptionMap = new Map(
+            translations.map((trans: any) => [trans.master_id, trans.description || ''])
+          );
+
+          // Map descriptions to master data items
+          masterDataList.forEach((item: any) => {
+            if ((!item.description || item.description === '') && descriptionMap.has(item.master_id)) {
+              item.description = descriptionMap.get(item.master_id) || '';
+            }
+          });
+        }
+      }
+
+      // Return properly mapped MasterData objects
+      return masterDataList.map((item: any) => ({
+        master_id: item.master_id,
+        category: item.category,
+        code: item.code,
+        display_name: item.display_name || '',
+        description: item.description || '',
+        display_order: item.display_order,
+        is_active: item.is_active,
+        metadata: item.metadata || {},
+      }));
     } catch (error) {
       console.error('Exception fetching master data:', error);
       return [];
