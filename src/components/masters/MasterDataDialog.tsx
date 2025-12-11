@@ -65,15 +65,16 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
   useEffect(() => {
     if (open) {
       if (mode === 'edit' && masterData) {
-        setCode(masterData.code);
-        setDisplayOrder(masterData.display_order);
-        setIsActive(masterData.is_active);
+        setCode(masterData.code || '');
+        setDisplayOrder(masterData.display_order || 0);
+        setIsActive(masterData.is_active ?? true);
         // Load translations
         loadTranslations(masterData.master_id);
       } else {
         // Reset form for add mode
         setCode('');
         setIsActive(true);
+        setDisplayOrder(0);
         setTranslations({});
         // Auto-populate display order with next value
         loadNextDisplayOrder();
