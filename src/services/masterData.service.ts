@@ -1,4 +1,4 @@
-import { supabase, API_ENDPOINTS, DB_FUNCTIONS } from '@/config/supabase';
+import { supabase, DB_FUNCTIONS } from '@/config/supabase';
 import { MasterData, MasterDataCategory } from '@/types';
 
 export class MasterDataService {
@@ -10,63 +10,85 @@ export class MasterDataService {
     languageCode: string = 'EN'
   ): Promise<MasterData[]> {
     try {
-      const { data, error } = await supabase.rpc(DB_FUNCTIONS.getMasterData, {
-        p_category: category,
-        p_language_code: languageCode.toUpperCase(),
-      });
+      // Fetch ALL master data directly from the table (including inactive items)
+      const { data: masterDataDirect, error: directError } = await supabase
+        .from('heritage_masterdata')
+        .select('master_id, category, code, display_order, is_active, metadata')
+        .eq('category', category)
+        .order('display_order', { ascending: true });
 
-      if (error) {
-        console.error('Error fetching master data:', error);
+      if (directError) {
+        console.error('Error fetching master data from table:', directError);
         return [];
       }
 
-      const masterDataList = data || [];
-
-      // Normalize description field - check for various possible field names from RPC
-      masterDataList.forEach((item: any) => {
-        // Check for description in various possible field names
-        if (!item.description && (item.desc || item.translation_description || item.desc_text)) {
-          item.description = item.desc || item.translation_description || item.desc_text || '';
-        }
-      });
-
-      // If description is still missing, fetch it from translations table
-      const masterIdsNeedingDescription = masterDataList
-        .filter((item: any) => !item.description || item.description === null || item.description === '')
-        .map((item: any) => item.master_id);
-
-      if (masterIdsNeedingDescription.length > 0) {
-        const { data: translations, error: transError } = await supabase
-          .from('heritage_masterdatatranslation')
-          .select('master_id, description')
-          .in('master_id', masterIdsNeedingDescription)
-          .eq('language_code', languageCode.toUpperCase());
-
-        if (!transError && translations) {
-          const descriptionMap = new Map(
-            translations.map((trans: any) => [trans.master_id, trans.description || ''])
-          );
-
-          // Map descriptions to master data items
-          masterDataList.forEach((item: any) => {
-            if ((!item.description || item.description === '') && descriptionMap.has(item.master_id)) {
-              item.description = descriptionMap.get(item.master_id) || '';
-            }
-          });
-        }
+      if (!masterDataDirect || masterDataDirect.length === 0) {
+        return [];
       }
 
-      // Return properly mapped MasterData objects
-      return masterDataList.map((item: any) => ({
-        master_id: item.master_id,
-        category: item.category,
-        code: item.code,
-        display_name: item.display_name || '',
-        description: item.description || '',
-        display_order: item.display_order,
-        is_active: item.is_active,
-        metadata: item.metadata || {},
-      }));
+      const masterIds = masterDataDirect.map((item: any) => item.master_id);
+
+      // Fetch translations for the specified language
+      const { data: translations, error: transError } = await supabase
+        .from('heritage_masterdatatranslation')
+        .select('master_id, display_name, description')
+        .in('master_id', masterIds)
+        .eq('language_code', languageCode.toUpperCase());
+
+      if (transError) {
+        console.error('Error fetching translations:', transError);
+      }
+
+      // Create a map of translations by master_id
+      const translationMap = new Map();
+      if (translations) {
+        translations.forEach((trans: any) => {
+          translationMap.set(trans.master_id, {
+            display_name: trans.display_name || '',
+            description: trans.description || '',
+          });
+        });
+      }
+
+      // Combine master data with translations
+      const masterDataList = masterDataDirect.map((item: any) => {
+        const translation = translationMap.get(item.master_id) || { display_name: '', description: '' };
+        return {
+          ...item,
+          display_name: translation.display_name,
+          description: translation.description,
+        };
+      });
+
+      // Return properly mapped MasterData objects with normalized is_active
+      return masterDataList.map((item: any) => {
+        // Normalize is_active - handle various formats from database
+        let isActive = false;
+        if (item.is_active !== undefined && item.is_active !== null) {
+          if (typeof item.is_active === 'boolean') {
+            isActive = item.is_active;
+          } else if (typeof item.is_active === 'string') {
+            const strValue = item.is_active.toLowerCase().trim();
+            isActive = strValue === 'true' || strValue === '1' || strValue === 't' || strValue === 'yes';
+          } else if (typeof item.is_active === 'number') {
+            isActive = item.is_active === 1;
+          }
+        } else {
+          // If is_active is null or undefined, default to false (inactive)
+          isActive = false;
+        }
+
+        return {
+          master_id: item.master_id,
+          category: item.category,
+          code: item.code,
+          display_name: item.display_name || '',
+          description: item.description || '',
+          display_order: item.display_order,
+          is_active: isActive,
+          metadata: item.metadata || {},
+        };
+      });
     } catch (error) {
       console.error('Exception fetching master data:', error);
       return [];
@@ -167,6 +189,26 @@ export class MasterDataService {
       const { error } = await supabase
         .from('heritage_masterdata')
         .delete()
+        .eq('master_id', masterId);
+
+      if (error) {
+        return { success: false, error };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  }
+
+  /**
+   * Toggle master data active status
+   */
+  static async toggleMasterDataStatus(masterId: number, isActive: boolean): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await supabase
+        .from('heritage_masterdata')
+        .update({ is_active: isActive, updated_at: new Date().toISOString() })
         .eq('master_id', masterId);
 
       if (error) {
