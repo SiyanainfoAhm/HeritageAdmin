@@ -1,8 +1,8 @@
 // Supabase Edge Function to send emails via SendGrid
-// Deploy: supabase functions deploy send-email
+// Deploy: supabase functions deploy heritage-send-email
+// Set secrets: supabase secrets set SENDGRID_API_KEY=your-key
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,6 +44,7 @@ serve(async (req) => {
     const SENDGRID_FROM_NAME = fromName || Deno.env.get('SENDGRID_FROM_NAME') || 'Heritage Admin';
 
     if (!SENDGRID_API_KEY) {
+      console.error('❌ SendGrid API key not configured in environment variables');
       return new Response(
         JSON.stringify({ success: false, error: 'SendGrid API key not configured' }),
         { 
@@ -53,7 +54,12 @@ serve(async (req) => {
       );
     }
 
-    // Send email via SendGrid API
+    console.log('📧 Sending email via SendGrid API...');
+    console.log(`   To: ${to}`);
+    console.log(`   From: ${SENDGRID_FROM_NAME} <${SENDGRID_FROM_EMAIL}>`);
+    console.log(`   Subject: ${subject}`);
+
+    // Send email via SendGrid API directly
     const sendGridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
       headers: {
@@ -61,7 +67,11 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        personalizations: [{ to: [{ email: to }] }],
+        personalizations: [
+          {
+            to: [{ email: to }],
+          },
+        ],
         from: {
           email: SENDGRID_FROM_EMAIL,
           name: SENDGRID_FROM_NAME,
@@ -75,14 +85,30 @@ serve(async (req) => {
     });
 
     if (!sendGridResponse.ok) {
-      const errorData = await sendGridResponse.text();
-      console.error('SendGrid API error:', errorData);
+      const errorText = await sendGridResponse.text();
+      let errorMessage = `SendGrid API error: ${sendGridResponse.status}`;
+      
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.errors && Array.isArray(errorJson.errors)) {
+          errorMessage = errorJson.errors.map((e: any) => e.message || e.field || JSON.stringify(e)).join('; ');
+        } else if (errorJson.message) {
+          errorMessage = errorJson.message;
+        }
+      } catch {
+        // If parsing fails, use the raw error text
+        if (errorText) {
+          errorMessage = errorText;
+        }
+      }
+
+      console.error('❌ SendGrid API error:', sendGridResponse.status, errorMessage);
       
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: `SendGrid API error: ${sendGridResponse.status}`,
-          details: errorData 
+          error: errorMessage,
+          status: sendGridResponse.status
         }),
         { 
           status: 500, 
@@ -91,7 +117,9 @@ serve(async (req) => {
       );
     }
 
-    const messageId = sendGridResponse.headers.get('x-message-id');
+    const messageId = sendGridResponse.headers.get('x-message-id') || undefined;
+
+    console.log('✅ Email sent successfully via SendGrid:', messageId || 'No message ID');
 
     return new Response(
       JSON.stringify({ success: true, messageId }),
@@ -101,9 +129,12 @@ serve(async (req) => {
       }
     );
   } catch (error: any) {
-    console.error('Error sending email:', error);
+    console.error('❌ Error sending email:', error);
     return new Response(
-      JSON.stringify({ success: false, error: error.message || 'Failed to send email' }),
+      JSON.stringify({ 
+        success: false, 
+        error: error.message || 'Failed to send email' 
+      }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -111,3 +142,4 @@ serve(async (req) => {
     );
   }
 });
+
