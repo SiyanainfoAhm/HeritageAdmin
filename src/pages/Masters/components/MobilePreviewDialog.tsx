@@ -63,6 +63,7 @@ interface MappedSiteData {
   entry_type: string;
   entry_fee: number;
   photography_allowed: string;
+  photograph_amount: number | null;
   site_type: { code: string; display_name: string } | null;
   accessibility: { code: string; display_name: string }[];
   experience: { code: string; display_name: string }[];
@@ -112,7 +113,8 @@ type UiStringKey =
   | 'vrAvailable'
   | 'getDirections'
   | 'bookNow'
-  | 'free';
+  | 'free'
+  | 'restricted';
 
 type UiStrings = Record<UiStringKey, string>;
 
@@ -143,6 +145,7 @@ const EN_STRINGS: UiStrings = {
   getDirections: 'Get Directions',
   bookNow: 'Book Now',
   free: 'Free',
+  restricted: 'Restricted',
 };
 
 const UI_STRINGS: Record<PreviewLanguageCode, UiStrings> = {
@@ -175,6 +178,7 @@ const UI_STRINGS: Record<PreviewLanguageCode, UiStrings> = {
     getDirections: 'दिशा-निर्देश प्राप्त करें',
     bookNow: 'अभी बुक करें',
     free: 'नि:शुल्क',
+    restricted: 'प्रतिबंधित',
   },
   GU: {
     ...EN_STRINGS,
@@ -204,6 +208,7 @@ const UI_STRINGS: Record<PreviewLanguageCode, UiStrings> = {
     getDirections: 'દિશા મેળવો',
     bookNow: 'હમણાં બુક કરો',
     free: 'મફત',
+    restricted: 'પ્રતિબંધિત',
   },
   JA: {
     ...EN_STRINGS,
@@ -262,6 +267,7 @@ const UI_STRINGS: Record<PreviewLanguageCode, UiStrings> = {
     getDirections: 'Obtener indicaciones',
     bookNow: 'Reservar ahora',
     free: 'Gratis',
+    restricted: 'Restringido',
   },
   FR: {
     ...EN_STRINGS,
@@ -291,6 +297,7 @@ const UI_STRINGS: Record<PreviewLanguageCode, UiStrings> = {
     getDirections: 'Itinéraire',
     bookNow: 'Réserver',
     free: 'Gratuit',
+    restricted: 'Restreint',
   },
 };
 
@@ -357,7 +364,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           price: typeof t.price === 'number' ? t.price : Number(t.price ?? 0),
           is_active: typeof t.is_active === 'boolean' ? t.is_active : true,
         }));
-        
+
         const mapped: MappedSiteData = {
           site_id: siteBasic.site_id || id,
           name: siteBasic.name || 'Heritage Site',
@@ -376,7 +383,11 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           ar_mode_available: !!siteBasic.ar_mode_available,
           entry_type: siteBasic.entry_type || 'free',
           entry_fee: siteBasic.entry_fee || 0,
+          // This value is already localized by get_site_basic_data, so we treat it as a label
           photography_allowed: siteBasic.photography_allowed || 'Free',
+          photograph_amount: siteBasic.photograph_amount !== null && siteBasic.photograph_amount !== undefined 
+            ? Number(siteBasic.photograph_amount) 
+            : null,
           site_type: data.site_type && data.site_type !== 'null' ? data.site_type : null,
           accessibility: Array.isArray(data.accessibility) ? data.accessibility : [],
           experience: Array.isArray(data.experience) ? data.experience : [],
@@ -390,6 +401,12 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
         };
         
         console.log('Mapped site data:', mapped);
+        console.log('Photography data:', {
+          photography_allowed: mapped.photography_allowed,
+          photograph_amount: mapped.photograph_amount,
+          siteBasic_photography_allowed: siteBasic.photography_allowed,
+          siteBasic_photograph_amount: siteBasic.photograph_amount,
+        });
         setSiteData(mapped);
       } else {
         setError('Site not found');
@@ -497,14 +514,27 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
     return openDays.map((d) => dayNames[d - 1]).join(', ');
   };
 
+  // Returns a high-level entry type label: "Paid" | "Free" | "External"
   const getEntryFee = (): string => {
     if (siteData?.ticket_types?.length) {
       const activeTickets = siteData.ticket_types.filter((t) => t.is_active);
       if (activeTickets.length > 0) {
         const prices = activeTickets.map((t) => t.price).filter((p) => p > 0);
+        const hasExternal = activeTickets.some((t) =>
+          (t.name || '').toLowerCase().includes('external')
+        );
+
+        // Any positive price means overall entry is paid
         if (prices.length > 0) {
-          return `₹${Math.min(...prices)}`;
+          return 'Paid';
         }
+
+        // No paid tickets but we do have an "External" ticket – treat as External
+        if (hasExternal) {
+          return 'External';
+        }
+
+        // Fallback when everything is actually free
         return 'Free';
       }
     }
@@ -697,7 +727,21 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           <Typography sx={{ fontSize: 11, color: '#666' }}>{t('entryFee')}</Typography>
           {(() => {
             const fee = getEntryFee();
-            const label = fee === 'Free' ? t('free') : fee;
+
+            let label: string;
+            if (fee === 'Free') {
+              label = t('free');
+            } else if (fee === 'External') {
+              // Simple English label for external booking
+              label = 'External';
+            } else if (fee === 'Paid') {
+              // High-level paid label without amount
+              label = 'Paid';
+            } else {
+              // Fallback, should not normally happen
+              label = fee;
+            }
+
             return (
               <Typography sx={{ fontSize: 10, color: '#999' }}>{label}</Typography>
             );
@@ -721,7 +765,18 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           </Box>
           <Typography sx={{ fontSize: 11, color: '#666' }}>{t('photography')}</Typography>
           <Typography sx={{ fontSize: 10, color: '#999' }}>
-            {siteData?.photography_allowed || t('free')}
+            {(() => {
+              const label = siteData?.photography_allowed || t('free');
+              const amount = siteData?.photograph_amount;
+
+              // If there is a valid positive amount, show "<label> ₹<amount>"
+              if (amount !== null && amount !== undefined && !Number.isNaN(Number(amount)) && Number(amount) > 0) {
+                return `${label} ₹${Number(amount)}`;
+              }
+
+              // Otherwise show the label coming from the backend (already localized)
+              return label;
+            })()}
           </Typography>
         </Box>
       </Stack>
