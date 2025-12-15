@@ -24,16 +24,16 @@ export class MasterDataService {
 
       if (!masterDataDirect || masterDataDirect.length === 0) {
         return [];
-      }
+        }
 
       const masterIds = masterDataDirect.map((item: any) => item.master_id);
 
       // Fetch translations for the specified language
-      const { data: translations, error: transError } = await supabase
-        .from('heritage_masterdatatranslation')
+        const { data: translations, error: transError } = await supabase
+          .from('heritage_masterdatatranslation')
         .select('master_id, display_name, description')
         .in('master_id', masterIds)
-        .eq('language_code', languageCode.toUpperCase());
+          .eq('language_code', languageCode.toUpperCase());
 
       if (transError) {
         console.error('Error fetching translations:', transError);
@@ -79,14 +79,14 @@ export class MasterDataService {
         }
 
         return {
-          master_id: item.master_id,
-          category: item.category,
-          code: item.code,
-          display_name: item.display_name || '',
-          description: item.description || '',
-          display_order: item.display_order,
+        master_id: item.master_id,
+        category: item.category,
+        code: item.code,
+        display_name: item.display_name || '',
+        description: item.description || '',
+        display_order: item.display_order,
           is_active: isActive,
-          metadata: item.metadata || {},
+        metadata: item.metadata || {},
         };
       });
     } catch (error) {
