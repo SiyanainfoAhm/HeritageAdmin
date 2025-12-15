@@ -13,6 +13,7 @@
     "create-verification-templates": "node scripts/create-verification-templates.js",
     "check-notification-log": "node scripts/check-notification-log.js",
     "deploy-email-function": "supabase functions deploy send-email",
+    "deploy-fcm-function": "supabase functions deploy heritage-send-fcm",
     "test-email-function": "node scripts/test-email-function.js",
     "check-edge-function": "node scripts/check-edge-function.js"
   },
@@ -29,6 +30,7 @@
     "bcryptjs": "^3.0.3",
     "date-fns": "^2.30.0",
     "dotenv": "^16.3.1",
+    "firebase-admin": "^13.6.0",
     "html2canvas": "^1.4.1",
     "md5": "^2.3.0",
     "react": "^18.2.0",

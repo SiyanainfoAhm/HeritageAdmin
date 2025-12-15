@@ -289,25 +289,28 @@ export class VerificationService {
         }
       }
 
+      // Prepare notification variables
+      const verificationDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      const notificationVariables = {
+        userName: userData?.full_name || 'User',
+        entityType: entityType,
+        verificationDate: verificationDate,
+      };
+
       // Send email notification for approval
       if (userData?.email) {
         try {
-          const verificationDate = new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-
           console.log(`📧 Attempting to send approval email to: ${userData.email}`);
           const emailResult = await NotificationTemplateService.sendEmailNotification(
             id,
             'verification_approved',
             userData.email,
-            {
-              userName: userData.full_name || 'User',
-              entityType: entityType,
-              verificationDate: verificationDate,
-            }
+            notificationVariables
           );
 
           if (emailResult.success) {
@@ -322,6 +325,41 @@ export class VerificationService {
         }
       } else {
         console.warn(`⚠️  No email found for user ID ${id}. Email notification skipped.`);
+      }
+
+      // Send push notification for approval
+      try {
+        const deviceTokens = await this.getUserDeviceTokens(id);
+        if (deviceTokens && deviceTokens.length > 0) {
+          console.log(`📱 Attempting to send approval push notification to ${deviceTokens.length} device(s) for user ID: ${id}`);
+          
+          // Send push notification to all device tokens
+          const pushPromises = deviceTokens.map(async (deviceToken) => {
+            try {
+              const pushResult = await NotificationTemplateService.sendPushNotification(
+                id,
+                'verification_approved',
+                deviceToken,
+                notificationVariables
+              );
+
+              if (pushResult.success) {
+                console.log(`✅ Push notification sent successfully to device: ${deviceToken.substring(0, 20)}...`);
+              } else {
+                console.error(`❌ Push notification failed for device ${deviceToken.substring(0, 20)}...: ${pushResult.error}`);
+              }
+            } catch (pushError: any) {
+              console.error(`❌ Error sending push notification to device ${deviceToken.substring(0, 20)}...:`, pushError);
+            }
+          });
+
+          await Promise.allSettled(pushPromises);
+        } else {
+          console.log(`ℹ️  No device tokens found for user ID ${id}. Push notification skipped.`);
+        }
+      } catch (pushError: any) {
+        console.error('❌ Error sending approval push notification:', pushError);
+        // Don't fail the approval if push notification fails, but log it
       }
 
       return { success: true };
@@ -379,29 +417,68 @@ export class VerificationService {
           .eq('user_id', id);
       }
 
+      // Prepare notification variables
+      const rejectionDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      const notificationVariables = {
+        userName: userData?.full_name || 'User',
+        entityType: entityType,
+        rejectionDate: rejectionDate,
+      };
+
       // Send email notification for rejection
       if (userData?.email) {
         try {
-          const rejectionDate = new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-
+          console.log(`📧 Attempting to send rejection email to: ${userData.email}`);
           await NotificationTemplateService.sendEmailNotification(
             id,
             'verification_rejected',
             userData.email,
-            {
-              userName: userData.full_name || 'User',
-              entityType: entityType,
-              rejectionDate: rejectionDate,
-            }
+            notificationVariables
           );
         } catch (emailError) {
           console.error('Error sending rejection email notification:', emailError);
           // Don't fail the rejection if email fails, but log it
         }
+      }
+
+      // Send push notification for rejection
+      try {
+        const deviceTokens = await this.getUserDeviceTokens(id);
+        if (deviceTokens && deviceTokens.length > 0) {
+          console.log(`📱 Attempting to send rejection push notification to ${deviceTokens.length} device(s) for user ID: ${id}`);
+          
+          // Send push notification to all device tokens
+          const pushPromises = deviceTokens.map(async (deviceToken) => {
+            try {
+              const pushResult = await NotificationTemplateService.sendPushNotification(
+                id,
+                'verification_rejected',
+                deviceToken,
+                notificationVariables
+              );
+
+              if (pushResult.success) {
+                console.log(`✅ Push notification sent successfully to device: ${deviceToken.substring(0, 20)}...`);
+              } else {
+                console.error(`❌ Push notification failed for device ${deviceToken.substring(0, 20)}...: ${pushResult.error}`);
+              }
+            } catch (pushError: any) {
+              console.error(`❌ Error sending push notification to device ${deviceToken.substring(0, 20)}...:`, pushError);
+            }
+          });
+
+          await Promise.allSettled(pushPromises);
+        } else {
+          console.log(`ℹ️  No device tokens found for user ID ${id}. Push notification skipped.`);
+        }
+      } catch (pushError: any) {
+        console.error('❌ Error sending rejection push notification:', pushError);
+        // Don't fail the rejection if push notification fails, but log it
       }
 
       return { success: true };
@@ -1009,6 +1086,47 @@ export class VerificationService {
     } catch (error: any) {
       console.error('Error deleting document:', error);
       return { success: false, error: error.message || 'Failed to delete document' };
+    }
+  }
+
+  /**
+   * Get user device tokens for push notifications
+   * Fetches active FCM tokens from heritage_user_fcm_tokens table
+   */
+  static async getUserDeviceTokens(userId: number): Promise<string[]> {
+    try {
+      const deviceTokens: string[] = [];
+
+      // Fetch active FCM tokens from heritage_user_fcm_tokens table
+      const { data: fcmTokens, error: fcmTokensError } = await supabase
+        .from('heritage_user_fcm_tokens')
+        .select('fcm_token')
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (fcmTokensError) {
+        if (fcmTokensError.code === '42P01') {
+          // Table doesn't exist - return empty array
+          console.log(`ℹ️  heritage_user_fcm_tokens table does not exist. No push notifications will be sent.`);
+          return [];
+        }
+        console.warn('Warning fetching heritage_user_fcm_tokens:', fcmTokensError.message);
+        return [];
+      }
+
+      if (fcmTokens && fcmTokens.length > 0) {
+        fcmTokens.forEach((row: any) => {
+          const token = row?.fcm_token;
+          if (token && typeof token === 'string' && token.trim()) {
+            deviceTokens.push(token.trim());
+          }
+        });
+      }
+
+      return deviceTokens;
+    } catch (error) {
+      console.error('Error fetching device tokens:', error);
+      return [];
     }
   }
 
