@@ -1,9 +1,19 @@
 import { EMAIL_CONFIG } from '@/config/email.config';
 
+<<<<<<< HEAD
 // Supabase configuration for Edge Function fallback
 const SUPABASE_URL = 'https://ecvqhfbiwqmqgiqfxheu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjdnFoZmJpd3FtcWdpcWZ4aGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzMDEwMTksImV4cCI6MjA2MDg3NzAxOX0.rRF6VbPIRMucv2ePb4QFKA6gvmevrhqO0M_nTiWm5n4';
 
+=======
+// Supabase configuration for Edge Function calls
+const SUPABASE_URL = 'https://ecvqhfbiwqmqgiqfxheu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjdnFoZmJpd3FtcWdpcWZ4aGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzMDEwMTksImV4cCI6MjA2MDg3NzAxOX0.rRF6VbPIRMucv2ePb4QFKA6gvmevrhqO0M_nTiWm5n4';
+
+// Note: SendGrid cannot be used directly from browser due to CORS
+// We use Supabase Edge Function (server-side) to send emails
+
+>>>>>>> 72d600407866d23d817e42c0179eff39d218f6ed
 export interface EmailOptions {
   to: string;
   subject: string;
@@ -11,15 +21,19 @@ export interface EmailOptions {
   text?: string;
   from?: string;
   fromName?: string;
+<<<<<<< HEAD
   /**
    * Force using Edge Function instead of direct API
    * Set to true to bypass CORS issues in web browsers
    */
   useEdgeFunction?: boolean;
+=======
+>>>>>>> 72d600407866d23d817e42c0179eff39d218f6ed
 }
 
 export class EmailService {
   /**
+<<<<<<< HEAD
    * Detect if running in a browser environment (has CORS restrictions)
    * vs native mobile app (no CORS restrictions)
    */
@@ -187,6 +201,24 @@ export class EmailService {
       console.log('📧 Sending email via Supabase Edge Function...');
       
       const fallbackResponse = await fetch(edgeFunctionUrl, {
+=======
+   * Send email using SendGrid via Supabase Edge Function or direct API
+   */
+  static async sendEmail(options: EmailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      if (!EMAIL_CONFIG.sendgridApiKey) {
+        return { success: false, error: 'SendGrid API key is not configured' };
+      }
+
+      // Use Supabase Edge Function (server-side, no CORS issues)
+      // Using direct fetch with auth headers (like translation service)
+      console.log('📧 Calling Supabase Edge Function to send email...');
+      
+      // Function name is 'quick-service' in Supabase
+      const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/quick-service`;
+      
+      const response = await fetch(edgeFunctionUrl, {
+>>>>>>> 72d600407866d23d817e42c0179eff39d218f6ed
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -198,6 +230,7 @@ export class EmailService {
           subject: options.subject,
           html: options.html,
           text: options.text || this.stripHtml(options.html),
+<<<<<<< HEAD
           from: fromEmail,
           fromName: fromName,
         }),
@@ -225,6 +258,49 @@ export class EmailService {
       return {
         success: false,
         error: `Edge Function failed: ${fallbackError.message || fallbackError}`,
+=======
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Edge function HTTP error:', response.status, errorText);
+        
+        if (response.status === 404) {
+          return {
+            success: false,
+            error: 'Edge Function not deployed. Please deploy send-email function to Supabase.',
+          };
+        }
+        
+        return {
+          success: false,
+          error: `Edge function error: ${response.status} - ${errorText}`,
+        };
+      }
+
+      const data = await response.json();
+
+      if (data?.success) {
+        console.log('✅ Email sent via Edge Function:', data.messageId);
+        return {
+          success: true,
+          messageId: data.messageId,
+        };
+      } else {
+        console.error('❌ Email send failed:', data?.error);
+        return {
+          success: false,
+          error: data?.error || 'Failed to send email via Edge Function',
+        };
+      }
+    } catch (error: any) {
+      console.error('Email send error:', error);
+      
+      return {
+        success: false,
+        error: error.message || 'Failed to send email',
+>>>>>>> 72d600407866d23d817e42c0179eff39d218f6ed
       };
     }
   }
