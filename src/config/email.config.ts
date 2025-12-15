@@ -10,8 +10,10 @@
  */
 
 export const EMAIL_CONFIG = {
+  // SendGrid API key is stored in Supabase Edge Function secrets (heritage-send-email)
+  // Not needed in client-side code since we use Edge Function
   sendgridApiKey: import.meta.env.VITE_SENDGRID_API_KEY || '',
-  fromEmail: import.meta.env.VITE_SENDGRID_FROM_EMAIL || '',
+  fromEmail: import.meta.env.VITE_SENDGRID_FROM_EMAIL || 'jatin.saksena@siyanainfo.com',
   fromName: import.meta.env.VITE_SENDGRID_FROM_NAME || 'Heritage Admin',
 };
 
