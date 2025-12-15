@@ -54,10 +54,6 @@ export class EmailService {
    */
   static async sendEmail(options: EmailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      if (!EMAIL_CONFIG.sendgridApiKey) {
-        return { success: false, error: 'SendGrid API key is not configured' };
-      }
-
       const fromEmail = options.from || EMAIL_CONFIG.fromEmail;
       const fromName = options.fromName || EMAIL_CONFIG.fromName;
 
@@ -80,6 +76,13 @@ export class EmailService {
       // For web browsers, use Edge Function to avoid CORS issues
       // For mobile native apps, use direct API (no CORS restrictions)
       if (shouldUseEdgeFunction) {
+        return await this.sendEmailViaEdgeFunction(options, fromEmail, fromName);
+      }
+
+      // Direct API call requires API key (only for mobile apps)
+      if (!EMAIL_CONFIG.sendgridApiKey) {
+        // Fallback to Edge Function if API key not available
+        console.warn('⚠️  SendGrid API key not configured, falling back to Edge Function');
         return await this.sendEmailViaEdgeFunction(options, fromEmail, fromName);
       }
 
