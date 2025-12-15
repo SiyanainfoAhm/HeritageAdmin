@@ -337,9 +337,9 @@ const Masters = () => {
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => handleEdit(item)} title="Edit">
-                          <EditIcon fontSize="small" />
-                        </IconButton>
+                      <IconButton size="small" onClick={() => handleEdit(item)} title="Edit">
+                        <EditIcon fontSize="small" />
+                      </IconButton>
                       </Tooltip>
                     </TableCell>
                   </TableRow>

@@ -16,3 +16,4 @@ export const EMAIL_CONFIG = {
   fromEmail: import.meta.env.VITE_SENDGRID_FROM_EMAIL || 'jatin.saksena@siyanainfo.com',
   fromName: import.meta.env.VITE_SENDGRID_FROM_NAME || 'Heritage Admin',
 };
+
