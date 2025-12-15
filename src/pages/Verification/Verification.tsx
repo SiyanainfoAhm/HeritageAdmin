@@ -1498,11 +1498,16 @@ const Verification = () => {
                             }))
                           }
                         >
-                          {userTypes.map((type) => (
-                            <MenuItem key={type.user_type_id} value={type.user_type_id}>
-                              {type.type_name}
-                            </MenuItem>
-                          ))}
+                          {userTypes
+                            .filter((type) => {
+                              const typeNameLower = type.type_name.toLowerCase();
+                              return typeNameLower !== 'retailer' && typeNameLower !== 'administrator' && typeNameLower !== 'admin';
+                            })
+                            .map((type) => (
+                              <MenuItem key={type.user_type_id} value={type.user_type_id}>
+                                {type.type_name}
+                              </MenuItem>
+                            ))}
                         </Select>
                       </FormControl>
                     ) : (
