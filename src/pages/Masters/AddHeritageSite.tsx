@@ -52,6 +52,7 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import SaveIcon from '@mui/icons-material/Save';
 import CheckIcon from '@mui/icons-material/Check';
 import ExploreIcon from '@mui/icons-material/Explore';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import { useNavigate, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
@@ -124,6 +125,8 @@ interface AddHeritageSiteState {
     accessibility: string[]; // Array of accessibility codes from masterdata
     siteType: string | null; // Single site type code from masterdata
     experience: string[]; // Array of experience codes from masterdata
+    photographyAllowed: 'free' | 'paid' | 'restricted';
+    photographyAmount: string;
   };
   translations: {
     siteName: Record<LanguageCode, string>;
@@ -268,6 +271,8 @@ const initialFormState: AddHeritageSiteState = {
     accessibility: [],
     siteType: null,
     experience: [],
+    photographyAllowed: 'free',
+    photographyAmount: '',
   },
   translations: {
     siteName: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
@@ -1167,6 +1172,8 @@ const AddHeritageSite = () => {
           accessibility: accessibilityCodes,
           siteType: siteTypeCode,
           experience: experienceCodes,
+          photographyAllowed: (site.photography_allowed as 'free' | 'paid' | 'restricted') || 'free',
+          photographyAmount: site.photograph_amount !== null && site.photograph_amount !== undefined ? String(site.photograph_amount) : '',
         },
         translations: {
           siteName: siteNameTranslations,
@@ -2933,6 +2940,11 @@ const AddHeritageSite = () => {
       location_state: formState.overview.locationState.trim() || null,
       location_country: formState.overview.locationCountry.trim() || null,
       location_postal_code: formState.overview.locationPostalCode.trim() || null,
+      // Photography policy fields
+      photography_allowed: formState.overview.photographyAllowed,
+      photograph_amount: formState.overview.photographyAllowed === 'paid' && formState.overview.photographyAmount.trim()
+        ? Number(formState.overview.photographyAmount)
+        : null,
     };
 
     const visitingHours: HeritageSiteVisitingHoursInput[] = formState.overview.openingHours.schedule.map((day) => ({
@@ -4662,6 +4674,61 @@ const AddHeritageSite = () => {
               </Select>
             </FormControl>
           </Grid>
+        </Grid>
+      </Paper>
+
+      <Paper sx={{ p: 3, borderRadius: 3 }}>
+        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+          <CameraAltIcon sx={{ color: '#DA8552' }} />
+          <Typography variant="h6" sx={{ fontWeight: 700, color: '#3F3D56' }}>
+            Photography Policy
+          </Typography>
+        </Stack>
+
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth>
+              <InputLabel id="photography-allowed-label">Photography Allowed</InputLabel>
+              <Select
+                labelId="photography-allowed-label"
+                label="Photography Allowed"
+                value={formState.overview.photographyAllowed}
+                onChange={(e) => {
+                  const value = e.target.value as 'free' | 'paid' | 'restricted';
+                  updateOverviewField('photographyAllowed', value);
+                  // Clear amount if not paid
+                  if (value !== 'paid') {
+                    updateOverviewField('photographyAmount', '');
+                  }
+                }}
+              >
+                <MenuItem value="free">Free</MenuItem>
+                <MenuItem value="paid">Paid</MenuItem>
+                <MenuItem value="restricted">Restricted</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          {formState.overview.photographyAllowed === 'paid' && (
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Photography Amount (₹)"
+                type="number"
+                value={formState.overview.photographyAmount}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Only allow positive numbers
+                  if (value === '' || (!isNaN(Number(value)) && Number(value) >= 0)) {
+                    updateOverviewField('photographyAmount', value);
+                  }
+                }}
+                fullWidth
+                inputProps={{ min: 0, step: 1 }}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                }}
+              />
+            </Grid>
+          )}
         </Grid>
       </Paper>
 

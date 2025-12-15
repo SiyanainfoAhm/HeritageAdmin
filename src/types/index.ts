@@ -199,5 +199,7 @@ export interface HeritageSite {
   cultural_etiquettes?: string[] | null;
   transport_options?: HeritageSiteTransportOption[] | null;
   nearby_attractions?: HeritageSiteAttraction[] | null;
+  photography_allowed?: string | null; // Database column: varchar - stores 'free', 'paid', or 'restricted'
+  photograph_amount?: number | null; // Database column: numeric - stores amount if photography is paid
 }
 

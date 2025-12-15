@@ -49,6 +49,8 @@ export interface HeritageSitePayload {
   site_map_url?: string | null;
   cultural_etiquettes?: string[] | null; // Legacy - kept for backward compatibility
   etiquettes?: string[] | null; // Database column: text[] - stores array of etiquette codes from masterdata
+  photography_allowed?: string | null; // Database column: varchar - stores 'free', 'paid', or 'restricted'
+  photograph_amount?: number | null; // Database column: numeric - stores amount if photography is paid
 }
 
 export type HeritageSiteStatus = 'draft' | 'pending_review' | 'published' | 'archived';
