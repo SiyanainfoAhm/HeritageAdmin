@@ -364,7 +364,7 @@ const MobilePreviewDialog: React.FC<MobilePreviewDialogProps> = ({ open, siteId,
           price: typeof t.price === 'number' ? t.price : Number(t.price ?? 0),
           is_active: typeof t.is_active === 'boolean' ? t.is_active : true,
         }));
-
+        
         const mapped: MappedSiteData = {
           site_id: siteBasic.site_id || id,
           name: siteBasic.name || 'Heritage Site',
