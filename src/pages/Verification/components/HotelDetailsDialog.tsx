@@ -27,6 +27,8 @@ import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import AddIcon from '@mui/icons-material/Add';
+import Checkbox from '@mui/material/Checkbox';
 import * as Icons from '@mui/icons-material';
 import { supabase } from '@/config/supabase';
 import { StorageService } from '@/services/storage.service';
@@ -105,7 +107,7 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
   const [amenityTranslations, setAmenityTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   
   // Attractions
-  const [attractions, setAttractions] = useState<Array<{ attraction_id?: number; name: string; subtitle: string; description: string; image_url: string; position: number }>>([]);
+  const [attractions, setAttractions] = useState<Array<{ attraction_id?: number; name: string; subtitle: string; description: string; image_url: string; position: number; imageFile?: File }>>([]);
   const [attractionTranslations, setAttractionTranslations] = useState<Record<number, Record<LanguageCode, { name: string; subtitle: string; description: string }>>>({});
   
   // Confirmation dialog
@@ -114,6 +116,11 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
     message: '',
     onConfirm: null,
   });
+
+  // Amenity selection dialog
+  const [amenityDialogOpen, setAmenityDialogOpen] = useState(false);
+  const [allAvailableAmenities, setAllAvailableAmenities] = useState<Array<{ amenity_id: number; amenity_key: string; amenity_name: string; amenity_icon: string }>>([]);
+  const [selectedAmenityIds, setSelectedAmenityIds] = useState<Set<number>>(new Set());
 
   // Fetch hotel details
   const fetchHotelDetails = async (id: number) => {
@@ -166,11 +173,11 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
     }
   };
 
-  // Auto-translate field
+  // Auto-translate field - works from any language to all other languages
   const autoTranslateField = async (text: string, field: string) => {
-    if (!text || !text.trim() || currentLanguageTab !== 'en') return;
+    if (!text || !text.trim()) return;
 
-    const timerKey = field;
+    const timerKey = `${field}_${currentLanguageTab}`;
     if (translationTimerRef.current[timerKey]) {
       clearTimeout(translationTimerRef.current[timerKey]);
     }
@@ -179,10 +186,13 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
       setTranslatingFields(prev => new Set(prev).add(field));
 
       try {
-        const targetLanguages: LanguageCode[] = ['hi', 'gu', 'ja', 'es', 'fr'];
+        const sourceLanguage = currentLanguageTab;
+        // Get all languages except the current one
+        const targetLanguages: LanguageCode[] = LANGUAGES.filter(l => l.code !== sourceLanguage).map(l => l.code);
+        
         const translationPromises = targetLanguages.map(async (lang) => {
           try {
-            const result = await TranslationService.translate(text, lang, 'en');
+            const result = await TranslationService.translate(text, lang, sourceLanguage);
             if (result.success && result.translations && result.translations[lang]) {
               const translations = result.translations[lang];
               const translated = Array.isArray(translations) ? translations[0] : String(translations || '');
@@ -201,6 +211,9 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
           if (!newTranslations[field]) {
             newTranslations[field] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
           }
+          // Update source language with current text
+          newTranslations[field][sourceLanguage] = text;
+          // Update all target languages with translations
           results.forEach(({ lang, text }) => {
             newTranslations[field][lang] = text;
           });
@@ -218,25 +231,28 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
     }, 1000);
   };
 
-  // Auto-translate attraction field
+  // Auto-translate attraction field - works from any language to all other languages
   const autoTranslateAttractionField = async (
     text: string,
     attractionId: number,
     field: 'name' | 'subtitle' | 'description'
   ) => {
-    if (!text || !text.trim() || currentLanguageTab !== 'en') return;
+    if (!text || !text.trim()) return;
 
-    const timerKey = `attraction_${attractionId}_${field}`;
+    const timerKey = `attraction_${attractionId}_${field}_${currentLanguageTab}`;
     if (translationTimerRef.current[timerKey]) {
       clearTimeout(translationTimerRef.current[timerKey]);
     }
 
     translationTimerRef.current[timerKey] = setTimeout(async () => {
       try {
-        const targetLanguages: LanguageCode[] = ['hi', 'gu', 'ja', 'es', 'fr'];
+        const sourceLanguage = currentLanguageTab;
+        // Get all languages except the current one
+        const targetLanguages: LanguageCode[] = LANGUAGES.filter(l => l.code !== sourceLanguage).map(l => l.code);
+        
         const translationPromises = targetLanguages.map(async (lang) => {
           try {
-            const result = await TranslationService.translate(text, lang, 'en');
+            const result = await TranslationService.translate(text, lang, sourceLanguage);
             if (result.success && result.translations && result.translations[lang]) {
               const translations = result.translations[lang];
               const translated = Array.isArray(translations) ? translations[0] : String(translations || '');
@@ -262,6 +278,12 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               fr: { name: '', subtitle: '', description: '' },
             };
           }
+          // Update source language with current text
+          newTrans[attractionId][sourceLanguage] = {
+            ...newTrans[attractionId][sourceLanguage],
+            [field]: text,
+          };
+          // Update all target languages with translations
           results.forEach(({ lang, text }) => {
             newTrans[attractionId][lang] = {
               ...newTrans[attractionId][lang],
@@ -276,25 +298,139 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
     }, 1000);
   };
 
-  // Auto-translate room type field
+  // Load all available amenities for selection dialog
+  const loadAllAvailableAmenities = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('heritage_hotelamenity')
+        .select('*')
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+      
+      if (data) {
+        setAllAvailableAmenities(data.map((a: any) => ({
+          amenity_id: a.amenity_id,
+          amenity_key: a.amenity_key || '',
+          amenity_name: a.amenity_name || '',
+          amenity_icon: a.amenity_icon || '',
+        })));
+        
+        // Pre-select amenities that are already assigned to this hotel
+        const currentAmenityIds = new Set(amenities.map(a => a.amenity_id));
+        setSelectedAmenityIds(currentAmenityIds);
+      }
+    } catch (error) {
+      console.error('Error loading available amenities:', error);
+    }
+  };
+
+  // Handle opening amenity selection dialog
+  const handleOpenAmenityDialog = async () => {
+    await loadAllAvailableAmenities();
+    setAmenityDialogOpen(true);
+  };
+
+  // Handle closing amenity selection dialog
+  const handleCloseAmenityDialog = () => {
+    setAmenityDialogOpen(false);
+    setSelectedAmenityIds(new Set());
+  };
+
+  // Handle amenity selection toggle
+  const handleToggleAmenitySelection = (amenityId: number) => {
+    setSelectedAmenityIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(amenityId)) {
+        newSet.delete(amenityId);
+      } else {
+        newSet.add(amenityId);
+      }
+      return newSet;
+    });
+  };
+
+  // Handle confirming amenity selection
+  const handleConfirmAmenitySelection = async () => {
+    try {
+      // Filter selected amenities from all available
+      const selectedAmenities = allAvailableAmenities.filter(a => 
+        selectedAmenityIds.has(a.amenity_id)
+      );
+
+      // Update amenities state
+      setAmenities(selectedAmenities);
+
+      // Load translations for newly selected amenities
+      const amenityIds = selectedAmenities.map(a => a.amenity_id);
+      if (amenityIds.length > 0) {
+        try {
+          const { data: amenityTransData, error: amenityTransError } = await supabase
+            .from('heritage_hotelamenitytranslation')
+            .select('*')
+            .in('amenity_id', amenityIds);
+
+          if (!amenityTransError && amenityTransData) {
+            const amenityTrans: Record<number, Record<LanguageCode, string>> = {};
+            selectedAmenities.forEach((amenity: any) => {
+              amenityTrans[amenity.amenity_id] = {
+                en: amenity.amenity_name || '',
+                hi: '',
+                gu: '',
+                ja: '',
+                es: '',
+                fr: '',
+              };
+            });
+
+            amenityTransData.forEach((trans: any) => {
+              const langCodeRaw = String(trans.language_code || '');
+              const langCode = langCodeRaw.toLowerCase() as LanguageCode;
+              if (langCode && LANGUAGES.some(l => l.code === langCode) && trans.amenity_id) {
+                if (!amenityTrans[trans.amenity_id]) {
+                  amenityTrans[trans.amenity_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                }
+                if (trans.amenity_name) {
+                  amenityTrans[trans.amenity_id][langCode] = String(trans.amenity_name || '').trim();
+                }
+              }
+            });
+
+            setAmenityTranslations(amenityTrans);
+          }
+        } catch (err) {
+          console.error('Error loading amenity translations:', err);
+        }
+      }
+
+      handleCloseAmenityDialog();
+    } catch (error) {
+      console.error('Error confirming amenity selection:', error);
+    }
+  };
+
+  // Auto-translate room type field - works from any language to all other languages
   const autoTranslateRoomTypeField = async (
     text: string,
     roomTypeId: number,
     field: 'room_name' | 'short_description'
   ) => {
-    if (!text || !text.trim() || currentLanguageTab !== 'en') return;
+    if (!text || !text.trim()) return;
 
-    const timerKey = `room_${roomTypeId}_${field}`;
+    const timerKey = `room_${roomTypeId}_${field}_${currentLanguageTab}`;
     if (translationTimerRef.current[timerKey]) {
       clearTimeout(translationTimerRef.current[timerKey]);
     }
 
     translationTimerRef.current[timerKey] = setTimeout(async () => {
       try {
-        const targetLanguages: LanguageCode[] = ['hi', 'gu', 'ja', 'es', 'fr'];
+        const sourceLanguage = currentLanguageTab;
+        // Get all languages except the current one
+        const targetLanguages: LanguageCode[] = LANGUAGES.filter(l => l.code !== sourceLanguage).map(l => l.code);
+        
         const translationPromises = targetLanguages.map(async (lang) => {
           try {
-            const result = await TranslationService.translate(text, lang, 'en');
+            const result = await TranslationService.translate(text, lang, sourceLanguage);
             if (result.success && result.translations && result.translations[lang]) {
               const translations = result.translations[lang];
               const translated = Array.isArray(translations) ? translations[0] : String(translations || '');
@@ -320,6 +456,12 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               fr: { room_name: '', short_description: '' },
             };
           }
+          // Update source language with current text
+          newTrans[roomTypeId][sourceLanguage] = {
+            ...newTrans[roomTypeId][sourceLanguage],
+            [field]: text,
+          };
+          // Update all target languages with translations
           results.forEach(({ lang, text }) => {
             newTrans[roomTypeId][lang] = {
               ...newTrans[roomTypeId][lang],
@@ -518,15 +660,32 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                 .order('sort_order', { ascending: true });
 
               if (!allAmenitiesError && allAmenities && allAmenities.length > 0) {
-                // Get hotel-specific amenities (if any exist in junction table)
-                const hotelAmenityIds = data.amenities && Array.isArray(data.amenities) 
-                  ? data.amenities.map((a: any) => a.amenity_id)
-                  : [];
+                // Get hotel-specific amenities from mapping table
+                let hotelAmenityIds: number[] = [];
+                try {
+                  const { data: mappings, error: mappingError } = await supabase
+                    .from('heritage_hotelamenitymapping')
+                    .select('amenity_id')
+                    .eq('hotel_id', hotelId);
 
-                // If hotel has specific amenities, use those; otherwise show all available amenities
+                  if (!mappingError && mappings) {
+                    hotelAmenityIds = mappings.map((m: any) => m.amenity_id);
+                  } else if (data.amenities && Array.isArray(data.amenities)) {
+                    // Fallback to RPC data if mapping table query fails
+                    hotelAmenityIds = data.amenities.map((a: any) => a.amenity_id);
+                  }
+                } catch (mappingErr) {
+                  console.error('Error loading amenity mappings:', mappingErr);
+                  // Fallback to RPC data
+                  if (data.amenities && Array.isArray(data.amenities)) {
+                    hotelAmenityIds = data.amenities.map((a: any) => a.amenity_id);
+                  }
+                }
+
+                // Filter amenities to show only those mapped to this hotel
                 const amenitiesToShow = hotelAmenityIds.length > 0
                   ? allAmenities.filter((a: any) => hotelAmenityIds.includes(a.amenity_id))
-                  : allAmenities;
+                  : [];
 
                 setAmenities(amenitiesToShow.map((a: any) => ({
                   amenity_id: a.amenity_id,
@@ -943,7 +1102,7 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
             }
           }
 
-          const roomFolder = `hotels/${hotelId}/rooms/${finalRoomId}`;
+          const roomFolder = `rooms/${finalRoomId}`;
           for (const media of room.media) {
             try {
               let mediaUrl = media.media_url;
@@ -980,6 +1139,44 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
         }
       }
 
+      // Save hotel amenity mappings
+      if (hotelId) {
+        try {
+          // Get current mappings
+          const { data: currentMappings } = await supabase
+            .from('heritage_hotelamenitymapping')
+            .select('amenity_id')
+            .eq('hotel_id', hotelId);
+
+          const currentAmenityIds = (currentMappings || []).map((m: any) => m.amenity_id);
+          const newAmenityIds = amenities.map(a => a.amenity_id);
+
+          // Delete removed mappings
+          const amenitiesToRemove = currentAmenityIds.filter((id: number) => !newAmenityIds.includes(id));
+          if (amenitiesToRemove.length > 0) {
+            await supabase
+              .from('heritage_hotelamenitymapping')
+              .delete()
+              .eq('hotel_id', hotelId)
+              .in('amenity_id', amenitiesToRemove);
+          }
+
+          // Insert new mappings
+          const amenitiesToAdd = newAmenityIds.filter((id: number) => !currentAmenityIds.includes(id));
+          if (amenitiesToAdd.length > 0) {
+            const mappingRows = amenitiesToAdd.map((amenityId: number) => ({
+              hotel_id: hotelId,
+              amenity_id: amenityId,
+            }));
+            await supabase
+              .from('heritage_hotelamenitymapping')
+              .insert(mappingRows);
+          }
+        } catch (err) {
+          console.error('Error saving hotel amenity mappings:', err);
+        }
+      }
+
       // Save amenity translations
       for (const amenity of amenities) {
         if (amenityTranslations[amenity.amenity_id]) {
@@ -1011,15 +1208,32 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
       // Get current attractions from database
       const { data: currentAttractions } = await supabase
         .from('heritage_hotelattraction')
-        .select('attraction_id')
+        .select('attraction_id, image_url')
         .eq('hotel_id', hotelId);
 
       const currentAttractionIds = (currentAttractions || []).map((a: any) => a.attraction_id);
       const newAttractionIds = attractions.filter(a => a.attraction_id).map(a => a.attraction_id!);
       
-      // Delete removed attractions
+      // Delete removed attractions and their images from storage
       const attractionsToDelete = currentAttractionIds.filter((id: number) => !newAttractionIds.includes(id));
       if (attractionsToDelete.length > 0) {
+        // Get image URLs of attractions to delete
+        const attractionsToDeleteData = (currentAttractions || []).filter((a: any) => 
+          attractionsToDelete.includes(a.attraction_id)
+        );
+        
+        // Delete images from storage
+        for (const attractionToDelete of attractionsToDeleteData) {
+          if (attractionToDelete.image_url) {
+            try {
+              await StorageService.deleteFile(attractionToDelete.image_url);
+            } catch (err) {
+              console.error('Error deleting attraction image from storage:', err);
+            }
+          }
+        }
+        
+        // Delete from database
         await supabase
           .from('heritage_hotelattraction')
           .delete()
@@ -1028,12 +1242,53 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
 
       // Upsert attractions
       for (const attraction of attractions) {
+        let imageUrl = attraction.image_url;
+        
+        // Get original image URL from database if this is an existing attraction
+        const originalAttraction = currentAttractions?.find((a: any) => a.attraction_id === attraction.attraction_id);
+        const originalImageUrl = originalAttraction?.image_url;
+        const isBlobUrl = imageUrl && imageUrl.startsWith('blob:');
+        
+        // Upload image file if provided
+        if (attraction.imageFile) {
+          try {
+            const attractionFolder = `hotels/${hotelId}/attractions`;
+            const uploadResult = await StorageService.uploadFile(attraction.imageFile, attractionFolder);
+            
+            if (uploadResult.success && uploadResult.url) {
+              // Delete old image from storage if it was replaced
+              if (originalImageUrl && originalImageUrl !== uploadResult.url) {
+                try {
+                  await StorageService.deleteFile(originalImageUrl);
+                } catch (err) {
+                  console.error('Error deleting old attraction image:', err);
+                }
+              }
+              imageUrl = uploadResult.url;
+            }
+          } catch (error) {
+            console.error('Error uploading attraction image:', error);
+          }
+        } else if ((!imageUrl || imageUrl.trim() === '' || isBlobUrl) && originalImageUrl) {
+          // Image was removed - user deleted it and there was an original
+          try {
+            await StorageService.deleteFile(originalImageUrl);
+          } catch (err) {
+            console.error('Error deleting removed attraction image:', err);
+          }
+          imageUrl = '';
+        } else if (!imageUrl || imageUrl.trim() === '' || isBlobUrl) {
+          // New attraction or blob preview without file - set to empty
+          imageUrl = '';
+        }
+        // Otherwise keep existing imageUrl as-is
+        
         const attractionData: any = {
           hotel_id: hotelId,
           name: attraction.name,
           subtitle: attraction.subtitle,
           description: attraction.description,
-          image_url: attraction.image_url,
+          image_url: imageUrl || '',
           position: attraction.position,
         };
 
@@ -1212,21 +1467,22 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                 ...prev,
                                 [field]: { ...prev[field], en: newVal }
                               }));
-                              if (newVal && newVal.trim()) {
-                                autoTranslateField(newVal, field);
-                              }
                             } else {
                               setTranslations(prev => ({
                                 ...prev,
                                 [field]: { ...prev[field], [currentLanguageTab]: newVal }
                               }));
                             }
+                            // Auto-translate from any language to all others
+                            if (newVal && newVal.trim()) {
+                              autoTranslateField(newVal, field);
+                            }
                           }}
                           multiline={isMultiline}
                           minRows={isMultiline ? 3 : undefined}
                           maxRows={isMultiline ? 6 : undefined}
                           InputProps={{
-                            endAdornment: currentLanguageTab === 'en' && translatingFields.has(field) ? (
+                            endAdornment: translatingFields.has(field) ? (
                               <InputAdornment position="end">
                                 <CircularProgress size={16} />
                               </InputAdornment>
@@ -1591,11 +1847,6 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                     const newRooms = [...roomTypes];
                                     newRooms[roomIndex] = { ...newRooms[roomIndex], room_name: newVal };
                                     setRoomTypes(newRooms);
-                                    // Auto-translate when user types in English
-                                    const roomId = room.room_type_id || 0;
-                                    if (roomId) {
-                                      autoTranslateRoomTypeField(newVal, roomId, 'room_name');
-                                    }
                                   } else {
                                     setRoomTypeTranslations(prev => {
                                       const roomId = room.room_type_id || 0;
@@ -1616,6 +1867,11 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                       };
                                       return newTrans;
                                     });
+                                  }
+                                  // Auto-translate from any language to all others
+                                  const roomId = room.room_type_id || 0;
+                                  if (roomId && newVal && newVal.trim()) {
+                                    autoTranslateRoomTypeField(newVal, roomId, 'room_name');
                                   }
                                 }}
                               />
@@ -1649,11 +1905,6 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                     const newRooms = [...roomTypes];
                                     newRooms[roomIndex] = { ...newRooms[roomIndex], short_description: newVal };
                                     setRoomTypes(newRooms);
-                                    // Auto-translate when user types in English
-                                    const roomId = room.room_type_id || 0;
-                                    if (roomId) {
-                                      autoTranslateRoomTypeField(newVal, roomId, 'short_description');
-                                    }
                                   } else {
                                     setRoomTypeTranslations(prev => {
                                       const roomId = room.room_type_id || 0;
@@ -1674,6 +1925,11 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                       };
                                       return newTrans;
                                     });
+                                  }
+                                  // Auto-translate from any language to all others
+                                  const roomId = room.room_type_id || 0;
+                                  if (roomId && newVal && newVal.trim()) {
+                                    autoTranslateRoomTypeField(newVal, roomId, 'short_description');
                                   }
                                 }}
                               />
@@ -1887,6 +2143,16 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                 <Typography variant="subtitle1" fontWeight={600}>
                   Amenities ({amenities.length})
                 </Typography>
+                {editMode && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={handleOpenAmenityDialog}
+                  >
+                    Add Amenity
+                  </Button>
+                )}
               </Stack>
               {amenities.length === 0 ? (
                 <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
@@ -1967,6 +2233,34 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                   });
                                 }}
                                 label={`Amenity Name (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
+                                InputProps={{
+                                  endAdornment: editMode ? (
+                                    <InputAdornment position="end">
+                                      <IconButton
+                                        size="small"
+                                        color="error"
+                                        onClick={() => {
+                                          setConfirmDialog({
+                                            open: true,
+                                            message: `Are you sure you want to remove "${amenity.amenity_name}" from this hotel?`,
+                                            onConfirm: () => {
+                                              setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                              const newAmenities = amenities.filter(a => a.amenity_id !== amenity.amenity_id);
+                                              setAmenities(newAmenities);
+                                              // Remove translations for this amenity
+                                              const newTranslations = { ...amenityTranslations };
+                                              delete newTranslations[amenity.amenity_id];
+                                              setAmenityTranslations(newTranslations);
+                                            },
+                                          });
+                                        }}
+                                        edge="end"
+                                      >
+                                        <DeleteIcon fontSize="small" />
+                                      </IconButton>
+                                    </InputAdornment>
+                                  ) : undefined,
+                                }}
                               />
                             ) : (
                               <Typography variant="body2" sx={{ flex: 1 }}>
@@ -1999,7 +2293,7 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                         ? Math.min(...attractions.map(a => a.attraction_id || 0).filter(id => id < 0)) - 1
                         : -1;
                       
-                      const newAttraction: { attraction_id?: number; name: string; subtitle: string; description: string; image_url: string; position: number } = {
+                      const newAttraction: { attraction_id?: number; name: string; subtitle: string; description: string; image_url: string; position: number; imageFile?: File } = {
                         attraction_id: tempId,
                         name: '',
                         subtitle: '',
@@ -2096,8 +2390,6 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                       const newAttractions = [...attractions];
                                       newAttractions[attractionIndex] = { ...newAttractions[attractionIndex], name: newVal };
                                       setAttractions(newAttractions);
-                                      // Auto-translate when user types in English
-                                      autoTranslateAttractionField(newVal, attractionId, 'name');
                                     } else {
                                       setAttractionTranslations(prev => {
                                         const newTrans = { ...prev };
@@ -2117,6 +2409,10 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                         };
                                         return newTrans;
                                       });
+                                    }
+                                    // Auto-translate from any language to all others
+                                    if (newVal && newVal.trim()) {
+                                      autoTranslateAttractionField(newVal, attractionId, 'name');
                                     }
                                   }}
                                 />
@@ -2146,8 +2442,6 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                       const newAttractions = [...attractions];
                                       newAttractions[attractionIndex] = { ...newAttractions[attractionIndex], subtitle: newVal };
                                       setAttractions(newAttractions);
-                                      // Auto-translate when user types in English
-                                      autoTranslateAttractionField(newVal, attractionId, 'subtitle');
                                     } else {
                                       setAttractionTranslations(prev => {
                                         const newTrans = { ...prev };
@@ -2167,6 +2461,10 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                         };
                                         return newTrans;
                                       });
+                                    }
+                                    // Auto-translate from any language to all others
+                                    if (newVal && newVal.trim()) {
+                                      autoTranslateAttractionField(newVal, attractionId, 'subtitle');
                                     }
                                   }}
                                 />
@@ -2198,8 +2496,6 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                       const newAttractions = [...attractions];
                                       newAttractions[attractionIndex] = { ...newAttractions[attractionIndex], description: newVal };
                                       setAttractions(newAttractions);
-                                      // Auto-translate when user types in English
-                                      autoTranslateAttractionField(newVal, attractionId, 'description');
                                     } else {
                                       setAttractionTranslations(prev => {
                                         const newTrans = { ...prev };
@@ -2220,6 +2516,10 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                         return newTrans;
                                       });
                                     }
+                                    // Auto-translate from any language to all others
+                                    if (newVal && newVal.trim()) {
+                                      autoTranslateAttractionField(newVal, attractionId, 'description');
+                                    }
                                   }}
                                 />
                               ) : (
@@ -2229,17 +2529,81 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                               )}
                             </Grid>
 
-                            {attraction.image_url && (
-                              <Grid item xs={12}>
-                                <CardMedia
-                                  component="img"
-                                  height="200"
-                                  image={attraction.image_url}
-                                  alt={attractionName}
-                                  sx={{ objectFit: 'cover', borderRadius: 1 }}
+                            <Grid item xs={12}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Image
+                              </Typography>
+                              {editMode && (
+                                <input
+                                  accept="image/*"
+                                  style={{ display: 'none' }}
+                                  id={`attraction-image-upload-${attractionIndex}`}
+                                  type="file"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const previewUrl = URL.createObjectURL(file);
+                                      const newAttractions = [...attractions];
+                                      newAttractions[attractionIndex] = {
+                                        ...newAttractions[attractionIndex],
+                                        image_url: previewUrl,
+                                        imageFile: file,
+                                      };
+                                      setAttractions(newAttractions);
+                                    }
+                                  }}
                                 />
-                              </Grid>
-                            )}
+                              )}
+                              {editMode && (
+                                <label htmlFor={`attraction-image-upload-${attractionIndex}`}>
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    component="span"
+                                    startIcon={<CloudUploadIcon />}
+                                    sx={{ mb: 2 }}
+                                  >
+                                    {attraction.image_url ? 'Change Image' : 'Upload Image'}
+                                  </Button>
+                                </label>
+                              )}
+                              {attraction.image_url && (
+                                <Box sx={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                                  <CardMedia
+                                    component="img"
+                                    height="200"
+                                    image={attraction.image_url}
+                                    alt={attractionName}
+                                    sx={{ objectFit: 'cover', borderRadius: 1 }}
+                                  />
+                                  {editMode && (
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => {
+                                        setConfirmDialog({
+                                          open: true,
+                                          message: 'Are you sure you want to remove this image?',
+                                          onConfirm: () => {
+                                            setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                            const newAttractions = [...attractions];
+                                            newAttractions[attractionIndex] = {
+                                              ...newAttractions[attractionIndex],
+                                              image_url: '',
+                                              imageFile: undefined,
+                                            };
+                                            setAttractions(newAttractions);
+                                          },
+                                        });
+                                      }}
+                                      sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'white', '&:hover': { bgcolor: '#ffebee' } }}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  )}
+                                </Box>
+                              )}
+                            </Grid>
                           </Grid>
                         </Stack>
                       </Card>
@@ -2255,6 +2619,113 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
           </Typography>
         )}
       </DialogContent>
+
+      {/* Amenity Selection Dialog */}
+      <Dialog open={amenityDialogOpen} onClose={handleCloseAmenityDialog} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">Select Amenities</Typography>
+          <IconButton onClick={handleCloseAmenityDialog} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Select amenities to add to this hotel
+          </Typography>
+          <Grid container spacing={2}>
+            {allAvailableAmenities.length === 0 ? (
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress />
+                </Box>
+              </Grid>
+            ) : (
+              allAvailableAmenities.map((amenity) => {
+                const isSelected = selectedAmenityIds.has(amenity.amenity_id);
+                
+                // Get Material Icon component based on amenity_icon name
+                const getIconComponent = (iconName: string) => {
+                  if (!iconName) return null;
+                  
+                  const iconNameMap: Record<string, string> = {
+                    'local_parking': 'LocalParking',
+                    'wifi': 'Wifi',
+                    'ac_unit': 'AcUnit',
+                    'king_bed': 'KingBed',
+                    'local_laundry_service': 'LocalLaundryService',
+                    'elevator': 'Elevator',
+                    'cleaning_services': 'CleaningServices',
+                    'medical_services': 'MedicalServices',
+                    'breakfast': 'Restaurant',
+                    'first_aid': 'MedicalServices',
+                  };
+                  
+                  let iconComponentName = iconNameMap[iconName.toLowerCase()];
+                  if (!iconComponentName) {
+                    iconComponentName = iconName
+                      .split('_')
+                      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                      .join('');
+                  }
+                  
+                  const IconComponent = (Icons as any)[iconComponentName];
+                  if (IconComponent) {
+                    return <IconComponent sx={{ fontSize: 24, color: 'primary.main' }} />;
+                  }
+                  
+                  const IconComponentWithSuffix = (Icons as any)[`${iconComponentName}Icon`];
+                  return IconComponentWithSuffix ? (
+                    <IconComponentWithSuffix sx={{ fontSize: 24, color: 'primary.main' }} />
+                  ) : null;
+                };
+
+                return (
+                  <Grid item xs={12} sm={6} md={4} key={amenity.amenity_id}>
+                    <Card
+                      variant="outlined"
+                      sx={{
+                        p: 1.5,
+                        cursor: 'pointer',
+                        border: isSelected ? 2 : 1,
+                        borderColor: isSelected ? 'primary.main' : 'divider',
+                        bgcolor: isSelected ? 'action.selected' : 'background.paper',
+                        '&:hover': {
+                          bgcolor: 'action.hover',
+                        },
+                      }}
+                      onClick={() => handleToggleAmenitySelection(amenity.amenity_id)}
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Checkbox
+                          checked={isSelected}
+                          onChange={() => handleToggleAmenitySelection(amenity.amenity_id)}
+                          onClick={(e) => e.stopPropagation()}
+                          size="small"
+                        />
+                        {amenity.amenity_icon && getIconComponent(amenity.amenity_icon)}
+                        <Typography variant="body2" sx={{ flex: 1 }}>
+                          {amenity.amenity_name}
+                        </Typography>
+                      </Stack>
+                    </Card>
+                  </Grid>
+                );
+              })
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAmenityDialog}>Cancel</Button>
+          <Button
+            onClick={handleConfirmAmenitySelection}
+            variant="contained"
+            color="primary"
+            disabled={selectedAmenityIds.size === 0}
+          >
+            Add Selected ({selectedAmenityIds.size})
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Confirmation Dialog */}
       <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog({ open: false, message: '', onConfirm: null })}>
