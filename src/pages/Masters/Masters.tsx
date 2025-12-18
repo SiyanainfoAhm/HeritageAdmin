@@ -22,17 +22,21 @@ import {
   Select,
   FormControl,
   InputLabel,
+  Tooltip,
+  Stack,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
   Search as SearchIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon,
 } from '@mui/icons-material';
 import { MasterDataService } from '@/services/masterData.service';
 import { MasterData, MasterDataCategory } from '@/types';
 import MasterDataDialog from '@/components/masters/MasterDataDialog';
-import DeleteConfirmDialog from '@/components/masters/DeleteConfirmDialog';
 import HeritageSitesManager from './components/HeritageSitesManager';
 
 const MASTER_CATEGORIES: { value: MasterDataCategory; label: string }[] = [
@@ -57,14 +61,14 @@ const Masters = () => {
   // Dialog states
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedMasterData, setSelectedMasterData] = useState<MasterData | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [sortBy, setSortBy] = useState<'order' | 'code' | 'name'>('order');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     if (activeTab === 'masterData') {
@@ -76,7 +80,7 @@ const Masters = () => {
     if (activeTab === 'masterData') {
       applyFilters();
     }
-  }, [masterData, searchTerm, statusFilter, sortBy, activeTab]);
+  }, [masterData, searchTerm, statusFilter, sortBy, sortOrder, activeTab]);
 
   const fetchMasterData = async () => {
     setLoading(true);
@@ -108,23 +112,36 @@ const Masters = () => {
 
     // Status filter
     if (statusFilter === 'active') {
-      filtered = filtered.filter((item) => item.is_active);
+      filtered = filtered.filter((item) => Boolean(item.is_active) === true);
     } else if (statusFilter === 'inactive') {
-      filtered = filtered.filter((item) => !item.is_active);
+      filtered = filtered.filter((item) => Boolean(item.is_active) === false);
     }
 
-    // Sort
+    // Sort (consistent with Verification and Users pages)
     filtered.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
       switch (sortBy) {
         case 'order':
-          return a.display_order - b.display_order;
+          aValue = a.display_order || 0;
+          bValue = b.display_order || 0;
+          break;
         case 'code':
-          return a.code.localeCompare(b.code);
+          aValue = a.code?.toLowerCase() || '';
+          bValue = b.code?.toLowerCase() || '';
+          break;
         case 'name':
-          return a.display_name.localeCompare(b.display_name);
+          aValue = a.display_name?.toLowerCase() || '';
+          bValue = b.display_name?.toLowerCase() || '';
+          break;
         default:
           return 0;
       }
+      
+      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
     });
 
     setFilteredData(filtered);
@@ -135,6 +152,18 @@ const Masters = () => {
     setSearchTerm('');
     setStatusFilter('all');
     setSortBy('order');
+    setSortOrder('asc');
+  };
+
+  const handleSort = (column: 'order' | 'code' | 'name') => {
+    if (sortBy === column) {
+      // Toggle sort order if clicking the same column
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column and default to ascending
+      setSortBy(column);
+      setSortOrder('asc');
+    }
   };
 
   const handleAdd = () => {
@@ -147,29 +176,20 @@ const Masters = () => {
     setEditDialogOpen(true);
   };
 
-  const handleDelete = (item: MasterData) => {
-    setSelectedMasterData(item);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!selectedMasterData) return;
-
-    setDeleteLoading(true);
+  const handleToggleStatus = async (item: MasterData) => {
+    setActionLoading(true);
     try {
-      const result = await MasterDataService.deleteMasterData(selectedMasterData.master_id);
+      const result = await MasterDataService.toggleMasterDataStatus(item.master_id, !item.is_active);
       if (result.success) {
-        setSuccess('Master data deleted successfully');
+        setSuccess(`Master data marked as ${item.is_active ? 'inactive' : 'active'}.`);
         fetchMasterData();
-        setDeleteDialogOpen(false);
-        setSelectedMasterData(null);
       } else {
-        setError(result.error?.message || 'Failed to delete master data');
+        setError(result.error?.message || 'Failed to update status');
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred');
     } finally {
-      setDeleteLoading(false);
+      setActionLoading(false);
     }
   };
 
@@ -212,14 +232,6 @@ const Masters = () => {
               <MenuItem value="inactive">Inactive</MenuItem>
             </Select>
           </FormControl>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Sort By</InputLabel>
-            <Select value={sortBy} label="Sort By" onChange={(e) => setSortBy(e.target.value as any)}>
-              <MenuItem value="order">Display Order</MenuItem>
-              <MenuItem value="code">Code</MenuItem>
-              <MenuItem value="name">Name</MenuItem>
-            </Select>
-          </FormControl>
         </Box>
       </Paper>
 
@@ -244,10 +256,40 @@ const Masters = () => {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Code</TableCell>
-                <TableCell>Display Name</TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('code')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Code</span>
+                    {sortBy === 'code' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('name')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Display Name</span>
+                    {sortBy === 'name' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
                 <TableCell>Description</TableCell>
-                <TableCell>Display Order</TableCell>
+                <TableCell 
+                  sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort('order')}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>Display Order</span>
+                    {sortBy === 'order' && (
+                      sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                    )}
+                  </Stack>
+                </TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -275,15 +317,30 @@ const Masters = () => {
                     </TableCell>
                     <TableCell>{item.display_order}</TableCell>
                     <TableCell>
-                      <Chip label={item.is_active ? 'Active' : 'Inactive'} color={item.is_active ? 'success' : 'default'} size="small" />
+                      <Chip 
+                        icon={Boolean(item.is_active) ? <CheckCircleIcon /> : <CancelIcon />}
+                        label={Boolean(item.is_active) ? 'Active' : 'Inactive'} 
+                        color={Boolean(item.is_active) ? 'success' : 'default'} 
+                        size="small" 
+                      />
                     </TableCell>
                     <TableCell align="right">
+                      <Tooltip title={Boolean(item.is_active) ? 'Mark as Inactive' : 'Mark as Active'}>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleToggleStatus(item)}
+                          disabled={actionLoading}
+                          color={Boolean(item.is_active) ? 'success' : 'default'}
+                          sx={{ mr: 0.5 }}
+                        >
+                          {Boolean(item.is_active) ? <CheckCircleIcon fontSize="small" /> : <CancelIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit">
                       <IconButton size="small" onClick={() => handleEdit(item)} title="Edit">
                         <EditIcon fontSize="small" />
                       </IconButton>
-                      <IconButton size="small" color="error" onClick={() => handleDelete(item)} title="Delete">
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))
@@ -311,17 +368,6 @@ const Masters = () => {
         category={selectedCategory}
         masterData={selectedMasterData}
         mode="edit"
-      />
-
-      <DeleteConfirmDialog
-        open={deleteDialogOpen}
-        onClose={() => {
-          setDeleteDialogOpen(false);
-          setSelectedMasterData(null);
-        }}
-        onConfirm={handleDeleteConfirm}
-        masterData={selectedMasterData}
-        loading={deleteLoading}
       />
     </>
   );

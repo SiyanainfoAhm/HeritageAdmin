@@ -1,5 +1,6 @@
 import { supabase } from '@/config/supabase';
 import { EmailService } from './email.service';
+import { FCMService } from './fcm.service';
 
 export interface EmailTemplate {
   id: number;
@@ -288,6 +289,240 @@ export class NotificationTemplateService {
 
       return { success: true };
     } catch (error) {
+      return { success: false, error };
+    }
+  }
+
+  /**
+   * Send FCM push notification using template
+   * Upserts notification log (updates if exists, inserts if new)
+   */
+  static async sendPushNotification(
+    userId: number,
+    templateKey: string,
+    deviceToken: string,
+    variables: Record<string, string> = {}
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const stripHtml = (html: string): string =>
+        html
+          .replace(/<[^>]*>/g, '')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .trim();
+
+      // Validate device token
+      if (!deviceToken || !deviceToken.trim()) {
+        return { success: false, error: 'FCM device token is required' };
+      }
+
+      // Get the template
+      const template = await this.getEmailTemplateByKey(templateKey);
+      if (!template) {
+        console.warn(`Template not found: ${templateKey}. Push notification skipped.`);
+        await supabase.from('heritage_notification_log').insert({
+          user_id: userId,
+          notification_type: templateKey,
+          channel: 'push',
+          recipient: deviceToken,
+          status: 'failed',
+          skip_reason: `Template not found: ${templateKey}`,
+          provider: 'fcm_v1',
+          created_at: new Date().toISOString(),
+        });
+        return { success: false, error: `Template not found: ${templateKey}` };
+      }
+
+      // Fallback: use push fields if present, else reuse email subject/body
+      const pushTitle =
+        (template.push_title && this.replaceTemplateVariables(template.push_title, variables)) ||
+        (template.email_subject && this.replaceTemplateVariables(template.email_subject, variables)) ||
+        template.template_name ||
+        templateKey;
+
+      const pushBody =
+        (template.push_body && this.replaceTemplateVariables(template.push_body, variables)) ||
+        (template.email_body_text && this.replaceTemplateVariables(template.email_body_text, variables)) ||
+        (template.email_body_html && stripHtml(this.replaceTemplateVariables(template.email_body_html, variables))) ||
+        '';
+
+      // Replace variables in title and body
+      const title = pushTitle;
+      const body = pushBody;
+      const imageUrl = template.push_image_url
+        ? this.replaceTemplateVariables(template.push_image_url, variables)
+        : undefined;
+      const clickAction = template.push_action_url
+        ? this.replaceTemplateVariables(template.push_action_url, variables)
+        : undefined;
+
+      // Prepare data payload (optional additional data)
+      const data: Record<string, string> = {
+        notification_type: templateKey,
+        user_id: userId.toString(),
+        ...variables,
+      };
+
+      // Send push notification using FCM
+      console.log(`📱 Sending push notification to device: ${deviceToken.substring(0, 20)}...`);
+      const fcmResult = await FCMService.sendPushNotificationWithRetry({
+        token: deviceToken,
+        title: title,
+        body: body,
+        imageUrl: imageUrl,
+        data: data,
+        clickAction: clickAction,
+      });
+
+      // Upsert notification log
+      const logStatus = fcmResult.success ? 'sent' : 'failed';
+      const logData: any = {
+        user_id: userId,
+        notification_type: templateKey,
+        channel: 'push',
+        recipient: deviceToken,
+        subject: title,
+        content: body,
+        template: templateKey,
+        status: logStatus,
+        provider: 'fcm_v1',
+        provider_message_id: fcmResult.messageId || null,
+        sent_at: fcmResult.success ? new Date().toISOString() : null,
+      };
+
+      if (!fcmResult.success) {
+        logData.skip_reason = fcmResult.error || 'Push notification send failed';
+        logData.provider_response = { error: fcmResult.error };
+      }
+
+      // Check if notification log already exists (upsert logic)
+      const { data: existingLog, error: checkError } = await supabase
+        .from('heritage_notification_log')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('notification_type', templateKey)
+        .eq('channel', 'fcm')
+        .eq('recipient', deviceToken)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        // PGRST116 is "not found" which is fine, ignore other errors
+        console.error('❌ Error checking existing notification log:', checkError);
+      }
+
+      let logResult;
+      if (existingLog && existingLog.id) {
+        // Update existing log
+        const { data: updatedLog, error: updateError } = await supabase
+          .from('heritage_notification_log')
+          .update({
+            ...logData,
+            // Don't update created_at on update
+          })
+          .eq('id', existingLog.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('❌ Error updating notification log:', updateError);
+          // Don't fail if log update fails, notification might have been sent
+        } else {
+          console.log(`✅ Notification log updated with ID: ${updatedLog?.id}`);
+          logResult = updatedLog;
+        }
+      } else {
+        // Insert new log
+        const { data: insertedLog, error: insertError } = await supabase
+          .from('heritage_notification_log')
+          .insert(logData)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('❌ Error creating notification log:', insertError);
+          // Don't fail if log insert fails, notification might have been sent
+        } else {
+          console.log(`✅ Notification log created with ID: ${insertedLog?.id}`);
+          logResult = insertedLog;
+        }
+      }
+
+      if (fcmResult.success) {
+        console.log(`✅ Push notification sent successfully! Message ID: ${fcmResult.messageId || 'N/A'}`);
+        return { success: true };
+      } else {
+        console.error(`❌ Push notification send failed: ${fcmResult.error}`);
+        return { success: false, error: fcmResult.error };
+      }
+    } catch (error: any) {
+      console.error('Error sending push notification:', error);
+      return { success: false, error: error.message || 'Failed to send push notification' };
+    }
+  }
+
+  /**
+   * Upsert notification log (insert or update)
+   * This is a helper method for direct notification log management
+   */
+  static async upsertNotificationLog(
+    logData: Omit<NotificationLog, 'id' | 'created_at'>
+  ): Promise<{ success: boolean; data?: NotificationLog; error?: any }> {
+    try {
+      // Check if notification log already exists
+      const { data: existingLog, error: checkError } = await supabase
+        .from('heritage_notification_log')
+        .select('id')
+        .eq('user_id', logData.user_id)
+        .eq('notification_type', logData.notification_type)
+        .eq('channel', logData.channel)
+        .eq('recipient', logData.recipient)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('❌ Error checking existing notification log:', checkError);
+        return { success: false, error: checkError };
+      }
+
+      if (existingLog && existingLog.id) {
+        // Update existing log
+        const { data: updatedLog, error: updateError } = await supabase
+          .from('heritage_notification_log')
+          .update({
+            ...logData,
+          })
+          .eq('id', existingLog.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          return { success: false, error: updateError };
+        }
+
+        return { success: true, data: updatedLog };
+      } else {
+        // Insert new log
+        const { data: insertedLog, error: insertError } = await supabase
+          .from('heritage_notification_log')
+          .insert(logData)
+          .select()
+          .single();
+
+        if (insertError) {
+          return { success: false, error: insertError };
+        }
+
+        return { success: true, data: insertedLog };
+      }
+    } catch (error) {
+      console.error('Exception upserting notification log:', error);
       return { success: false, error };
     }
   }

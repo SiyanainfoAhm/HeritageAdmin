@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -14,9 +14,12 @@ import {
   CircularProgress,
   Tabs,
   Tab,
+  Stack,
 } from '@mui/material';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { MasterData, MasterDataCategory, MasterDataTranslation } from '@/types';
 import { MasterDataService } from '@/services/masterData.service';
+import { TranslationService } from '@/services/translation.service';
 import { supabase } from '@/config/supabase';
 
 interface MasterDataDialogProps {
@@ -48,6 +51,10 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState(0);
+  const [translatingFields, setTranslatingFields] = useState<Set<string>>(new Set());
+  const translationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingTranslationsQueueRef = useRef<Array<{ field: 'displayName' | 'description'; value: string }>>([]);
+  const isTranslatingRef = useRef(false);
 
   // Form state
   const [code, setCode] = useState('');
@@ -58,21 +65,35 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
   useEffect(() => {
     if (open) {
       if (mode === 'edit' && masterData) {
-        setCode(masterData.code);
-        setDisplayOrder(masterData.display_order);
-        setIsActive(masterData.is_active);
+        setCode(masterData.code || '');
+        setDisplayOrder(masterData.display_order || 0);
+        setIsActive(masterData.is_active ?? true);
         // Load translations
         loadTranslations(masterData.master_id);
       } else {
         // Reset form for add mode
         setCode('');
-        setDisplayOrder(0);
         setIsActive(true);
+        setDisplayOrder(0);
         setTranslations({});
+        // Auto-populate display order with next value
+        loadNextDisplayOrder();
       }
       setError('');
+      setTranslatingFields(new Set());
+      pendingTranslationsQueueRef.current = [];
+      isTranslatingRef.current = false;
     }
-  }, [open, mode, masterData]);
+
+    // Cleanup translation timer on unmount
+    return () => {
+      if (translationTimerRef.current) {
+        clearTimeout(translationTimerRef.current);
+      }
+      pendingTranslationsQueueRef.current = [];
+      isTranslatingRef.current = false;
+    };
+  }, [open, mode, masterData, category]);
 
   const loadTranslations = async (masterId: number) => {
     try {
@@ -97,27 +118,267 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
     }
   };
 
+  const loadNextDisplayOrder = async () => {
+    try {
+      // Fetch existing master data for this category
+      const existingData = await MasterDataService.getMasterDataByCategory(category);
+      
+      if (existingData && existingData.length > 0) {
+        // Find the maximum display order
+        const maxDisplayOrder = Math.max(...existingData.map(item => item.display_order || 0));
+        // Set to next value
+        setDisplayOrder(maxDisplayOrder + 1);
+      } else {
+        // No existing items, start at 1
+        setDisplayOrder(1);
+      }
+    } catch (err) {
+      console.error('Error loading next display order:', err);
+      // Default to 1 if there's an error
+      setDisplayOrder(1);
+    }
+  };
+
+  // Auto-generate code from English display name
+  const generateCodeFromName = (name: string): string => {
+    if (!name) return '';
+    return name
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '')
+      .replace(/_+/g, '_') // Replace multiple underscores with single
+      .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
+  };
+
+  // Auto-translate field
+  const autoTranslateField = async (text: string, targetLang: string, sourceLang: string = 'en') => {
+    if (!text || !text.trim()) return '';
+    
+    try {
+      const result = await TranslationService.translate(text, targetLang.toLowerCase(), sourceLang);
+      console.log('🔄 Translation result for', targetLang, ':', result);
+      
+      if (result.success && result.translations) {
+        const langKey = targetLang.toLowerCase();
+        let translations = result.translations[langKey];
+        
+        // Handle case where API returns target language in uppercase or mixed case
+        if (!translations) {
+          // Try uppercase
+          translations = result.translations[langKey.toUpperCase()];
+        }
+        if (!translations) {
+          // Try to find any matching key (case insensitive)
+          const matchingKey = Object.keys(result.translations).find(
+            key => key.toLowerCase() === langKey
+          );
+          if (matchingKey) {
+            translations = result.translations[matchingKey];
+          }
+        }
+        
+        if (translations) {
+          // Handle array or string
+          const translatedText = Array.isArray(translations) 
+            ? (translations.length > 0 ? translations[0] : '')
+            : String(translations || '');
+          
+          console.log('✅ Translated text:', translatedText);
+          return translatedText;
+        }
+      }
+      console.warn('⚠️ No translation found for', targetLang);
+      return '';
+    } catch (error) {
+      console.warn(`Failed to auto-translate to ${targetLang}:`, error);
+      return '';
+    }
+  };
+
+  // Perform translation for a field
+  const performTranslation = async (field: 'displayName' | 'description', value: string) => {
+    if (!value || !value.trim()) {
+      // Process next in queue if available
+      processNextPendingTranslation();
+      return;
+    }
+    
+    // If already translating, queue this one
+    if (isTranslatingRef.current) {
+      // Add to queue instead of replacing
+      pendingTranslationsQueueRef.current.push({ field, value });
+      console.log(`📋 Queued translation: ${field}, queue length:`, pendingTranslationsQueueRef.current.length);
+      return;
+    }
+    
+    isTranslatingRef.current = true;
+    const otherLangs = LANGUAGES.filter(l => l.code !== 'EN');
+    setTranslatingFields(new Set(otherLangs.map(l => l.code)));
+
+    console.log(`🔄 Starting translation for ${field}:`, value);
+
+    try {
+      // Perform all translations
+      const translationResults = await Promise.all(
+        otherLangs.map(async (lang) => {
+          const targetLang = lang.code.toLowerCase();
+          const translatedValue = await autoTranslateField(value, targetLang);
+          return { langCode: lang.code, translatedValue };
+        })
+      );
+      
+      // Update state with all translations using functional update
+      setTranslations((prev) => {
+        const updated = { ...prev };
+        
+        translationResults.forEach(({ langCode, translatedValue }) => {
+          if (!translatedValue || !translatedValue.trim()) {
+            console.warn(`⚠️ Empty translation for ${langCode}`);
+            return; // Skip empty translations
+          }
+          
+          // Always update translations when translating from English (source language)
+          // This ensures we get the latest translated values
+          if (field === 'displayName') {
+            updated[langCode] = {
+              displayName: translatedValue,
+              description: updated[langCode]?.description || prev[langCode]?.description || '',
+            };
+            console.log(`✅ Updated ${langCode} displayName:`, translatedValue);
+          } else {
+            updated[langCode] = {
+              displayName: updated[langCode]?.displayName || prev[langCode]?.displayName || '',
+              description: translatedValue,
+            };
+            console.log(`✅ Updated ${langCode} description:`, translatedValue);
+          }
+        });
+        
+        return updated;
+      });
+      
+      setTranslatingFields(new Set());
+      isTranslatingRef.current = false;
+      
+      // Process next pending translation
+      processNextPendingTranslation();
+    } catch (error) {
+      console.error('Translation error:', error);
+      setTranslatingFields(new Set());
+      isTranslatingRef.current = false;
+      // Process next pending translation even on error
+      processNextPendingTranslation();
+    }
+  };
+
+  // Process next pending translation from queue
+  const processNextPendingTranslation = () => {
+    if (pendingTranslationsQueueRef.current.length > 0 && !isTranslatingRef.current) {
+      const next = pendingTranslationsQueueRef.current.shift();
+      if (next) {
+        console.log(`📤 Processing queued translation: ${next.field}`);
+        setTimeout(() => {
+          performTranslation(next.field, next.value);
+        }, 100);
+      }
+    }
+  };
+
   const handleTranslationChange = (langCode: string, field: 'displayName' | 'description', value: string) => {
-    setTranslations((prev) => ({
-      ...prev,
-      [langCode]: {
-        ...prev[langCode],
-        [field]: value,
-      },
-    }));
+    setTranslations((prev) => {
+      const updated = {
+        ...prev,
+        [langCode]: {
+          displayName: prev[langCode]?.displayName || '',
+          description: prev[langCode]?.description || '',
+          [field]: value,
+        },
+      };
+
+      // Auto-generate code from English display name in add mode (except for language category)
+      if (mode === 'add' && category !== 'language' && langCode === 'EN' && field === 'displayName' && value.trim()) {
+        const generatedCode = generateCodeFromName(value);
+        if (generatedCode) {
+          setCode(generatedCode.toUpperCase());
+        }
+      }
+
+      // Auto-translate when English display name or description changes
+      if (langCode === 'EN' && value.trim()) {
+        // Clear existing timer
+        if (translationTimerRef.current) {
+          clearTimeout(translationTimerRef.current);
+          translationTimerRef.current = null;
+        }
+
+        // If translation is in progress, queue this translation
+        if (isTranslatingRef.current) {
+          // Remove any existing pending translation for this field from queue
+          pendingTranslationsQueueRef.current = pendingTranslationsQueueRef.current.filter(
+            item => !(item.field === field)
+          );
+          // Add to queue
+          pendingTranslationsQueueRef.current.push({ field, value });
+        } else {
+          // Debounce translation - translate after 1 second of no typing (like other screens)
+          translationTimerRef.current = setTimeout(() => {
+            // Get the latest value from state when timer fires to ensure we translate the most recent text
+            setTranslations((current) => {
+              const latestValue = current['EN']?.[field];
+              if (latestValue && latestValue.trim()) {
+                console.log(`⏱️ Timer fired for ${field}, translating:`, latestValue);
+                performTranslation(field, latestValue);
+              }
+              return current; // Don't modify state, just read it
+            });
+          }, 1000);
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  // Handle blur event to ensure translation completes
+  const handleTranslationBlur = (langCode: string, field: 'displayName' | 'description') => {
+    if (langCode === 'EN') {
+      // Clear any pending timer and trigger translation immediately
+      if (translationTimerRef.current) {
+        clearTimeout(translationTimerRef.current);
+        translationTimerRef.current = null;
+      }
+      
+      // Get current value and translate if not already translating
+      setTranslations((current) => {
+        const englishValue = current['EN']?.[field];
+        if (englishValue && englishValue.trim()) {
+          // Remove any pending translation for this field from queue
+          pendingTranslationsQueueRef.current = pendingTranslationsQueueRef.current.filter(
+            item => !(item.field === field)
+          );
+          // Queue the translation (or execute if not translating)
+          if (isTranslatingRef.current) {
+            pendingTranslationsQueueRef.current.push({ field, value: englishValue });
+          } else {
+            performTranslation(field, englishValue);
+          }
+        }
+        return current;
+      });
+    }
   };
 
   const handleSubmit = async () => {
     setError('');
     
     // Validation
-    if (!code.trim()) {
+    if (!code || !code.trim()) {
       setError('Code is required');
       return;
     }
 
     // At least one translation (display name) is required
-    const hasTranslation = Object.values(translations).some((t) => t.displayName.trim());
+    const hasTranslation = Object.values(translations).some((t) => t && t.displayName && t.displayName.trim());
     if (!hasTranslation) {
       setError('At least one translation (display name) is required');
       return;
@@ -130,7 +391,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
         // Create master data
         const result = await MasterDataService.createMasterData(
           category,
-          code.trim(),
+          code.trim().toUpperCase(),
           displayOrder
         );
 
@@ -144,19 +405,19 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
 
         // Create translations
         for (const [langCode, trans] of Object.entries(translations)) {
-          if (trans.displayName.trim()) {
+          if (trans && trans.displayName && trans.displayName.trim()) {
             await MasterDataService.upsertTranslation(
               newMasterId,
               langCode,
               trans.displayName.trim(),
-              trans.description.trim() || undefined
+              (trans.description && trans.description.trim()) || undefined
             );
           }
         }
       } else if (mode === 'edit' && masterData) {
         // Update master data
         const result = await MasterDataService.updateMasterData(masterData.master_id, {
-          code: code.trim(),
+          code: code.trim().toUpperCase(),
           display_order: displayOrder,
           is_active: isActive,
         });
@@ -169,12 +430,12 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
 
         // Update translations
         for (const [langCode, trans] of Object.entries(translations)) {
-          if (trans.displayName.trim()) {
+          if (trans && trans.displayName && trans.displayName.trim()) {
             await MasterDataService.upsertTranslation(
               masterData.master_id,
               langCode,
               trans.displayName.trim(),
-              trans.description.trim() || undefined
+              (trans.description && trans.description.trim()) || undefined
             );
           }
         }
@@ -206,11 +467,17 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
             fullWidth
             label="Code"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
             margin="normal"
             required
+            helperText={
+              mode === 'add' 
+                ? category === 'language' 
+                  ? "Enter language code (will be stored in uppercase)" 
+                  : "Auto-generated from English display name (can be edited)"
+                : "Code cannot be changed"
+            }
             disabled={mode === 'edit'}
-            helperText="Unique identifier for this master data item"
           />
           <TextField
             fullWidth
@@ -235,9 +502,29 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
         </Typography>
 
         <Tabs value={activeTab} onChange={(_, newValue) => setActiveTab(newValue)}>
-          {LANGUAGES.map((lang) => (
-            <Tab key={lang.code} label={lang.label} />
-          ))}
+          {LANGUAGES.map((lang) => {
+            const hasTranslation = translations[lang.code]?.displayName && translations[lang.code].displayName.trim();
+            const isTranslating = translatingFields.has(lang.code);
+            
+            return (
+              <Tab 
+                key={lang.code} 
+                label={
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>{lang.label}</span>
+                    {isTranslating ? (
+                      <CircularProgress size={14} />
+                    ) : (
+                      hasTranslation &&
+                      lang.code !== 'EN' && (
+                        <CheckCircleIcon fontSize="small" sx={{ color: '#4CAF50' }} />
+                      )
+                    )}
+                  </Stack>
+                }
+              />
+            );
+          })}
         </Tabs>
 
         {LANGUAGES.map((lang, index) => (
@@ -247,6 +534,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
               label={`Display Name (${lang.label})`}
               value={translations[lang.code]?.displayName || ''}
               onChange={(e) => handleTranslationChange(lang.code, 'displayName', e.target.value)}
+              onBlur={() => handleTranslationBlur(lang.code, 'displayName')}
               margin="normal"
               required={index === 0} // English is required
             />
@@ -255,6 +543,7 @@ const MasterDataDialog: React.FC<MasterDataDialogProps> = ({
               label={`Description (${lang.label})`}
               value={translations[lang.code]?.description || ''}
               onChange={(e) => handleTranslationChange(lang.code, 'description', e.target.value)}
+              onBlur={() => handleTranslationBlur(lang.code, 'description')}
               margin="normal"
               multiline
               rows={3}

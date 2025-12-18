@@ -289,25 +289,28 @@ export class VerificationService {
         }
       }
 
+      // Prepare notification variables
+      const verificationDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      const notificationVariables = {
+        userName: userData?.full_name || 'User',
+        entityType: entityType,
+        verificationDate: verificationDate,
+      };
+
       // Send email notification for approval
       if (userData?.email) {
         try {
-          const verificationDate = new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-
           console.log(`📧 Attempting to send approval email to: ${userData.email}`);
           const emailResult = await NotificationTemplateService.sendEmailNotification(
             id,
             'verification_approved',
             userData.email,
-            {
-              userName: userData.full_name || 'User',
-              entityType: entityType,
-              verificationDate: verificationDate,
-            }
+            notificationVariables
           );
 
           if (emailResult.success) {
@@ -322,6 +325,41 @@ export class VerificationService {
         }
       } else {
         console.warn(`⚠️  No email found for user ID ${id}. Email notification skipped.`);
+      }
+
+      // Send push notification for approval
+      try {
+        const deviceTokens = await this.getUserDeviceTokens(id);
+        if (deviceTokens && deviceTokens.length > 0) {
+          console.log(`📱 Attempting to send approval push notification to ${deviceTokens.length} device(s) for user ID: ${id}`);
+          
+          // Send push notification to all device tokens
+          const pushPromises = deviceTokens.map(async (deviceToken) => {
+            try {
+              const pushResult = await NotificationTemplateService.sendPushNotification(
+                id,
+                'verification_approved',
+                deviceToken,
+                notificationVariables
+              );
+
+              if (pushResult.success) {
+                console.log(`✅ Push notification sent successfully to device: ${deviceToken.substring(0, 20)}...`);
+              } else {
+                console.error(`❌ Push notification failed for device ${deviceToken.substring(0, 20)}...: ${pushResult.error}`);
+              }
+            } catch (pushError: any) {
+              console.error(`❌ Error sending push notification to device ${deviceToken.substring(0, 20)}...:`, pushError);
+            }
+          });
+
+          await Promise.allSettled(pushPromises);
+        } else {
+          console.log(`ℹ️  No device tokens found for user ID ${id}. Push notification skipped.`);
+        }
+      } catch (pushError: any) {
+        console.error('❌ Error sending approval push notification:', pushError);
+        // Don't fail the approval if push notification fails, but log it
       }
 
       return { success: true };
@@ -379,29 +417,68 @@ export class VerificationService {
           .eq('user_id', id);
       }
 
+      // Prepare notification variables
+      const rejectionDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      const notificationVariables = {
+        userName: userData?.full_name || 'User',
+        entityType: entityType,
+        rejectionDate: rejectionDate,
+      };
+
       // Send email notification for rejection
       if (userData?.email) {
         try {
-          const rejectionDate = new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-
+          console.log(`📧 Attempting to send rejection email to: ${userData.email}`);
           await NotificationTemplateService.sendEmailNotification(
             id,
             'verification_rejected',
             userData.email,
-            {
-              userName: userData.full_name || 'User',
-              entityType: entityType,
-              rejectionDate: rejectionDate,
-            }
+            notificationVariables
           );
         } catch (emailError) {
           console.error('Error sending rejection email notification:', emailError);
           // Don't fail the rejection if email fails, but log it
         }
+      }
+
+      // Send push notification for rejection
+      try {
+        const deviceTokens = await this.getUserDeviceTokens(id);
+        if (deviceTokens && deviceTokens.length > 0) {
+          console.log(`📱 Attempting to send rejection push notification to ${deviceTokens.length} device(s) for user ID: ${id}`);
+          
+          // Send push notification to all device tokens
+          const pushPromises = deviceTokens.map(async (deviceToken) => {
+            try {
+              const pushResult = await NotificationTemplateService.sendPushNotification(
+                id,
+                'verification_rejected',
+                deviceToken,
+                notificationVariables
+              );
+
+              if (pushResult.success) {
+                console.log(`✅ Push notification sent successfully to device: ${deviceToken.substring(0, 20)}...`);
+              } else {
+                console.error(`❌ Push notification failed for device ${deviceToken.substring(0, 20)}...: ${pushResult.error}`);
+              }
+            } catch (pushError: any) {
+              console.error(`❌ Error sending push notification to device ${deviceToken.substring(0, 20)}...:`, pushError);
+            }
+          });
+
+          await Promise.allSettled(pushPromises);
+        } else {
+          console.log(`ℹ️  No device tokens found for user ID ${id}. Push notification skipped.`);
+        }
+      } catch (pushError: any) {
+        console.error('❌ Error sending rejection push notification:', pushError);
+        // Don't fail the rejection if push notification fails, but log it
       }
 
       return { success: true };
@@ -434,6 +511,33 @@ export class VerificationService {
       // Entity types that use vendor business details
       const vendorBusinessEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];
 
+      // All vendor business detail fields we care about in the admin UI
+      const vendorBusinessFields = [
+        'business_name',
+        'business_type',
+        'gstin',
+        'business_phone',
+        'business_email',
+        'business_address',
+        'city',
+        'state',
+        'pincode',
+        'business_description',
+        'license_number',
+        'license_expiry',
+        'website',
+        'instagram_handle',
+        'facebook_page',
+        'twitter_handle',
+        'linkedin_profile',
+        'youtube_channel',
+        'show_contact_info',
+        'verification_date',
+        'verification_notes',
+        'latitude',
+        'longitude',
+      ];
+
       // Fetch vendor business details if applicable (with translations)
       if (vendorBusinessEntityTypes.includes(entityType)) {
         try {
@@ -448,9 +552,16 @@ export class VerificationService {
 
           if (!vendorError && vendorData && vendorData.success) {
             // Extract the business details from the JSONB response
-            const vendorDetails = { ...vendorData };
+            const vendorDetails: any = { ...vendorData };
             delete vendorDetails.success;
             delete vendorDetails.error;
+
+            // Ensure all important vendor fields exist as keys (even if null) so UI can render blank inputs
+            vendorBusinessFields.forEach((field) => {
+              if (!(field in vendorDetails)) {
+                vendorDetails[field] = null;
+              }
+            });
             
             // Merge translations if available
             if (vendorDetails.translations) {
@@ -480,7 +591,7 @@ export class VerificationService {
       };
 
       const businessTable = businessTableMap[entityType];
-      if (businessTable && !vendorBusinessEntityTypes.includes(entityType)) {
+      if (businessTable && !vendorBusinessEntityTypes.includes(entityType) && entityType !== 'Artisan') {
         // Only fetch from old tables if not using vendor business details
         const { data: business, error: bizError } = await supabase
           .from(businessTable)
@@ -519,16 +630,121 @@ export class VerificationService {
         }
       }
 
-      // For Artisan, fetch from heritage_artisan table
+      // For Local Guide, load profile translations from heritage_local_guide_profile_translations
+      if (entityType === 'Local Guide' && businessDetails && businessDetails.profile_id) {
+        try {
+          const { data: guideTranslations, error: guideTransError } = await supabase
+            .from('heritage_local_guide_profile_translations')
+            .select('*')
+            .eq('profile_id', businessDetails.profile_id);
+
+          if (!guideTransError && Array.isArray(guideTranslations) && guideTranslations.length > 0) {
+            // Attach raw translations; UI will map per-field by language_code
+            (businessDetails as any)._translations = guideTranslations;
+          }
+        } catch (guideTransErr) {
+          console.warn('Error fetching local guide translations:', guideTransErr);
+        }
+      }
+
+      // For Artisan, fetch from heritage_artisan table + vendor business/location & translations
       if (entityType === 'Artisan') {
         const { data: artisanData } = await supabase
           .from('heritage_artisan')
           .select('*')
           .eq('user_id', userId)
           .single();
-        
-        if (artisanData) {
-          businessDetails = artisanData;
+
+          if (artisanData) {
+          // Start with artisan core fields
+          const combinedDetails: any = { ...artisanData };
+
+          // Try to fetch vendor business/location details (city, state, address, lat/long) with translations
+          let vendorTranslations: any[] = [];
+          try {
+            const { data: vendorData, error: vendorError } = await supabase.rpc(
+              'heritage_get_vendor_business_details',
+              {
+                p_user_id: userId,
+                p_language_code: 'en',
+                p_include_all_translations: true,
+              }
+            );
+
+            if (!vendorError && vendorData && (vendorData as any).success) {
+              const vendorDetails: any = { ...(vendorData as any) };
+              delete vendorDetails.success;
+              delete vendorDetails.error;
+
+              // Ensure all location-related vendor fields exist so UI shows editable blanks
+              const locationFields = ['business_address', 'city', 'state', 'pincode', 'latitude', 'longitude'];
+              locationFields.forEach((field) => {
+                if (!(field in vendorDetails)) {
+                  vendorDetails[field] = null;
+                }
+              });
+
+              // Attach vendor location fields onto artisan details
+              locationFields.forEach((field) => {
+                if (vendorDetails[field] !== undefined) {
+                  combinedDetails[field] = vendorDetails[field];
+                }
+              });
+
+              if (Array.isArray(vendorDetails.translations)) {
+                vendorTranslations = vendorDetails.translations;
+              }
+            }
+          } catch (vendorErr) {
+            console.warn('Error fetching vendor business/location details for artisan:', vendorErr);
+          }
+
+          // Fetch artisan-specific translations
+          let artisanTranslations: any[] = [];
+          try {
+            if (artisanData.artisan_id) {
+              const { data: artisanTransData } = await supabase
+                .from('heritage_artisantranslation')
+                .select('*')
+                .eq('artisan_id', artisanData.artisan_id);
+
+              artisanTranslations = artisanTransData || [];
+            }
+          } catch (artisanTransErr) {
+            console.warn('Error fetching artisan translations:', artisanTransErr);
+          }
+
+          // Merge artisan + vendor translations into a single _translations array grouped by language_code
+          const translationsByLang: Record<string, any> = {};
+          const mergeRows = (rows: any[]) => {
+            rows.forEach((row) => {
+              if (!row) return;
+              const langCodeRaw = row.language_code || row.lang || row.lang_code;
+              if (!langCodeRaw) return;
+              const langCode = String(langCodeRaw).toLowerCase();
+              if (!translationsByLang[langCode]) {
+                translationsByLang[langCode] = { language_code: langCode };
+              }
+
+              Object.keys(row).forEach((key) => {
+                if (['language_code', 'lang', 'lang_code', 'artisan_id', 'business_id', 'id', 'created_at', 'updated_at'].includes(key)) {
+                  return;
+                }
+                if (row[key] !== null && row[key] !== undefined && row[key] !== '') {
+                  translationsByLang[langCode][key] = row[key];
+                }
+              });
+            });
+          };
+
+          mergeRows(vendorTranslations);
+          mergeRows(artisanTranslations);
+
+          if (Object.keys(translationsByLang).length > 0) {
+            combinedDetails._translations = Object.values(translationsByLang);
+          }
+
+          businessDetails = combinedDetails;
         }
       }
 
@@ -775,8 +991,72 @@ export class VerificationService {
         return { success: false, error: 'Unknown entity type' };
       }
 
-      // Remove fields that shouldn't be updated
-      const { id, user_id, created_at, updated_at, profile_id, artisan_id, ...updateData } = data;
+      // Artisan has vendor-style fields merged in memory; only persist actual artisan columns
+      if (entityType === 'Artisan') {
+        const {
+          id,
+          user_id,
+          created_at,
+          updated_at,
+          profile_id,
+          artisan_id,
+          _translations,
+          business_address,
+          city,
+          state,
+          pincode,
+          latitude,
+          longitude,
+          business_name,
+          business_email,
+          business_phone,
+          business_description,
+          license_number,
+          license_expiry,
+          website,
+          instagram_handle,
+          facebook_page,
+          twitter_handle,
+          linkedin_profile,
+          youtube_channel,
+          show_contact_info,
+          verification_date,
+          verification_notes,
+          ...rest
+        } = data;
+
+        // Whitelist known artisan columns to avoid referencing non-existent columns
+        const allowedFields = [
+          'artisan_name',
+          'short_bio',
+          'full_bio',
+          'craft_title',
+          'craft_specialty',
+          'experience_years',
+          'generation_number',
+          'verified_by',
+          'intro_video_url',
+          'is_active',
+        ];
+
+        const artisanUpdateData: Record<string, any> = {};
+        allowedFields.forEach((field) => {
+          if (rest[field] !== undefined) {
+            artisanUpdateData[field] = rest[field];
+          }
+        });
+
+        const { error } = await supabase
+          .from(table)
+          .update(artisanUpdateData)
+          .eq('user_id', userId);
+
+        if (error) throw error;
+        return { success: true };
+      }
+
+      // Other non-vendor entities: strip system/virtual fields like _translations
+      const { id, user_id, created_at, updated_at, profile_id, artisan_id, _translations, ...updateData } = data;
 
       const { error } = await supabase
         .from(table)
@@ -806,6 +1086,47 @@ export class VerificationService {
     } catch (error: any) {
       console.error('Error deleting document:', error);
       return { success: false, error: error.message || 'Failed to delete document' };
+    }
+  }
+
+  /**
+   * Get user device tokens for push notifications
+   * Fetches active FCM tokens from heritage_user_fcm_tokens table
+   */
+  static async getUserDeviceTokens(userId: number): Promise<string[]> {
+    try {
+      const deviceTokens: string[] = [];
+
+      // Fetch active FCM tokens from heritage_user_fcm_tokens table
+      const { data: fcmTokens, error: fcmTokensError } = await supabase
+        .from('heritage_user_fcm_tokens')
+        .select('fcm_token')
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (fcmTokensError) {
+        if (fcmTokensError.code === '42P01') {
+          // Table doesn't exist - return empty array
+          console.log(`ℹ️  heritage_user_fcm_tokens table does not exist. No push notifications will be sent.`);
+          return [];
+        }
+        console.warn('Warning fetching heritage_user_fcm_tokens:', fcmTokensError.message);
+        return [];
+      }
+
+      if (fcmTokens && fcmTokens.length > 0) {
+        fcmTokens.forEach((row: any) => {
+          const token = row?.fcm_token;
+          if (token && typeof token === 'string' && token.trim()) {
+            deviceTokens.push(token.trim());
+          }
+        });
+      }
+
+      return deviceTokens;
+    } catch (error) {
+      console.error('Error fetching device tokens:', error);
+      return [];
     }
   }
 
@@ -841,4 +1162,5 @@ export class VerificationService {
     }
   }
 }
+
 
