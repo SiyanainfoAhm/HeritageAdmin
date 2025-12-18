@@ -65,6 +65,7 @@ import { StorageService } from '@/services/storage.service';
 import { supabase } from '@/config/supabase';
 import { geocodeAddress } from '@/config/googleMaps';
 import HotelDetailsDialog from './components/HotelDetailsDialog';
+import FoodDetailsDialog from './components/FoodDetailsDialog';
 
 type LanguageCode = 'en' | 'hi' | 'gu' | 'ja' | 'es' | 'fr';
 
@@ -305,6 +306,8 @@ const Verification = () => {
   const [tourDetails, setTourDetails] = useState<any | null>(null); // For Tour details from RPC
   const [hotelDialogOpen, setHotelDialogOpen] = useState(false);
   const [selectedHotelId, setSelectedHotelId] = useState<number | null>(null);
+  const [foodDialogOpen, setFoodDialogOpen] = useState(false);
+  const [selectedFoodId, setSelectedFoodId] = useState<number | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editedUserInfo, setEditedUserInfo] = useState<{ full_name?: string; email?: string; phone?: string; user_type_id?: number } | null>(null);
   const [editedBusinessDetails, setEditedBusinessDetails] = useState<Record<string, any>>({});
@@ -1116,6 +1119,18 @@ const Verification = () => {
         setDetailOpen(false);
         setDetailLoading(false);
         return;
+      } else if (currentTab === 'food') {
+        const foodId = record.food_id || record.id;
+        if (!foodId) {
+          throw new Error('Food ID not found');
+        }
+
+        // Open food dialog
+        setSelectedFoodId(foodId);
+        setFoodDialogOpen(true);
+        setDetailOpen(false);
+        setDetailLoading(false);
+        return;
       } else if (currentTab === 'tour') {
         const tourId = record.tour_id || record.id;
         if (!tourId) {
@@ -1421,40 +1436,52 @@ const Verification = () => {
   };
 
   const handleFieldChange = (key: string, value: any) => {
-    setEditedBusinessDetails((prev) => ({ ...prev, [key]: value }));
-    
-    // Auto-translate if it's a translatable field and we're editing English
-    const translatableFieldsForEntity = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
-    if (translatableFieldsForEntity.includes(key) && 
-        currentLanguageTab === 'en' && 
-        typeof value === 'string') {
-      autoTranslateField(value, key);
+    if (currentLanguageTab === 'en') {
+      setEditedBusinessDetails((prev) => ({ ...prev, [key]: value }));
     }
     
-    // Update English translation when editing English tab
-    if (currentLanguageTab === 'en' && translatableFieldsForEntity.includes(key)) {
-      setTranslations(prev => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          en: value || '',
-        },
-      }));
+    // Update translation for current language if it's a translatable field
+    const translatableFieldsForEntity = getTranslatableFieldsForEntity(selectedRecord?.entityType || '');
+    if (translatableFieldsForEntity.includes(key)) {
+      if (currentLanguageTab === 'en') {
+        setTranslations(prev => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            en: value || '',
+          },
+        }));
+      } else {
+        setTranslations(prev => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            [currentLanguageTab]: value || '',
+          },
+        }));
+      }
+      
+      // Auto-translate from any language to all others
+      if (typeof value === 'string' && value && value.trim()) {
+        autoTranslateField(value, key);
+      }
     }
   };
 
-  // Auto-translate a field to all other languages
+  // Auto-translate a field to all other languages - works from any language
   const autoTranslateField = async (text: string, field: string) => {
     if (!text || !text.trim() || !field) return;
     
     try {
-      const timerKey = `translate_${field}`;
+      const sourceLanguage = currentLanguageTab;
+      const timerKey = `translate_${field}_${sourceLanguage}`;
       if (translationTimerRef.current[timerKey]) {
         clearTimeout(translationTimerRef.current[timerKey]);
       }
 
       translationTimerRef.current[timerKey] = setTimeout(async () => {
-        const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+        // Get all languages except the current one
+        const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
         if (targetLanguages.length === 0) return;
 
         setTranslatingFields(prev => new Set(prev).add(field));
@@ -1462,7 +1489,7 @@ const Verification = () => {
         try {
           for (const lang of targetLanguages) {
             try {
-              const result = await TranslationService.translate(text, lang.code, 'en');
+              const result = await TranslationService.translate(text, lang.code, sourceLanguage);
               if (result.success && result.translations && result.translations[lang.code]) {
                 // Extract the translated text from the result
                 const translatedText = Array.isArray(result.translations[lang.code]) 
@@ -1473,6 +1500,7 @@ const Verification = () => {
                   ...prev,
                   [field]: {
                     ...(prev[field] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' }),
+                    [sourceLanguage]: text, // Update source language with current text
                     [lang.code]: translatedText,
                   },
                 }));
@@ -1499,18 +1527,20 @@ const Verification = () => {
     }
   };
 
-  // Auto-translate itinerary day title
+  // Auto-translate itinerary day title - works from any language
   const autoTranslateItineraryDay = async (text: string, dayId: number) => {
     if (!text || !text.trim() || !dayId) return;
     
     try {
-      const timerKey = `translate_itinerary_day_${dayId}`;
+      const sourceLanguage = currentLanguageTab;
+      const timerKey = `translate_itinerary_day_${dayId}_${sourceLanguage}`;
       if (translationTimerRef.current[timerKey]) {
         clearTimeout(translationTimerRef.current[timerKey]);
       }
 
       translationTimerRef.current[timerKey] = setTimeout(async () => {
-        const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+        // Get all languages except the current one
+        const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
         if (targetLanguages.length === 0) return;
 
         setTranslatingFields(prev => new Set(prev).add(`itinerary_day_${dayId}`));
@@ -1518,7 +1548,7 @@ const Verification = () => {
         try {
           for (const lang of targetLanguages) {
             try {
-              const result = await TranslationService.translate(text, lang.code, 'en');
+              const result = await TranslationService.translate(text, lang.code, sourceLanguage);
               if (result.success && result.translations && result.translations[lang.code]) {
                 const translatedText = Array.isArray(result.translations[lang.code]) 
                   ? result.translations[lang.code][0] 
@@ -1528,6 +1558,7 @@ const Verification = () => {
                   ...prev,
                   [dayId]: {
                     ...(prev[dayId] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' }),
+                    [sourceLanguage]: text, // Update source language with current text
                     [lang.code]: translatedText,
                   },
                 }));
@@ -1553,18 +1584,20 @@ const Verification = () => {
     }
   };
 
-  // Auto-translate itinerary item title only
+  // Auto-translate itinerary item title only - works from any language
   const autoTranslateItineraryItemTitle = async (title: string, itemId: number) => {
     if (!itemId || !title || !title.trim()) return;
     
     try {
-      const timerKey = `translate_itinerary_item_title_${itemId}`;
+      const sourceLanguage = currentLanguageTab;
+      const timerKey = `translate_itinerary_item_title_${itemId}_${sourceLanguage}`;
       if (translationTimerRef.current[timerKey]) {
         clearTimeout(translationTimerRef.current[timerKey]);
       }
 
       translationTimerRef.current[timerKey] = setTimeout(async () => {
-        const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+        // Get all languages except the current one
+        const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
         if (targetLanguages.length === 0) return;
 
         setTranslatingFields(prev => new Set(prev).add(`itinerary_item_title_${itemId}`));
@@ -1572,7 +1605,7 @@ const Verification = () => {
         try {
           for (const lang of targetLanguages) {
             try {
-              const titleResult = await TranslationService.translate(title, lang.code, 'en');
+              const titleResult = await TranslationService.translate(title, lang.code, sourceLanguage);
               if (titleResult.success && titleResult.translations && titleResult.translations[lang.code]) {
                 const translatedTitle = Array.isArray(titleResult.translations[lang.code]) 
                   ? titleResult.translations[lang.code][0] 
@@ -1589,6 +1622,10 @@ const Verification = () => {
                       es: { title: '', description: '' },
                       fr: { title: '', description: '' },
                     }),
+                    [sourceLanguage]: {
+                      ...(prev[itemId]?.[sourceLanguage] || { title: '', description: '' }),
+                      title: title, // Update source language with current text
+                    },
                     [lang.code]: {
                       ...(prev[itemId]?.[lang.code] || { title: '', description: '' }),
                       title: translatedTitle,
@@ -1615,18 +1652,20 @@ const Verification = () => {
     }
   };
 
-  // Auto-translate itinerary item description only
+  // Auto-translate itinerary item description only - works from any language
   const autoTranslateItineraryItemDescription = async (description: string, itemId: number) => {
     if (!itemId || !description || !description.trim()) return;
     
     try {
-      const timerKey = `translate_itinerary_item_description_${itemId}`;
+      const sourceLanguage = currentLanguageTab;
+      const timerKey = `translate_itinerary_item_description_${itemId}_${sourceLanguage}`;
       if (translationTimerRef.current[timerKey]) {
         clearTimeout(translationTimerRef.current[timerKey]);
       }
 
       translationTimerRef.current[timerKey] = setTimeout(async () => {
-        const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+        // Get all languages except the current one
+        const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
         if (targetLanguages.length === 0) return;
 
         setTranslatingFields(prev => new Set(prev).add(`itinerary_item_description_${itemId}`));
@@ -1634,7 +1673,7 @@ const Verification = () => {
         try {
           for (const lang of targetLanguages) {
             try {
-              const descResult = await TranslationService.translate(description, lang.code, 'en');
+              const descResult = await TranslationService.translate(description, lang.code, sourceLanguage);
               if (descResult.success && descResult.translations && descResult.translations[lang.code]) {
                 const translatedDesc = Array.isArray(descResult.translations[lang.code]) 
                   ? descResult.translations[lang.code][0] 
@@ -1651,6 +1690,10 @@ const Verification = () => {
                       es: { title: '', description: '' },
                       fr: { title: '', description: '' },
                     }),
+                    [sourceLanguage]: {
+                      ...(prev[itemId]?.[sourceLanguage] || { title: '', description: '' }),
+                      description: description, // Update source language with current text
+                    },
                     [lang.code]: {
                       ...(prev[itemId]?.[lang.code] || { title: '', description: '' }),
                       description: translatedDesc,
@@ -1677,18 +1720,20 @@ const Verification = () => {
     }
   };
 
-  // Auto-translate a tag name to all other languages
+  // Auto-translate a tag name to all other languages - works from any language
   const autoTranslateTagName = async (text: string, tagId: number) => {
     if (!text || !text.trim() || !tagId) return;
     
     try {
-      const timerKey = `translate_tag_${tagId}`;
+      const sourceLanguage = currentLanguageTab;
+      const timerKey = `translate_tag_${tagId}_${sourceLanguage}`;
       if (translationTimerRef.current[timerKey]) {
         clearTimeout(translationTimerRef.current[timerKey]);
       }
 
       translationTimerRef.current[timerKey] = setTimeout(async () => {
-        const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+        // Get all languages except the current one
+        const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
         if (targetLanguages.length === 0) return;
 
         setTranslatingFields(prev => new Set(prev).add(`tag_${tagId}`));
@@ -1696,7 +1741,7 @@ const Verification = () => {
         try {
           for (const lang of targetLanguages) {
             try {
-              const result = await TranslationService.translate(text, lang.code, 'en');
+              const result = await TranslationService.translate(text, lang.code, sourceLanguage);
               if (result.success && result.translations && result.translations[lang.code]) {
                 // Extract the translated text from the result
                 const translatedText = Array.isArray(result.translations[lang.code]) 
@@ -1707,6 +1752,7 @@ const Verification = () => {
                   ...prev,
                   [tagId]: {
                     ...(prev[tagId] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' }),
+                    [sourceLanguage]: text, // Update source language with current text
                     [lang.code]: translatedText,
                   },
                 }));
@@ -3392,10 +3438,12 @@ const Verification = () => {
   };
 
   // Helper function to add items to event array fields (highlights, what_to_bring, prohibited_items)
+  // Works from any language - translates to all other languages
   const handleAddArrayItem = async (field: string, currentArr: string[], newItem: string) => {
     if (!newItem.trim()) return;
     
     const newArr = [...currentArr, newItem.trim()];
+    const sourceLanguage = currentLanguageTab;
     
     if (currentLanguageTab === 'en') {
       setEditedEventDetails(prev => ({ ...prev, [field]: newArr }));
@@ -3403,47 +3451,48 @@ const Verification = () => {
         ...prev,
         [field]: { ...prev[field], en: newArr.join(', ') }
       }));
-      // Auto-translate the new item to all other languages
-      setTranslatingFields(prev => new Set(prev).add(field));
-      try {
-        const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
-        for (const lang of targetLanguages) {
-          try {
-            const result = await TranslationService.translate(newItem.trim(), lang.code, 'en');
-            if (result.success && result.translations && result.translations[lang.code]) {
-              const translatedText = Array.isArray(result.translations[lang.code]) 
-                ? result.translations[lang.code][0] 
-                : String(result.translations[lang.code] || '');
-              
-              const existingLangArr = (translations[field]?.[lang.code] || '').split(',').map(s => s.trim()).filter(Boolean);
-              const updatedLangArr = [...existingLangArr, translatedText];
-              
-              setTranslations(prev => ({
-                ...prev,
-                [field]: {
-                  ...(prev[field] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' }),
-                  [lang.code]: updatedLangArr.join(', '),
-                },
-              }));
-            }
-          } catch (langError) {
-            console.error(`Translation error for ${lang.code}:`, langError);
-          }
-        }
-      } catch (error) {
-        console.error('Translation error:', error);
-      } finally {
-        setTranslatingFields(prev => {
-          const next = new Set(prev);
-          next.delete(field);
-          return next;
-        });
-      }
     } else {
       setTranslations(prev => ({
         ...prev,
         [field]: { ...prev[field], [currentLanguageTab]: newArr.join(', ') }
       }));
+    }
+    
+    // Auto-translate the new item to all other languages from any source language
+    setTranslatingFields(prev => new Set(prev).add(field));
+    try {
+      const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
+      for (const lang of targetLanguages) {
+        try {
+          const result = await TranslationService.translate(newItem.trim(), lang.code, sourceLanguage);
+          if (result.success && result.translations && result.translations[lang.code]) {
+            const translatedText = Array.isArray(result.translations[lang.code]) 
+              ? result.translations[lang.code][0] 
+              : String(result.translations[lang.code] || '');
+            
+            const existingLangArr = (translations[field]?.[lang.code] || '').split(',').map(s => s.trim()).filter(Boolean);
+            const updatedLangArr = [...existingLangArr, translatedText];
+            
+            setTranslations(prev => ({
+              ...prev,
+              [field]: {
+                ...(prev[field] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' }),
+                [lang.code]: updatedLangArr.join(', '),
+              },
+            }));
+          }
+        } catch (langError) {
+          console.error(`Translation error for ${lang.code}:`, langError);
+        }
+      }
+    } catch (error) {
+      console.error('Translation error:', error);
+    } finally {
+      setTranslatingFields(prev => {
+        const next = new Set(prev);
+        next.delete(field);
+        return next;
+      });
     }
   };
 
@@ -3821,7 +3870,7 @@ const Verification = () => {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={1} justifyContent="flex-end">
-                          {(currentTab === 'event' || currentTab === 'tour' || currentTab === 'hotel') && (
+                          {(currentTab === 'event' || currentTab === 'tour' || currentTab === 'hotel' || currentTab === 'food') && (
                             <Tooltip title="View details">
                               <IconButton size="small" onClick={() => handleViewTableDetails(record)}>
                                 <VisibilityOutlinedIcon fontSize="small" />
@@ -4189,7 +4238,7 @@ const Verification = () => {
                                     }
                                   }}
                                   InputProps={{
-                                    endAdornment: currentLanguageTab === 'en' && translatingFields.has(field) ? (
+                                    endAdornment: translatingFields.has(field) ? (
                                       <InputAdornment position="end">
                                         <CircularProgress size={16} />
                                       </InputAdornment>
@@ -4260,22 +4309,22 @@ const Verification = () => {
                                   ...prev,
                                   [field]: { ...prev[field], en: newVal }
                                 }));
-                                // Auto-translate
-                                if (newVal && newVal.trim()) {
-                                  autoTranslateField(newVal, field);
-                                }
                               } else {
                                 setTranslations(prev => ({
                                   ...prev,
                                   [field]: { ...prev[field], [currentLanguageTab]: newVal }
                                 }));
                               }
+                              // Auto-translate from any language to all others
+                              if (newVal && newVal.trim()) {
+                                autoTranslateField(newVal, field);
+                              }
                             }}
                             multiline={isMultiline}
                             minRows={isMultiline ? 3 : undefined}
                             maxRows={isMultiline ? 6 : undefined}
                             InputProps={{
-                              endAdornment: currentLanguageTab === 'en' && translatingFields.has(field) ? (
+                              endAdornment: translatingFields.has(field) ? (
                                 <InputAdornment position="end">
                                   <CircularProgress size={16} />
                                 </InputAdornment>
@@ -4528,22 +4577,22 @@ const Verification = () => {
                                   ...prev,
                                   [field]: { ...prev[field], en: newVal }
                                 }));
-                                // Auto-translate
-                                if (newVal && newVal.trim()) {
-                                  autoTranslateField(newVal, field);
-                                }
                               } else {
                                 setTranslations(prev => ({
                                   ...prev,
                                   [field]: { ...prev[field], [currentLanguageTab]: newVal }
                                 }));
                               }
+                              // Auto-translate from any language to all others
+                              if (newVal && newVal.trim()) {
+                                autoTranslateField(newVal, field);
+                              }
                             }}
                             multiline={isMultiline}
                             minRows={isMultiline ? 3 : undefined}
                             maxRows={isMultiline ? 6 : undefined}
                             InputProps={{
-                              endAdornment: currentLanguageTab === 'en' && translatingFields.has(field) ? (
+                              endAdornment: translatingFields.has(field) ? (
                                 <InputAdornment position="end">
                                   <CircularProgress size={16} />
                                 </InputAdornment>
@@ -4894,18 +4943,20 @@ const Verification = () => {
                                           value={day.day_title || ''}
                                           onChange={(e) => {
                                             const newVal = e.target.value;
-                                            const newDays = [...tourItineraryDays];
-                                            newDays[index] = { ...newDays[index], day_title: newVal };
-                                            setTourItineraryDays(newDays);
-                                            // Update English translation
+                                            if (currentLanguageTab === 'en') {
+                                              const newDays = [...tourItineraryDays];
+                                              newDays[index] = { ...newDays[index], day_title: newVal };
+                                              setTourItineraryDays(newDays);
+                                            }
+                                            // Update translation for current language
                                             setTourItineraryTranslations(prev => ({
                                               ...prev,
                                               [day.day_id]: {
                                                 ...(prev[day.day_id] || { en: '', hi: '', gu: '', ja: '', es: '', fr: '' }),
-                                                en: newVal,
+                                                [currentLanguageTab]: newVal,
                                               },
                                             }));
-                                            // Auto-translate to other languages
+                                            // Auto-translate from any language to all others
                                             if (newVal && newVal.trim()) {
                                               autoTranslateItineraryDay(newVal, day.day_id);
                                             }
@@ -4926,13 +4977,25 @@ const Verification = () => {
                                           label={`Day Title (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
                                           value={dayTitle}
                                           onChange={(e) => {
+                                            const newVal = e.target.value;
                                             setTourItineraryTranslations(prev => ({
                                               ...prev,
                                               [day.day_id]: {
                                                 ...(prev[day.day_id] || { en: day.day_title || '', hi: '', gu: '', ja: '', es: '', fr: '' }),
-                                                [currentLanguageTab]: e.target.value,
+                                                [currentLanguageTab]: newVal,
                                               },
                                             }));
+                                            // Auto-translate from any language to all others
+                                            if (newVal && newVal.trim()) {
+                                              autoTranslateItineraryDay(newVal, day.day_id);
+                                            }
+                                          }}
+                                          InputProps={{
+                                            endAdornment: translatingFields.has(`itinerary_day_${day.day_id}`) ? (
+                                              <InputAdornment position="end">
+                                                <CircularProgress size={16} />
+                                              </InputAdornment>
+                                            ) : undefined,
                                           }}
                                           sx={{ mb: 1 }}
                                         />
@@ -5107,41 +5170,38 @@ const Verification = () => {
                                                       value={item.title || ''}
                                                       onChange={(e) => {
                                                         const newVal = e.target.value;
-                                                        const newItems = [...tourItineraryItems];
-                                                        const idx = newItems.findIndex(i => i.item_id === item.item_id);
-                                                        if (idx >= 0) {
-                                                          newItems[idx] = { ...newItems[idx], title: newVal };
-                                                          setTourItineraryItems(newItems);
-                                                          // Update English translation
-                                                          setTourItineraryItemTranslations(prev => {
-                                                            const updatedTranslations = {
-                                                              ...prev,
-                                                              [item.item_id]: {
-                                                                ...(prev[item.item_id] || {
-                                                                  en: { title: '', description: '' },
-                                                                  hi: { title: '', description: '' },
-                                                                  gu: { title: '', description: '' },
-                                                                  ja: { title: '', description: '' },
-                                                                  es: { title: '', description: '' },
-                                                                  fr: { title: '', description: '' },
-                                                                }),
-                                                                en: {
-                                                                  title: newVal,
-                                                                  description: prev[item.item_id]?.en?.description || item.description || '',
-                                                                },
+                                                        if (currentLanguageTab === 'en') {
+                                                          const newItems = [...tourItineraryItems];
+                                                          const idx = newItems.findIndex(i => i.item_id === item.item_id);
+                                                          if (idx >= 0) {
+                                                            newItems[idx] = { ...newItems[idx], title: newVal };
+                                                            setTourItineraryItems(newItems);
+                                                          }
+                                                        }
+                                                        // Update translation for current language
+                                                        setTourItineraryItemTranslations(prev => {
+                                                          const updatedTranslations = {
+                                                            ...prev,
+                                                            [item.item_id]: {
+                                                              ...(prev[item.item_id] || {
+                                                                en: { title: '', description: '' },
+                                                                hi: { title: '', description: '' },
+                                                                gu: { title: '', description: '' },
+                                                                ja: { title: '', description: '' },
+                                                                es: { title: '', description: '' },
+                                                                fr: { title: '', description: '' },
+                                                              }),
+                                                              [currentLanguageTab]: {
+                                                                title: newVal,
+                                                                description: prev[item.item_id]?.[currentLanguageTab]?.description || (currentLanguageTab === 'en' ? item.description || '' : ''),
                                                               },
-                                                            };
-                                                            
-                                                            // Auto-translate to other languages (title only)
-                                                            if (newVal && newVal.trim()) {
-                                                              autoTranslateItineraryItemTitle(
-                                                                newVal,
-                                                                item.item_id
-                                                              );
-                                                            }
-                                                            
-                                                            return updatedTranslations;
-                                                          });
+                                                            },
+                                                          };
+                                                          return updatedTranslations;
+                                                        });
+                                                        // Auto-translate from any language to all others
+                                                        if (newVal && newVal.trim()) {
+                                                          autoTranslateItineraryItemTitle(newVal, item.item_id);
                                                         }
                                                       }}
                                                       InputProps={{
@@ -5159,41 +5219,38 @@ const Verification = () => {
                                                       value={item.description || ''}
                                                       onChange={(e) => {
                                                         const newVal = e.target.value;
-                                                        const newItems = [...tourItineraryItems];
-                                                        const idx = newItems.findIndex(i => i.item_id === item.item_id);
-                                                        if (idx >= 0) {
-                                                          newItems[idx] = { ...newItems[idx], description: newVal || null };
-                                                          setTourItineraryItems(newItems);
-                                                          // Update English translation
-                                                          setTourItineraryItemTranslations(prev => {
-                                                            const updatedTranslations = {
-                                                              ...prev,
-                                                              [item.item_id]: {
-                                                                ...(prev[item.item_id] || {
-                                                                  en: { title: '', description: '' },
-                                                                  hi: { title: '', description: '' },
-                                                                  gu: { title: '', description: '' },
-                                                                  ja: { title: '', description: '' },
-                                                                  es: { title: '', description: '' },
-                                                                  fr: { title: '', description: '' },
-                                                                }),
-                                                                en: {
-                                                                  title: prev[item.item_id]?.en?.title || item.title || '',
-                                                                  description: newVal || '',
-                                                                },
+                                                        if (currentLanguageTab === 'en') {
+                                                          const newItems = [...tourItineraryItems];
+                                                          const idx = newItems.findIndex(i => i.item_id === item.item_id);
+                                                          if (idx >= 0) {
+                                                            newItems[idx] = { ...newItems[idx], description: newVal || null };
+                                                            setTourItineraryItems(newItems);
+                                                          }
+                                                        }
+                                                        // Update translation for current language
+                                                        setTourItineraryItemTranslations(prev => {
+                                                          const updatedTranslations = {
+                                                            ...prev,
+                                                            [item.item_id]: {
+                                                              ...(prev[item.item_id] || {
+                                                                en: { title: '', description: '' },
+                                                                hi: { title: '', description: '' },
+                                                                gu: { title: '', description: '' },
+                                                                ja: { title: '', description: '' },
+                                                                es: { title: '', description: '' },
+                                                                fr: { title: '', description: '' },
+                                                              }),
+                                                              [currentLanguageTab]: {
+                                                                title: prev[item.item_id]?.[currentLanguageTab]?.title || (currentLanguageTab === 'en' ? item.title || '' : ''),
+                                                                description: newVal || '',
                                                               },
-                                                            };
-                                                            
-                                                            // Auto-translate to other languages (description only)
-                                                            if (newVal && newVal.trim()) {
-                                                              autoTranslateItineraryItemDescription(
-                                                                newVal,
-                                                                item.item_id
-                                                              );
-                                                            }
-                                                            
-                                                            return updatedTranslations;
-                                                          });
+                                                            },
+                                                          };
+                                                          return updatedTranslations;
+                                                        });
+                                                        // Auto-translate from any language to all others
+                                                        if (newVal && newVal.trim()) {
+                                                          autoTranslateItineraryItemDescription(newVal, item.item_id);
                                                         }
                                                       }}
                                                       InputProps={{
@@ -5216,6 +5273,7 @@ const Verification = () => {
                                                       label={`Item Title (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
                                                       value={itemTitle}
                                                       onChange={(e) => {
+                                                        const newVal = e.target.value;
                                                         setTourItineraryItemTranslations(prev => ({
                                                           ...prev,
                                                           [item.item_id]: {
@@ -5228,11 +5286,22 @@ const Verification = () => {
                                                               fr: { title: '', description: '' },
                                                             }),
                                                             [currentLanguageTab]: {
-                                                              title: e.target.value,
+                                                              title: newVal,
                                                               description: prev[item.item_id]?.[currentLanguageTab]?.description || '',
                                                             },
                                                           },
                                                         }));
+                                                        // Auto-translate from any language to all others
+                                                        if (newVal && newVal.trim()) {
+                                                          autoTranslateItineraryItemTitle(newVal, item.item_id);
+                                                        }
+                                                      }}
+                                                      InputProps={{
+                                                        endAdornment: translatingFields.has(`itinerary_item_title_${item.item_id}`) ? (
+                                                          <InputAdornment position="end">
+                                                            <CircularProgress size={16} />
+                                                          </InputAdornment>
+                                                        ) : undefined,
                                                       }}
                                                     />
                                                     <TextField
@@ -5241,6 +5310,7 @@ const Verification = () => {
                                                       label={`Item Description (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
                                                       value={itemDescription}
                                                       onChange={(e) => {
+                                                        const newVal = e.target.value;
                                                         setTourItineraryItemTranslations(prev => ({
                                                           ...prev,
                                                           [item.item_id]: {
@@ -5254,10 +5324,21 @@ const Verification = () => {
                                                             }),
                                                             [currentLanguageTab]: {
                                                               title: prev[item.item_id]?.[currentLanguageTab]?.title || '',
-                                                              description: e.target.value,
+                                                              description: newVal,
                                                             },
                                                           },
                                                         }));
+                                                        // Auto-translate from any language to all others
+                                                        if (newVal && newVal.trim()) {
+                                                          autoTranslateItineraryItemDescription(newVal, item.item_id);
+                                                        }
+                                                      }}
+                                                      InputProps={{
+                                                        endAdornment: translatingFields.has(`itinerary_item_description_${item.item_id}`) ? (
+                                                          <InputAdornment position="end">
+                                                            <CircularProgress size={16} />
+                                                          </InputAdornment>
+                                                        ) : undefined,
                                                       }}
                                                       multiline
                                                       minRows={2}
@@ -5396,6 +5477,17 @@ const Verification = () => {
                                       [currentLanguageTab]: newVal,
                                     },
                                   }));
+                                  // Auto-translate from any language to all others
+                                  if (newVal && newVal.trim()) {
+                                    autoTranslateTagName(newVal, tag.tag_id);
+                                  }
+                                }}
+                                InputProps={{
+                                  endAdornment: translatingFields.has(`tag_${tag.tag_id}`) ? (
+                                    <InputAdornment position="end">
+                                      <CircularProgress size={16} />
+                                    </InputAdornment>
+                                  ) : undefined,
                                 }}
                                 sx={{ mt: 1 }}
                               />
@@ -5653,7 +5745,6 @@ const Verification = () => {
                               }}
                               InputProps={{
                                 endAdornment:
-                                  currentLanguageTab === 'en' &&
                                   translatingFields.has('business_address') ? (
                                     <InputAdornment position="end">
                                       <CircularProgress size={16} />
@@ -5746,7 +5837,7 @@ const Verification = () => {
                               }}
                               InputProps={{
                                 endAdornment:
-                                  currentLanguageTab === 'en' && translatingFields.has('city') ? (
+                                  translatingFields.has('city') ? (
                                     <InputAdornment position="end">
                                       <CircularProgress size={16} />
                                     </InputAdornment>
@@ -5811,7 +5902,7 @@ const Verification = () => {
                               }}
                               InputProps={{
                                 endAdornment:
-                                  currentLanguageTab === 'en' && translatingFields.has('state') ? (
+                                  translatingFields.has('state') ? (
                                     <InputAdornment position="end">
                                       <CircularProgress size={16} />
                                     </InputAdornment>
@@ -6506,7 +6597,7 @@ const Verification = () => {
                                   }
                                 }}
                                 InputProps={{
-                                  endAdornment: isTranslatableField && currentLanguageTab === 'en' && translatingFields.has(key) ? (
+                                  endAdornment: isTranslatableField && translatingFields.has(key) ? (
                                     <InputAdornment position="end">
                                       <CircularProgress size={16} />
                                     </InputAdornment>
@@ -6549,7 +6640,7 @@ const Verification = () => {
                                 }
                               }}
                               InputProps={{
-                                endAdornment: isTranslatableField && currentLanguageTab === 'en' && translatingFields.has(key) ? (
+                                endAdornment: isTranslatableField && translatingFields.has(key) ? (
                                   <InputAdornment position="end">
                                     <CircularProgress size={16} />
                                   </InputAdornment>
@@ -7425,6 +7516,16 @@ const Verification = () => {
         onClose={() => {
           setHotelDialogOpen(false);
           setSelectedHotelId(null);
+        }}
+      />
+
+      {/* Food Details Dialog */}
+      <FoodDetailsDialog
+        open={foodDialogOpen}
+        foodId={selectedFoodId}
+        onClose={() => {
+          setFoodDialogOpen(false);
+          setSelectedFoodId(null);
         }}
       />
     </Box>
