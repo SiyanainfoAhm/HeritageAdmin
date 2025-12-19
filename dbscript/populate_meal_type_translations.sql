@@ -150,7 +150,3 @@ FROM heritage_meal_typetranslation
 GROUP BY language_code
 ORDER BY language_code;
 */
-
-
-
-

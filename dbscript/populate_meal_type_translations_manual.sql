@@ -138,7 +138,3 @@ LEFT JOIN heritage_meal_typetranslation t ON mt.meal_type_id = t.meal_type_id
 GROUP BY mt.meal_type_id, mt.meal_type_name, mt.meal_type_key
 ORDER BY mt.meal_type_id;
 */
-
-
-
-

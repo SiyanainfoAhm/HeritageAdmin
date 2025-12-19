@@ -206,7 +206,3 @@ DROP TABLE IF EXISTS heritage_meal_typetranslation CASCADE;
 -- Drop trigger function
 DROP FUNCTION IF EXISTS update_meal_type_translation_updated_at() CASCADE;
 ```
-
-
-
-
