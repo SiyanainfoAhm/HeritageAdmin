@@ -4,7 +4,7 @@
 // Make sure to enable the Geocoding API for this key
 
 // TODO: Replace with your actual Google Maps API key
-export const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string;;
+export const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string;
 
 export const geocodeAddress = async (address: string): Promise<{
   lat: number;
