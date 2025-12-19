@@ -2124,3 +2124,6 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
 
 export default FoodDetailsDialog;
 
+
+
+
