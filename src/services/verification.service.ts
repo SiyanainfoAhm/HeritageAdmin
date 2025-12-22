@@ -296,6 +296,10 @@ export class VerificationService {
         day: 'numeric',
       });
 
+      // Get template key based on entity type
+      const entityTypeKey = entityType.toLowerCase().replace(/\s+/g, '_');
+      const templateKey = `${entityTypeKey}_verification_approved`;
+
       const notificationVariables = {
         userName: userData?.full_name || 'User',
         entityType: entityType,
@@ -306,25 +310,33 @@ export class VerificationService {
       if (userData?.email) {
         try {
           console.log(`📧 Attempting to send approval email to: ${userData.email}`);
+          
+          // Try entity-specific template first, fallback to generic
+          let finalTemplateKey = templateKey;
+          const templateExists = await this.checkTemplateExists(templateKey);
+          if (!templateExists) {
+            console.log(`⚠️  Template ${templateKey} not found, using generic verification_approved`);
+            finalTemplateKey = 'verification_approved';
+          }
+          
           const emailResult = await NotificationTemplateService.sendEmailNotification(
             id,
-            'verification_approved',
+            finalTemplateKey,
             userData.email,
             notificationVariables
           );
 
           if (emailResult.success) {
-            console.log(`✅ Email notification logged successfully for: ${userData.email}`);
+            console.log(`✅ Approval email sent successfully to: ${userData.email}`);
           } else {
-            console.error(`❌ Email notification failed: ${emailResult.error}`);
+            console.error(`❌ Approval email failed: ${emailResult.error}`);
           }
         } catch (emailError: any) {
-          console.error('❌ Error sending approval email notification:', emailError);
-          console.error('Error details:', emailError.message || emailError);
+          console.error('❌ Error sending approval email:', emailError);
           // Don't fail the approval if email fails, but log it
         }
       } else {
-        console.warn(`⚠️  No email found for user ID ${id}. Email notification skipped.`);
+        console.log(`ℹ️  No email found for user ID ${id}. Email notification skipped.`);
       }
 
       // Send push notification for approval
@@ -333,12 +345,20 @@ export class VerificationService {
         if (deviceTokens && deviceTokens.length > 0) {
           console.log(`📱 Attempting to send approval push notification to ${deviceTokens.length} device(s) for user ID: ${id}`);
           
+          // Try entity-specific template first, fallback to generic
+          let finalTemplateKey = templateKey;
+          const templateExists = await this.checkTemplateExists(templateKey);
+          if (!templateExists) {
+            console.log(`⚠️  Template ${templateKey} not found, using generic verification_approved`);
+            finalTemplateKey = 'verification_approved';
+          }
+          
           // Send push notification to all device tokens
           const pushPromises = deviceTokens.map(async (deviceToken) => {
             try {
               const pushResult = await NotificationTemplateService.sendPushNotification(
                 id,
-                'verification_approved',
+                finalTemplateKey,
                 deviceToken,
                 notificationVariables
               );
@@ -371,7 +391,7 @@ export class VerificationService {
   /**
    * Reject an entity
    */
-  static async rejectEntity(entityType: string, id: number): Promise<{ success: boolean; error?: string }> {
+  static async rejectEntity(entityType: string, id: number, rejectionReason?: string): Promise<{ success: boolean; error?: string }> {
     try {
       // Get user details before updating (for email notification)
       const { data: userData } = await supabase
@@ -401,6 +421,19 @@ export class VerificationService {
 
       if (error) throw error;
 
+      // Store rejection reason in verification_notes for vendor business types
+      const vendorEntityTypes = ['Hotel', 'Event Operator', 'Tour Operator', 'Food Vendor'];
+      if (vendorEntityTypes.includes(entityType) && rejectionReason) {
+        const { error: notesError } = await supabase
+          .from('heritage_vendorbusinessdetails')
+          .update({ verification_notes: rejectionReason })
+          .eq('user_id', id);
+        
+        if (notesError) {
+          console.error('Error storing rejection reason:', notesError);
+        }
+      }
+
       // For Artisan, also update is_verified in heritage_artisan table
       if (entityType === 'Artisan') {
         await supabase
@@ -424,26 +457,48 @@ export class VerificationService {
         day: 'numeric',
       });
 
+      // Get template key based on entity type
+      const entityTypeKey = entityType.toLowerCase().replace(/\s+/g, '_');
+      const templateKey = `${entityTypeKey}_verification_rejected`;
+
       const notificationVariables = {
         userName: userData?.full_name || 'User',
         entityType: entityType,
         rejectionDate: rejectionDate,
+        rejectionReason: rejectionReason || 'No reason provided',
       };
 
       // Send email notification for rejection
       if (userData?.email) {
         try {
           console.log(`📧 Attempting to send rejection email to: ${userData.email}`);
-          await NotificationTemplateService.sendEmailNotification(
+          
+          // Try entity-specific template first, fallback to generic
+          let finalTemplateKey = templateKey;
+          const templateExists = await this.checkTemplateExists(templateKey);
+          if (!templateExists) {
+            console.log(`⚠️  Template ${templateKey} not found, using generic verification_rejected`);
+            finalTemplateKey = 'verification_rejected';
+          }
+          
+          const emailResult = await NotificationTemplateService.sendEmailNotification(
             id,
-            'verification_rejected',
+            finalTemplateKey,
             userData.email,
             notificationVariables
           );
-        } catch (emailError) {
-          console.error('Error sending rejection email notification:', emailError);
+
+          if (emailResult.success) {
+            console.log(`✅ Rejection email sent successfully to: ${userData.email}`);
+          } else {
+            console.error(`❌ Rejection email failed: ${emailResult.error}`);
+          }
+        } catch (emailError: any) {
+          console.error('❌ Error sending rejection email:', emailError);
           // Don't fail the rejection if email fails, but log it
         }
+      } else {
+        console.log(`ℹ️  No email found for user ID ${id}. Email notification skipped.`);
       }
 
       // Send push notification for rejection
@@ -452,12 +507,20 @@ export class VerificationService {
         if (deviceTokens && deviceTokens.length > 0) {
           console.log(`📱 Attempting to send rejection push notification to ${deviceTokens.length} device(s) for user ID: ${id}`);
           
+          // Try entity-specific template first, fallback to generic
+          let finalTemplateKey = templateKey;
+          const templateExists = await this.checkTemplateExists(templateKey);
+          if (!templateExists) {
+            console.log(`⚠️  Template ${templateKey} not found, using generic verification_rejected`);
+            finalTemplateKey = 'verification_rejected';
+          }
+          
           // Send push notification to all device tokens
           const pushPromises = deviceTokens.map(async (deviceToken) => {
             try {
               const pushResult = await NotificationTemplateService.sendPushNotification(
                 id,
-                'verification_rejected',
+                finalTemplateKey,
                 deviceToken,
                 notificationVariables
               );
@@ -484,6 +547,418 @@ export class VerificationService {
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to reject entity' };
+    }
+  }
+
+  /**
+   * Approve a table entity (event, tour, hotel, food, artwork)
+   */
+  static async approveTableEntity(
+    entityTab: 'event' | 'tour' | 'hotel' | 'food' | 'product',
+    entityId: number
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const tableMap: Record<string, { table: string; idField: string; nameField: string }> = {
+        event: { table: 'heritage_event', idField: 'event_id', nameField: 'event_name' },
+        tour: { table: 'heritage_tour', idField: 'tour_id', nameField: 'tour_name' },
+        hotel: { table: 'heritage_hotel', idField: 'hotel_id', nameField: 'hotel_name' },
+        food: { table: 'heritage_food', idField: 'food_id', nameField: 'food_name' },
+        product: { table: 'heritage_artwork', idField: 'artwork_id', nameField: 'artwork_name' },
+      };
+
+      const config = tableMap[entityTab];
+      if (!config) {
+        return { success: false, error: `Unknown entity tab: ${entityTab}` };
+      }
+
+      // Get entity details
+      const { data: entityData } = await supabase
+        .from(config.table)
+        .select(`${config.idField}, ${config.nameField}, artisan_id`)
+        .eq(config.idField, entityId)
+        .single();
+
+      if (!entityData) {
+        return { success: false, error: 'Entity not found' };
+      }
+
+      // Get user ID for sending notifications
+      // For artwork, get user_id from artisan_id
+      let userId: number | null = null;
+      if (entityTab === 'product' && entityData.artisan_id) {
+        const { data: artisanData } = await supabase
+          .from('heritage_artisan')
+          .select('user_id')
+          .eq('artisan_id', entityData.artisan_id)
+          .single();
+        userId = artisanData?.user_id || null;
+      } else {
+        // For other entities (event, tour, hotel, food), try to get user_id from the entity table
+        // If not available, try to get from related organizer/operator tables
+        const { data: entityWithUser } = await supabase
+          .from(config.table)
+          .select('user_id, organizer_id, operator_id')
+          .eq(config.idField, entityId)
+          .single();
+        
+        userId = entityWithUser?.user_id || entityWithUser?.organizer_id || entityWithUser?.operator_id || null;
+        
+        // If still no user_id, try to get from event_organizer_id or similar fields
+        if (!userId && entityTab === 'event') {
+          const { data: eventData } = await supabase
+            .from('heritage_event')
+            .select('event_organizer_id')
+            .eq('event_id', entityId)
+            .single();
+          // event_organizer_id might be a user_id or might need another lookup
+          userId = eventData?.event_organizer_id || null;
+        }
+      }
+
+      // Prepare notification variables
+      const verificationDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      const entityTypeName = entityTab === 'product' ? 'Artwork' : entityTab.charAt(0).toUpperCase() + entityTab.slice(1);
+      const entityTypeKey = entityTab === 'product' ? 'artwork' : entityTab;
+      const templateKey = `${entityTypeKey}_verification_approved`;
+
+      const notificationVariables = {
+        entityName: entityData[config.nameField] || 'Record',
+        entityType: entityTypeName,
+        verificationDate: verificationDate,
+        entityId: entityId.toString(),
+      };
+
+      // Get user email for sending notifications
+      let userEmail: string | null = null;
+      if (userId) {
+        try {
+          const { data: userData } = await supabase
+            .from('heritage_user')
+            .select('email')
+            .eq('user_id', userId)
+            .single();
+          userEmail = userData?.email || null;
+        } catch (emailFetchError) {
+          console.error('Error fetching user email:', emailFetchError);
+        }
+      }
+
+      // Send email notification if user_id and email are available
+      if (userId && userEmail) {
+        try {
+          console.log(`📧 Attempting to send approval email to: ${userEmail}`);
+          
+          // Try entity-specific template first, fallback to generic
+          let finalTemplateKey = templateKey;
+          const templateExists = await this.checkTemplateExists(templateKey);
+          if (!templateExists) {
+            console.log(`⚠️  Template ${templateKey} not found, using generic verification_approved`);
+            finalTemplateKey = 'verification_approved';
+          }
+          
+          const emailResult = await NotificationTemplateService.sendEmailNotification(
+            userId,
+            finalTemplateKey,
+            userEmail,
+            notificationVariables
+          );
+
+          if (emailResult.success) {
+            console.log(`✅ Approval email sent successfully to: ${userEmail}`);
+          } else {
+            console.error(`❌ Approval email failed: ${emailResult.error}`);
+          }
+        } catch (emailError: any) {
+          console.error('❌ Error sending approval email:', emailError);
+          // Don't fail the approval if email fails, but log it
+        }
+      } else {
+        console.log(`ℹ️  No user ID or email found for ${entityTypeName} ID ${entityId}. Email notification skipped.`);
+      }
+
+      // Send push notification if user_id is available
+      if (userId) {
+        try {
+          const deviceTokens = await this.getUserDeviceTokens(userId);
+          if (deviceTokens && deviceTokens.length > 0) {
+            console.log(`📱 Attempting to send approval push notification to ${deviceTokens.length} device(s) for ${entityTypeName} ID: ${entityId}`);
+            
+            // Try entity-specific template first, fallback to generic
+            let finalTemplateKey = templateKey;
+            const templateExists = await this.checkTemplateExists(templateKey);
+            if (!templateExists) {
+              console.log(`⚠️  Template ${templateKey} not found, using generic verification_approved`);
+              finalTemplateKey = 'verification_approved';
+            }
+            
+            // Send push notification to all device tokens
+            const pushPromises = deviceTokens.map(async (deviceToken) => {
+              try {
+                const pushResult = await NotificationTemplateService.sendPushNotification(
+                  userId,
+                  finalTemplateKey,
+                  deviceToken,
+                  notificationVariables
+                );
+
+                if (pushResult.success) {
+                  console.log(`✅ Push notification sent successfully to device: ${deviceToken.substring(0, 20)}...`);
+                } else {
+                  console.error(`❌ Push notification failed for device ${deviceToken.substring(0, 20)}...: ${pushResult.error}`);
+                }
+              } catch (pushError: any) {
+                console.error(`❌ Error sending push notification to device ${deviceToken.substring(0, 20)}...:`, pushError);
+              }
+            });
+
+            await Promise.allSettled(pushPromises);
+          } else {
+            console.log(`ℹ️  No device tokens found for user ID ${userId}. Push notification skipped.`);
+          }
+        } catch (pushError: any) {
+          console.error('❌ Error sending approval push notification:', pushError);
+        }
+      } else {
+        console.log(`ℹ️  No user ID found for ${entityTypeName} ID ${entityId}. Push notification skipped.`);
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('Error in approveTableEntity:', error);
+      return { success: false, error: error.message || 'Failed to send approval notification' };
+    }
+  }
+
+  /**
+   * Reject a table entity (event, tour, hotel, food, artwork)
+   */
+  static async rejectTableEntity(
+    entityTab: 'event' | 'tour' | 'hotel' | 'food' | 'product',
+    entityId: number,
+    rejectionReason?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const tableMap: Record<string, { table: string; idField: string; nameField: string }> = {
+        event: { table: 'heritage_event', idField: 'event_id', nameField: 'event_name' },
+        tour: { table: 'heritage_tour', idField: 'tour_id', nameField: 'tour_name' },
+        hotel: { table: 'heritage_hotel', idField: 'hotel_id', nameField: 'hotel_name' },
+        food: { table: 'heritage_food', idField: 'food_id', nameField: 'food_name' },
+        product: { table: 'heritage_artwork', idField: 'artwork_id', nameField: 'artwork_name' },
+      };
+
+      const config = tableMap[entityTab];
+      if (!config) {
+        return { success: false, error: `Unknown entity tab: ${entityTab}` };
+      }
+
+      // Get entity details
+      const { data: entityData } = await supabase
+        .from(config.table)
+        .select(`${config.idField}, ${config.nameField}, artisan_id`)
+        .eq(config.idField, entityId)
+        .single();
+
+      if (!entityData) {
+        return { success: false, error: 'Entity not found' };
+      }
+
+      // Update status to 'rejected' (or set is_active to false for artwork)
+      const updateData: Record<string, any> = {};
+      if (entityTab === 'product') {
+        updateData.is_active = false;
+      } else {
+        updateData.status = 'rejected';
+      }
+
+      // Store rejection reason if provided (we can store it in a notes field if available)
+      // For now, we'll include it in the notification
+
+      const { error } = await supabase
+        .from(config.table)
+        .update(updateData)
+        .eq(config.idField, entityId);
+
+      if (error) throw error;
+
+      // Get user ID for sending notifications
+      // For artwork, get user_id from artisan_id
+      let userId: number | null = null;
+      if (entityTab === 'product' && entityData.artisan_id) {
+        const { data: artisanData } = await supabase
+          .from('heritage_artisan')
+          .select('user_id')
+          .eq('artisan_id', entityData.artisan_id)
+          .single();
+        userId = artisanData?.user_id || null;
+      } else {
+        // For other entities (event, tour, hotel, food), try to get user_id from the entity table
+        // If not available, try to get from related organizer/operator tables
+        const { data: entityWithUser } = await supabase
+          .from(config.table)
+          .select('user_id, organizer_id, operator_id')
+          .eq(config.idField, entityId)
+          .single();
+        
+        userId = entityWithUser?.user_id || entityWithUser?.organizer_id || entityWithUser?.operator_id || null;
+        
+        // If still no user_id, try to get from event_organizer_id or similar fields
+        if (!userId && entityTab === 'event') {
+          const { data: eventData } = await supabase
+            .from('heritage_event')
+            .select('event_organizer_id')
+            .eq('event_id', entityId)
+            .single();
+          // event_organizer_id might be a user_id or might need another lookup
+          userId = eventData?.event_organizer_id || null;
+        }
+      }
+
+      // Prepare notification variables
+      const rejectionDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      const entityTypeName = entityTab === 'product' ? 'Artwork' : entityTab.charAt(0).toUpperCase() + entityTab.slice(1);
+      // Use 'hotel_listing' for hotel table entity to avoid conflict with hotel user verification
+      const entityTypeKey = entityTab === 'product' ? 'artwork' : (entityTab === 'hotel' ? 'hotel_listing' : entityTab);
+      const templateKey = `${entityTypeKey}_verification_rejected`;
+
+      const notificationVariables = {
+        entityName: entityData[config.nameField] || 'Record',
+        entityType: entityTypeName,
+        rejectionDate: rejectionDate,
+        rejectionReason: rejectionReason || 'No reason provided',
+        entityId: entityId.toString(),
+      };
+
+      // Get user email for sending notifications
+      let userEmail: string | null = null;
+      if (userId) {
+        try {
+          const { data: userData } = await supabase
+            .from('heritage_user')
+            .select('email')
+            .eq('user_id', userId)
+            .single();
+          userEmail = userData?.email || null;
+        } catch (emailFetchError) {
+          console.error('Error fetching user email:', emailFetchError);
+        }
+      }
+
+      // Send email notification if user_id and email are available
+      if (userId && userEmail) {
+        try {
+          console.log(`📧 Attempting to send rejection email to: ${userEmail}`);
+          
+          // Try entity-specific template first, fallback to generic
+          let finalTemplateKey = templateKey;
+          const templateExists = await this.checkTemplateExists(templateKey);
+          if (!templateExists) {
+            console.log(`⚠️  Template ${templateKey} not found, using generic verification_rejected`);
+            finalTemplateKey = 'verification_rejected';
+          }
+          
+          const emailResult = await NotificationTemplateService.sendEmailNotification(
+            userId,
+            finalTemplateKey,
+            userEmail,
+            notificationVariables
+          );
+
+          if (emailResult.success) {
+            console.log(`✅ Rejection email sent successfully to: ${userEmail}`);
+          } else {
+            console.error(`❌ Rejection email failed: ${emailResult.error}`);
+          }
+        } catch (emailError: any) {
+          console.error('❌ Error sending rejection email:', emailError);
+          // Don't fail the rejection if email fails, but log it
+        }
+      } else {
+        console.log(`ℹ️  No user ID or email found for ${entityTypeName} ID ${entityId}. Email notification skipped.`);
+      }
+
+      // Send push notification if user_id is available
+      if (userId) {
+        try {
+          const deviceTokens = await this.getUserDeviceTokens(userId);
+          if (deviceTokens && deviceTokens.length > 0) {
+            console.log(`📱 Attempting to send rejection push notification to ${deviceTokens.length} device(s) for ${entityTypeName} ID: ${entityId}`);
+            
+            // Try entity-specific template first, fallback to generic
+            let finalTemplateKey = templateKey;
+            const templateExists = await this.checkTemplateExists(templateKey);
+            if (!templateExists) {
+              console.log(`⚠️  Template ${templateKey} not found, using generic verification_rejected`);
+              finalTemplateKey = 'verification_rejected';
+            }
+            
+            // Send push notification to all device tokens
+            const pushPromises = deviceTokens.map(async (deviceToken) => {
+              try {
+                const pushResult = await NotificationTemplateService.sendPushNotification(
+                  userId,
+                  finalTemplateKey,
+                  deviceToken,
+                  notificationVariables
+                );
+
+                if (pushResult.success) {
+                  console.log(`✅ Push notification sent successfully to device: ${deviceToken.substring(0, 20)}...`);
+                } else {
+                  console.error(`❌ Push notification failed for device ${deviceToken.substring(0, 20)}...: ${pushResult.error}`);
+                }
+              } catch (pushError: any) {
+                console.error(`❌ Error sending push notification to device ${deviceToken.substring(0, 20)}...:`, pushError);
+              }
+            });
+
+            await Promise.allSettled(pushPromises);
+          } else {
+            console.log(`ℹ️  No device tokens found for user ID ${userId}. Push notification skipped.`);
+          }
+        } catch (pushError: any) {
+          console.error('❌ Error sending rejection push notification:', pushError);
+        }
+      } else {
+        console.log(`ℹ️  No user ID found for ${entityTypeName} ID ${entityId}. Push notification skipped.`);
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to reject table entity' };
+    }
+  }
+
+  /**
+   * Check if a notification template exists
+   */
+  static async checkTemplateExists(templateKey: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .from('heritage_notification_templates')
+        .select('id')
+        .eq('template_key', templateKey)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking template existence:', error);
+        return false;
+      }
+
+      return !!data;
+    } catch (error) {
+      console.error('Exception checking template existence:', error);
+      return false;
     }
   }
 
