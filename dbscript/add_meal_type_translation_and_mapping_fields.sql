@@ -107,6 +107,3 @@ END $$;
 -- FROM information_schema.columns 
 -- WHERE table_name = 'heritage_food_meal_type_mapping'
 -- ORDER BY ordinal_position;
-
-
-
