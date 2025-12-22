@@ -66,6 +66,8 @@ import { supabase } from '@/config/supabase';
 import { geocodeAddress } from '@/config/googleMaps';
 import HotelDetailsDialog from './components/HotelDetailsDialog';
 import FoodDetailsDialog from './components/FoodDetailsDialog';
+import ArtworkDetailsDialog from './components/ArtworkDetailsDialog';
+import RejectionDialog from './components/RejectionDialog';
 
 type LanguageCode = 'en' | 'hi' | 'gu' | 'ja' | 'es' | 'fr';
 
@@ -184,7 +186,8 @@ const ENTITY_OPTIONS = [
 ];
 
 const VERIFICATION_STATUS_OPTIONS: Array<'All' | VerificationRecord['status']> = ['All', 'Pending', 'Approved', 'Rejected'];
-const TABLE_STATUS_OPTIONS: Array<'All' | 'draft' | 'published'> = ['All', 'draft', 'published'];
+const TABLE_STATUS_OPTIONS: Array<'All' | 'draft' | 'published' | 'rejected'> = ['All', 'draft', 'published', 'rejected'];
+const PRODUCT_STATUS_OPTIONS: Array<'All' | 'published' | 'draft'> = ['All', 'published', 'draft']; // published = active, draft = inactive
 
 const STATUS_COLOR: Record<VerificationRecord['status'], 'warning' | 'success' | 'error'> = {
   Pending: 'warning',
@@ -250,7 +253,7 @@ const extractStringValue = (val: any): string => {
   return String(val);
 };
 
-type VerificationTab = 'user' | 'event' | 'tour' | 'hotel' | 'food';
+type VerificationTab = 'user' | 'event' | 'tour' | 'hotel' | 'food' | 'product';
 
 const TAB_CONFIG: { key: VerificationTab; label: string; tableName?: string }[] = [
   { key: 'user', label: 'User Verification' },
@@ -258,6 +261,7 @@ const TAB_CONFIG: { key: VerificationTab; label: string; tableName?: string }[] 
   { key: 'tour', label: 'Tour', tableName: 'heritage_tour' },
   { key: 'hotel', label: 'Hotel', tableName: 'heritage_hotel' },
   { key: 'food', label: 'Food', tableName: 'heritage_food' },
+  { key: 'product', label: 'Product', tableName: 'heritage_artwork' },
 ];
 
 // Helper function to get icon component from icon name string
@@ -308,6 +312,8 @@ const Verification = () => {
   const [selectedHotelId, setSelectedHotelId] = useState<number | null>(null);
   const [foodDialogOpen, setFoodDialogOpen] = useState(false);
   const [selectedFoodId, setSelectedFoodId] = useState<number | null>(null);
+  const [artworkDialogOpen, setArtworkDialogOpen] = useState(false);
+  const [selectedArtworkId, setSelectedArtworkId] = useState<number | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editedUserInfo, setEditedUserInfo] = useState<{ full_name?: string; email?: string; phone?: string; user_type_id?: number } | null>(null);
   const [editedBusinessDetails, setEditedBusinessDetails] = useState<Record<string, any>>({});
@@ -362,6 +368,8 @@ const Verification = () => {
   const [sortBy, setSortBy] = useState<string>('submittedOn');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [exportLoading, setExportLoading] = useState(false);
+  const [rejectionDialogOpen, setRejectionDialogOpen] = useState(false);
+  const [rejectionRecord, setRejectionRecord] = useState<{ record: VerificationRecord | any; type: 'user' | 'table' } | null>(null);
 
   // Fetch verification records (for User Verification tab)
   const fetchRecords = async () => {
@@ -401,6 +409,8 @@ const Verification = () => {
           query = query.or(`hotel_name.ilike.%${searchTerm}%,hotel_key.ilike.%${searchTerm}%`);
         } else if (tableName === 'heritage_food') {
           query = query.or(`food_name.ilike.%${searchTerm}%,food_key.ilike.%${searchTerm}%`);
+        } else if (tableName === 'heritage_artwork') {
+          query = query.or(`artwork_name.ilike.%${searchTerm}%`);
         }
       }
 
@@ -411,9 +421,15 @@ const Verification = () => {
 
       // Apply status filter if statusFilter is not 'All'
       if (statusFilter !== 'All') {
-        // For table data, status values are lowercase: 'draft' or 'published'
-        const statusValue = statusFilter.toLowerCase();
-        query = query.eq('status', statusValue);
+        // For artwork table, use is_active instead of status
+        if (tableName === 'heritage_artwork') {
+          const isActive = statusFilter === 'published' ? true : false;
+          query = query.eq('is_active', isActive);
+        } else {
+          // For other table data, status values are lowercase: 'draft' or 'published'
+          const statusValue = statusFilter.toLowerCase();
+          query = query.eq('status', statusValue);
+        }
       }
 
       const { data, error: fetchError } = await query.order('created_at', { ascending: false });
@@ -440,6 +456,8 @@ const Verification = () => {
     if (currentTab === 'user') {
       setEntityFilter('All');
       setStatusFilter('Pending');
+    } else if (currentTab === 'product') {
+      setStatusFilter('published'); // Default to 'published' (active) for Product tab
     } else {
       setStatusFilter('draft'); // Default to 'draft' for Event, Tour, Hotel, Food tabs
     }
@@ -478,20 +496,82 @@ const Verification = () => {
     setActionLoading(null);
   };
 
-  const handleReject = async (record: VerificationRecord) => {
-    setActionLoading(record.id);
-    const result = await VerificationService.rejectEntity(record.entityType, record.id);
-    if (result.success) {
-      fetchRecords();
-    } else {
-      setError(result.error || 'Failed to reject');
-    }
-    setActionLoading(null);
+  const handleReject = (record: VerificationRecord) => {
+    setRejectionRecord({ record, type: 'user' });
+    setRejectionDialogOpen(true);
   };
 
-  // Handle publishing event/tour/hotel/food (set status to 'published')
+  const handleRejectTableRecord = (record: any) => {
+    setRejectionRecord({ record, type: 'table' });
+    setRejectionDialogOpen(true);
+  };
+
+  const handleConfirmRejection = async (rejectionReason: string) => {
+    if (!rejectionRecord) return;
+
+    const { record, type } = rejectionRecord;
+    
+    if (type === 'user') {
+      const userRecord = record as VerificationRecord;
+      setActionLoading(userRecord.id);
+      try {
+        const result = await VerificationService.rejectEntity(
+          userRecord.entityType,
+          userRecord.id,
+          rejectionReason
+        );
+        if (result.success) {
+          fetchRecords();
+          setRejectionDialogOpen(false);
+          setRejectionRecord(null);
+        } else {
+          setError(result.error || 'Failed to reject');
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to reject');
+      } finally {
+        setActionLoading(null);
+      }
+    } else {
+      // Handle table record rejection (event, tour, hotel, food, artwork)
+      const recordId = record.event_id || record.tour_id || record.hotel_id || record.food_id || record.artwork_id || record.id;
+      const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
+      if (!tabConfig?.tableName || !recordId) return;
+
+      // Type guard: ensure currentTab is a table entity type (not 'user')
+      if (currentTab === 'user') {
+        setError('Invalid tab for table entity rejection');
+        return;
+      }
+
+      // Narrow the type after the guard
+      const tableEntityTab = currentTab as Exclude<VerificationTab, 'user'>;
+      
+      setActionLoading(recordId);
+      try {
+        const result = await VerificationService.rejectTableEntity(
+          tableEntityTab,
+          recordId,
+          rejectionReason
+        );
+        if (result.success) {
+          await fetchTableData(tabConfig.tableName);
+          setRejectionDialogOpen(false);
+          setRejectionRecord(null);
+        } else {
+          setError(result.error || 'Failed to reject');
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to reject');
+      } finally {
+        setActionLoading(null);
+      }
+    }
+  };
+
+  // Handle publishing event/tour/hotel/food/product (set status to 'published' or toggle is_active for product)
   const handlePublishTableRecord = async (record: any) => {
-    const recordId = record.event_id || record.tour_id || record.hotel_id || record.food_id || record.id;
+    const recordId = record.event_id || record.tour_id || record.hotel_id || record.food_id || record.artwork_id || record.id;
     const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
     if (!tabConfig?.tableName || !recordId) return;
 
@@ -501,33 +581,49 @@ const Verification = () => {
     else if (currentTab === 'tour') idColumn = 'tour_id';
     else if (currentTab === 'hotel') idColumn = 'hotel_id';
     else if (currentTab === 'food') idColumn = 'food_id';
+    else if (currentTab === 'product') idColumn = 'artwork_id';
     else return;
 
     setActionLoading(recordId);
     try {
+      // For product (artwork), toggle is_active; for others, set status to 'published'
+      const updateData = currentTab === 'product' 
+        ? { is_active: !record.is_active }
+        : { status: 'published' };
+
       const { error } = await supabase
         .from(tabConfig.tableName)
-        .update({ status: 'published' })
+        .update(updateData)
         .eq(idColumn, recordId);
 
       if (error) {
         throw error;
       }
 
+      // Send push notification for approval (only if status changed to published/active)
+      if ((currentTab === 'product' && !record.is_active) || (currentTab !== 'product' && record.status !== 'published')) {
+        try {
+          await VerificationService.approveTableEntity(currentTab as 'event' | 'tour' | 'hotel' | 'food' | 'product', recordId);
+        } catch (notifError) {
+          console.error('Error sending approval notification:', notifError);
+          // Don't fail the publish if notification fails
+        }
+      }
+
       // Refresh table data
       await fetchTableData(tabConfig.tableName);
     } catch (err: any) {
-      setError(err.message || 'Failed to publish');
+      setError(err.message || 'Failed to update');
     } finally {
       setActionLoading(null);
     }
   };
 
-  // Handle drafting event/tour/hotel/food (set status to 'draft')
+  // Handle drafting event/tour/hotel/food (set status to 'draft') - not used for product
   const handleDraftTableRecord = async (record: any) => {
     const recordId = record.event_id || record.tour_id || record.hotel_id || record.food_id || record.id;
     const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
-    if (!tabConfig?.tableName || !recordId) return;
+    if (!tabConfig?.tableName || !recordId || currentTab === 'product') return;
 
     // Determine the ID column name based on table
     let idColumn = '';
@@ -615,8 +711,8 @@ const Verification = () => {
       switch (sortBy) {
         case 'name':
           // Try common name fields
-          aValue = (a.event_name || a.tour_name || a.hotel_name || a.food_name || a.name || '').toLowerCase();
-          bValue = (b.event_name || b.tour_name || b.hotel_name || b.food_name || b.name || '').toLowerCase();
+          aValue = (a.event_name || a.tour_name || a.hotel_name || a.food_name || a.artwork_name || a.name || '').toLowerCase();
+          bValue = (b.event_name || b.tour_name || b.hotel_name || b.food_name || b.artwork_name || b.name || '').toLowerCase();
           break;
         case 'status':
           aValue = (a.status || '').toLowerCase();
@@ -654,6 +750,8 @@ const Verification = () => {
     // Set appropriate default status based on current tab
     if (currentTab === 'user') {
       setStatusFilter('Pending');
+    } else if (currentTab === 'product') {
+      setStatusFilter('published'); // Default to 'published' (active) for Product tab
     } else {
       setStatusFilter('draft');
     }
@@ -721,8 +819,8 @@ const Verification = () => {
             'Submitted On': formattedDate,
           };
         } else {
-          // Export for Event, Tour, Hotel, Food tables
-          const nameField = record.event_name || record.tour_name || record.hotel_name || record.food_name || record.name || '';
+          // Export for Event, Tour, Hotel, Food, Product tables
+          const nameField = record.event_name || record.tour_name || record.hotel_name || record.food_name || record.artwork_name || record.name || '';
           const keyField = record.event_key || record.tour_key || record.hotel_key || record.food_key || '';
           let formattedDate = '';
           
@@ -1128,6 +1226,18 @@ const Verification = () => {
         // Open food dialog
         setSelectedFoodId(foodId);
         setFoodDialogOpen(true);
+        setDetailOpen(false);
+        setDetailLoading(false);
+        return;
+      } else if (currentTab === 'product') {
+        const artworkId = record.artwork_id || record.id;
+        if (!artworkId) {
+          throw new Error('Artwork ID not found');
+        }
+
+        // Open artwork dialog
+        setSelectedArtworkId(artworkId);
+        setArtworkDialogOpen(true);
         setDetailOpen(false);
         setDetailLoading(false);
         return;
@@ -3568,9 +3678,15 @@ const Verification = () => {
                   setPage(1);
                 }}
               >
-                {(currentTab === 'user' ? VERIFICATION_STATUS_OPTIONS : TABLE_STATUS_OPTIONS).map((option) => (
+                {(currentTab === 'user' 
+                  ? VERIFICATION_STATUS_OPTIONS 
+                  : currentTab === 'product' 
+                    ? PRODUCT_STATUS_OPTIONS 
+                    : TABLE_STATUS_OPTIONS).map((option) => (
                   <MenuItem key={option} value={option}>
-                    {option === 'draft' ? 'Draft' : option === 'published' ? 'Published' : option}
+                    {currentTab === 'product' 
+                      ? (option === 'published' ? 'Active' : option === 'draft' ? 'Inactive' : option)
+                      : (option === 'draft' ? 'Draft' : option === 'published' ? 'Published' : option)}
                   </MenuItem>
                 ))}
               </Select>
@@ -3713,7 +3829,7 @@ const Verification = () => {
                       </Stack>
                     </TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>
-                      Key
+                      {currentTab === 'product' ? 'Category' : 'Key'}
                     </TableCell>
                     <TableCell 
                       sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
@@ -3838,9 +3954,25 @@ const Verification = () => {
                 ))
               ) : (
                 paginatedData.map((record: any, index: number) => {
-                  const nameField = record.event_name || record.tour_name || record.hotel_name || record.food_name || record.name || '';
-                  const keyField = record.event_key || record.tour_key || record.hotel_key || record.food_key || '';
-                  const recordId = record.event_id || record.tour_id || record.hotel_id || record.food_id || record.id || index;
+                  const nameField = record.event_name || record.tour_name || record.hotel_name || record.food_name || record.artwork_name || record.name || '';
+                  const keyField = currentTab === 'product' 
+                    ? (record.category || '—')
+                    : (record.event_key || record.tour_key || record.hotel_key || record.food_key || '');
+                  const recordId = record.event_id || record.tour_id || record.hotel_id || record.food_id || record.artwork_id || record.id || index;
+                  
+                  // For artwork, use is_active; for others, use status
+                  const statusValue = currentTab === 'product' 
+                    ? (record.is_active ? 'Active' : 'Inactive')
+                    : (record.status === 'published' ? 'Published' 
+                       : record.status === 'draft' ? 'Draft' 
+                       : record.status === 'rejected' ? 'Rejected' 
+                       : (record.status || '—'));
+                  const statusColor = currentTab === 'product'
+                    ? (record.is_active ? 'success' : 'default')
+                    : (record.status === 'published' ? 'success' 
+                       : record.status === 'draft' ? 'warning' 
+                       : record.status === 'rejected' ? 'error' 
+                       : 'default');
                   
                   return (
                     <TableRow key={`${currentTab}-${recordId}`} hover sx={{ '&:last-of-type td, &:last-of-type th': { border: 0 } }}>
@@ -3856,8 +3988,8 @@ const Verification = () => {
                       </TableCell>
                       <TableCell>
                         <Chip
-                          label={record.status || '—'}
-                          color={record.status === 'published' ? 'success' : record.status === 'draft' ? 'warning' : 'default'}
+                          label={statusValue}
+                          color={statusColor}
                           variant="filled"
                           size="small"
                           sx={{ fontWeight: 500, minWidth: 90 }}
@@ -3870,33 +4002,60 @@ const Verification = () => {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={1} justifyContent="flex-end">
-                          {(currentTab === 'event' || currentTab === 'tour' || currentTab === 'hotel' || currentTab === 'food') && (
+                          {(currentTab === 'event' || currentTab === 'tour' || currentTab === 'hotel' || currentTab === 'food' || currentTab === 'product') && (
                             <Tooltip title="View details">
                               <IconButton size="small" onClick={() => handleViewTableDetails(record)}>
                                 <VisibilityOutlinedIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           )}
-                          <Tooltip title="Publish">
-                            <IconButton
-                              size="small"
-                              color="success"
-                              onClick={() => handlePublishTableRecord(record)}
-                              disabled={actionLoading === recordId || record.status === 'published'}
-                            >
-                              {actionLoading === recordId ? <CircularProgress size={16} /> : <CheckCircleOutlineIcon fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Set as Draft">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleDraftTableRecord(record)}
-                              disabled={actionLoading === recordId || record.status === 'draft'}
-                            >
-                              {actionLoading === recordId ? <CircularProgress size={16} /> : <HighlightOffOutlinedIcon fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
+                          {currentTab === 'product' ? (
+                            <>
+                              <Tooltip title={record.is_active ? "Deactivate" : "Activate"}>
+                                <IconButton
+                                  size="small"
+                                  color={record.is_active ? "error" : "success"}
+                                  onClick={() => handlePublishTableRecord(record)}
+                                  disabled={actionLoading === recordId}
+                                >
+                                  {actionLoading === recordId ? <CircularProgress size={16} /> : <CheckCircleOutlineIcon fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Reject">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleRejectTableRecord(record)}
+                                  disabled={actionLoading === recordId || !record.is_active}
+                                >
+                                  {actionLoading === recordId ? <CircularProgress size={16} /> : <HighlightOffOutlinedIcon fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          ) : (
+                            <>
+                              <Tooltip title="Approve/Publish">
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={() => handlePublishTableRecord(record)}
+                                  disabled={actionLoading === recordId || record.status === 'published'}
+                                >
+                                  {actionLoading === recordId ? <CircularProgress size={16} /> : <CheckCircleOutlineIcon fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Reject">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleRejectTableRecord(record)}
+                                  disabled={actionLoading === recordId || record.status === 'rejected'}
+                                >
+                                  {actionLoading === recordId ? <CircularProgress size={16} /> : <HighlightOffOutlinedIcon fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -7528,6 +7687,57 @@ const Verification = () => {
           setSelectedFoodId(null);
         }}
       />
+
+      {/* Artwork Details Dialog */}
+      <ArtworkDetailsDialog
+        open={artworkDialogOpen}
+        artworkId={selectedArtworkId}
+        onClose={() => {
+          setArtworkDialogOpen(false);
+          setSelectedArtworkId(null);
+        }}
+      />
+
+      {/* Rejection Dialog */}
+      {rejectionRecord && (
+        <RejectionDialog
+          open={rejectionDialogOpen}
+          entityName={
+            rejectionRecord.type === 'user'
+              ? (rejectionRecord.record as VerificationRecord).name
+              : rejectionRecord.record.event_name ||
+                rejectionRecord.record.tour_name ||
+                rejectionRecord.record.hotel_name ||
+                rejectionRecord.record.food_name ||
+                rejectionRecord.record.artwork_name ||
+                rejectionRecord.record.name ||
+                'Record'
+          }
+          entityType={
+            rejectionRecord.type === 'user'
+              ? (rejectionRecord.record as VerificationRecord).entityType
+              : currentTab === 'event'
+              ? 'Event'
+              : currentTab === 'tour'
+              ? 'Tour'
+              : currentTab === 'hotel'
+              ? 'Hotel'
+              : currentTab === 'food'
+              ? 'Food'
+              : currentTab === 'product'
+              ? 'Artwork'
+              : 'Record'
+          }
+          onClose={() => {
+            if (!actionLoading) {
+              setRejectionDialogOpen(false);
+              setRejectionRecord(null);
+            }
+          }}
+          onConfirm={handleConfirmRejection}
+          loading={actionLoading !== null}
+        />
+      )}
     </Box>
   );
 };

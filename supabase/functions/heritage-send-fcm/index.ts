@@ -1,168 +1,270 @@
-// Supabase Edge Function to send FCM push notifications
+// Supabase Edge Function: heritage-send-fcm (Firebase HTTP v1) — FINAL
 // Deploy: supabase functions deploy heritage-send-fcm
-// Set secrets (using existing Firebase env variable names):
-//   supabase secrets set FCM_PROJECT_ID=your-project-id
-//   supabase secrets set FCM_SERVICE_ACCOUNT_KEY=your-service-account-key-or-server-key
-//   supabase secrets set FCM_SERVICE_ACCOUNT_EMAIL=your-service-account-email (optional, for v1 API)
+//
+// Secret (store FULL service-account JSON as single-line string):
+//   supabase secrets set FCM_SERVICE_ACCOUNT_JSON="$(cat service-account.json)"
+// Windows PowerShell:
+//   supabase secrets set FCM_SERVICE_ACCOUNT_JSON="$(Get-Content .\service-account.json -Raw)"
+//
+// Request JSON:
+// {
+//   "token": "...",
+//   "title": "Test",
+//   "body": "Test notification",
+//   "imageUrl": "https://...optional",
+//   "data": { "screen": "BookingHistory" },
+//   "clickAction": "FLUTTER_NOTIFICATION_CLICK"
+// }
 
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+const corsHeaders: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+type SendFcmRequest = {
+  token: string;
+  title: string;
+  body: string;
+  imageUrl?: string;
+  data?: Record<string, unknown>;
+  clickAction?: string;
+};
+
+function jsonResponse(status: number, payload: unknown) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function getServiceAccount() {
+  const raw = Deno.env.get("FCM_SERVICE_ACCOUNT_JSON");
+  if (!raw) throw new Error("Missing secret: FCM_SERVICE_ACCOUNT_JSON");
+
+  let sa: any;
+  try {
+    sa = JSON.parse(raw);
+  } catch {
+    throw new Error("FCM_SERVICE_ACCOUNT_JSON is not valid JSON");
+  }
+
+  const required = ["project_id", "client_email", "private_key", "token_uri"];
+  for (const k of required) {
+    if (!sa?.[k]) throw new Error(`FCM_SERVICE_ACCOUNT_JSON missing field: ${k}`);
+  }
+
+  return sa;
+}
+
+function base64UrlEncodeBytes(bytes: Uint8Array): string {
+  // Standard base64
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = btoa(bin);
+
+  // Convert to base64url
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlEncodeJson(obj: unknown): string {
+  const json = JSON.stringify(obj);
+  return base64UrlEncodeBytes(new TextEncoder().encode(json));
+}
+
+function pemToDerBytes(pem: string): Uint8Array {
+  const clean = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\s+/g, "");
+
+  const binStr = atob(clean);
+  const bytes = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+  return bytes;
+}
+
+async function importPrivateKeyFromPem(pem: string): Promise<CryptoKey> {
+  const der = pemToDerBytes(pem);
+  return await crypto.subtle.importKey(
+    "pkcs8",
+    der, // ✅ BufferSource
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+}
+
+async function signJwtRS256(privateKeyPem: string, payload: Record<string, unknown>): Promise<string> {
+  const header = { alg: "RS256", typ: "JWT" };
+
+  const encodedHeader = base64UrlEncodeJson(header);
+  const encodedPayload = base64UrlEncodeJson(payload);
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+  const key = await importPrivateKeyFromPem(privateKeyPem);
+
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    new TextEncoder().encode(signingInput),
+  );
+
+  const sigBytes = new Uint8Array(signature);
+  const encodedSig = base64UrlEncodeBytes(sigBytes);
+
+  return `${signingInput}.${encodedSig}`;
+}
+
+async function getAccessToken(sa: any): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const jwtPayload = {
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: sa.token_uri, // usually https://oauth2.googleapis.com/token
+    iat: now,
+    exp: now + 3600,
+  };
+
+  const jwt = await signJwtRS256(sa.private_key, jwtPayload);
+
+  const res = await fetch(sa.token_uri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!res.ok) {
+    throw new Error(`OAuth token error: ${res.status} ${text}`);
+  }
+
+  const token = json?.access_token;
+  if (!token) throw new Error(`OAuth token response missing access_token: ${text}`);
+  return token;
+}
+
 serve(async (req) => {
-  // Handle CORS preflight - MUST return 204 with proper headers
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { 
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
       status: 204,
       headers: {
         ...corsHeaders,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Max-Age': '86400',
-        'Content-Length': '0',
-      }
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Max-Age": "86400",
+        "Content-Length": "0",
+      },
     });
+  }
+
+  if (req.method !== "POST") {
+    return jsonResponse(405, { success: false, error: "Method not allowed" });
   }
 
   try {
-    const { token, title, body, imageUrl, data, clickAction } = await req.json();
+    const payload = (await req.json()) as SendFcmRequest;
+
+    const token = payload?.token;
+    const title = payload?.title;
+    const body = payload?.body;
 
     if (!token || !title || !body) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Missing required fields: token, title, body' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
-      );
+      return jsonResponse(400, { success: false, error: "Missing required fields: token, title, body" });
     }
 
-    // Get Firebase credentials from environment (using existing Firebase env variable names)
-    const FCM_PROJECT_ID = Deno.env.get('FCM_PROJECT_ID');
-    const FCM_SERVICE_ACCOUNT_KEY = Deno.env.get('FCM_SERVICE_ACCOUNT_KEY');
-    const FCM_SERVICE_ACCOUNT_EMAIL = Deno.env.get('FCM_SERVICE_ACCOUNT_EMAIL');
+    const sa = getServiceAccount();
+    const PROJECT_ID = sa.project_id as string;
 
-    // Fallback to old variable names for backward compatibility
-    const PROJECT_ID = FCM_PROJECT_ID || Deno.env.get('FIREBASE_PROJECT_ID');
-    const SERVER_KEY = FCM_SERVICE_ACCOUNT_KEY || Deno.env.get('FIREBASE_SERVER_KEY');
-
-    if (!PROJECT_ID || !SERVER_KEY) {
-      console.error('❌ Firebase credentials not configured in environment variables');
-      console.error('   Expected: FCM_PROJECT_ID (or FIREBASE_PROJECT_ID)');
-      console.error('   Expected: FCM_SERVICE_ACCOUNT_KEY (or FIREBASE_SERVER_KEY)');
-      return new Response(
-        JSON.stringify({ success: false, error: 'Firebase credentials not configured. Please set FCM_PROJECT_ID and FCM_SERVICE_ACCOUNT_KEY' }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
-      );
-    }
-
-    console.log('📱 Sending FCM push notification via Firebase API...');
+    console.log("📱 FCM v1 send start");
+    console.log(`   Project: ${PROJECT_ID}`);
     console.log(`   Token: ${token.substring(0, 20)}...`);
     console.log(`   Title: ${title}`);
-    console.log(`   Body: ${body}`);
 
-    // Build FCM message payload
-    // Using legacy FCM endpoint which accepts server key directly
-    // The service account key can be used as a server key for the legacy endpoint
-    const fcmUrl = 'https://fcm.googleapis.com/fcm/send';
-    
-    const message: any = {
-      to: token,
-      notification: {
-        title: title,
-        body: body,
+    // FCM v1 requires data values to be string:string
+    const finalData: Record<string, string> = {};
+    if (payload.data) {
+      for (const [k, v] of Object.entries(payload.data)) finalData[k] = String(v);
+    }
+    if (payload.clickAction) finalData["click_action"] = payload.clickAction;
+
+    const fcmBody: any = {
+      message: {
+        token,
+        notification: { title, body },
       },
     };
 
-    // Add optional fields
-    if (imageUrl) {
-      message.notification.image = imageUrl;
+    if (payload.imageUrl) {
+      fcmBody.message.notification.image = payload.imageUrl;
+    }
+    if (Object.keys(finalData).length > 0) {
+      fcmBody.message.data = finalData;
     }
 
-    if (data && Object.keys(data).length > 0) {
-      message.data = data;
-    }
+    const accessToken = await getAccessToken(sa);
 
-    if (clickAction) {
-      message.data = message.data || {};
-      message.data.click_action = clickAction;
-    }
-
-    // Send push notification via FCM REST API (legacy endpoint)
-    // The service account key can be used directly as a server key
-    const fcmResponse = await fetch(fcmUrl, {
-      method: 'POST',
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
+    const fcmRes = await fetch(fcmUrl, {
+      method: "POST",
       headers: {
-        'Authorization': `key=${SERVER_KEY}`,
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(message),
+      body: JSON.stringify(fcmBody),
     });
 
-    if (!fcmResponse.ok) {
-      const errorText = await fcmResponse.text();
-      let errorMessage = `FCM API error: ${fcmResponse.status}`;
-      
-      try {
-        const errorJson = JSON.parse(errorText);
-        if (errorJson.error) {
-          errorMessage = errorJson.error.message || JSON.stringify(errorJson.error);
-        } else if (errorJson.message) {
-          errorMessage = errorJson.message;
-        }
-      } catch {
-        // If parsing fails, use the raw error text
-        if (errorText) {
-          errorMessage = errorText;
-        }
-      }
-
-      console.error('❌ FCM API error:', fcmResponse.status, errorMessage);
-      
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: errorMessage,
-          status: fcmResponse.status
-        }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
-      );
+    // Read text first for maximum safety/debug
+    const fcmText = await fcmRes.text();
+    let fcmJson: any = null;
+    try {
+      fcmJson = fcmText ? JSON.parse(fcmText) : null;
+    } catch {
+      fcmJson = null;
     }
 
-    const result = await fcmResponse.json();
-    // Legacy API returns message_id, v1 API returns name
-    const messageId = result.message_id || result.name || undefined;
-
-    console.log('✅ Push notification sent successfully via FCM:', messageId || 'No message ID');
-
-    return new Response(
-      JSON.stringify({ success: true, messageId }),
-      { 
-        status: 200, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    if (!fcmRes.ok) {
+      console.error("❌ FCM v1 error:", fcmRes.status, fcmText);
+      
+      // Extract error details for better error messages
+      let errorMessage = `FCM v1 error: ${fcmRes.status}`;
+      if (fcmJson?.error) {
+        const fcmError = fcmJson.error;
+        if (fcmError.details?.[0]?.errorCode === "UNREGISTERED") {
+          errorMessage = "FCM token is invalid or expired (UNREGISTERED). The device may have uninstalled the app or the token needs to be refreshed.";
+        } else if (fcmError.message) {
+          errorMessage = fcmError.message;
+        }
       }
-    );
-  } catch (error: any) {
-    console.error('❌ Error sending FCM push notification:', error);
-    return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error.message || 'Failed to send push notification' 
-      }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+      
+      return jsonResponse(500, {
+        success: false,
+        error: errorMessage,
+        raw: fcmText,
+        status: fcmRes.status,
+      });
+    }
+
+    // Success response contains { name: "projects/.../messages/..." }
+    const messageId = fcmJson?.name ?? null;
+
+    console.log("✅ FCM v1 sent:", messageId ?? "(no message id)");
+    return jsonResponse(200, { success: true, messageId, raw: fcmText });
+  } catch (err: any) {
+    console.error("❌ Function error:", err);
+    return jsonResponse(500, { success: false, error: err?.message || "Failed to send push notification" });
   }
 });
-

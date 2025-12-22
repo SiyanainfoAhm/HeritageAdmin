@@ -78,6 +78,9 @@ export class FCMService {
       const hasServerKey = !!FIREBASE_CONFIG.serverKey;
       const shouldUseEdgeFunction = options.useEdgeFunction || !hasServerKey;
 
+      const isNativeApp = this.isNativeApp();
+      const isBrowser = this.isBrowserEnvironment();
+      
       console.log('📱 Sending FCM push notification...');
       console.log(`   Token: ${options.token.substring(0, 20)}...`);
       console.log(`   Title: ${options.title}`);
@@ -211,9 +214,9 @@ export class FCMService {
     try {
       const edgeFunctionUrl = FCM_EDGE_FUNCTION_URL;
       console.log('📱 Sending push notification via Supabase Edge Function...');
+      console.log(`   URL: ${edgeFunctionUrl}`);
       
       // Get Supabase credentials from config
-      const SUPABASE_URL = 'https://ecvqhfbiwqmqgiqfxheu.supabase.co';
       const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjdnFoZmJpd3FtcWdpcWZ4aGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUzMDEwMTksImV4cCI6MjA2MDg3NzAxOX0.rRF6VbPIRMucv2ePb4QFKA6gvmevrhqO0M_nTiWm5n4';
       
       const response = await fetch(edgeFunctionUrl, {
@@ -233,6 +236,16 @@ export class FCMService {
         }),
       });
 
+      // Handle 404 - Edge Function not deployed
+      if (response.status === 404) {
+        const errorMessage = 'Edge Function not found. Please deploy the heritage-send-fcm function to Supabase.';
+        console.error('❌ Edge Function 404:', errorMessage);
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+
       if (response.ok) {
         const data = await response.json();
         if (data?.success) {
@@ -244,17 +257,80 @@ export class FCMService {
         }
       }
       
-      const errorText = await response.text();
-      console.error('❌ Edge Function failed:', errorText);
+      let errorText = '';
+      try {
+        errorText = await response.text();
+      } catch (textError) {
+        errorText = `HTTP ${response.status}: ${response.statusText}`;
+      }
+      
+      // Safely extract error message without evaluating any code
+      let errorMessage = `Edge Function error: HTTP ${response.status}`;
+      
+      // Check if it's an HTML error page (like 404)
+      if (errorText.includes('<HTML>') || errorText.includes('<TITLE>')) {
+        if (response.status === 404) {
+          errorMessage = 'Edge Function not found. Please deploy the heritage-send-fcm function to Supabase.';
+        } else {
+          errorMessage = `Edge Function returned HTTP ${response.status}. The function may not be deployed or the URL is incorrect.`;
+        }
+      } else {
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson?.error) {
+            const extractedError = typeof errorJson.error === 'string' 
+              ? errorJson.error 
+              : (errorJson.error.message || JSON.stringify(errorJson.error));
+            
+            // Check if the error contains HTML (like 404 page)
+            if (extractedError.includes('<HTML>') || extractedError.includes('<TITLE>')) {
+              errorMessage = response.status === 404
+                ? 'Edge Function not found. Please deploy the heritage-send-fcm function to Supabase.'
+                : `Edge Function returned HTTP ${response.status}. The function may not be deployed.`;
+            } else {
+              errorMessage = extractedError;
+            }
+          } else if (errorJson?.message) {
+            errorMessage = errorJson.message;
+          } else if (typeof errorText === 'string' && errorText.length < 500) {
+            errorMessage = errorText;
+          }
+        } catch {
+          // If parsing fails, use a safe error message
+          if (typeof errorText === 'string' && errorText.length < 500 && !errorText.includes('isNativeApp')) {
+            // Don't use HTML error pages as error messages
+            if (!errorText.includes('<HTML>') && !errorText.includes('<TITLE>')) {
+              errorMessage = errorText;
+            }
+          }
+        }
+      }
+      
+      console.error('❌ Edge Function failed:', errorMessage);
       return {
         success: false,
-        error: `Edge Function error: ${errorText}`,
+        error: errorMessage,
       };
     } catch (error: any) {
-      console.error('❌ Edge Function error:', error);
+      // Safely extract error message
+      let errorMessage = 'Edge Function failed';
+      if (error && typeof error === 'object') {
+        if (error.message && typeof error.message === 'string' && !error.message.includes('isNativeApp')) {
+          errorMessage = error.message;
+        } else if (typeof error.toString === 'function') {
+          const errorStr = error.toString();
+          if (!errorStr.includes('isNativeApp')) {
+            errorMessage = errorStr;
+          }
+        }
+      } else if (typeof error === 'string' && !error.includes('isNativeApp')) {
+        errorMessage = error;
+      }
+      
+      console.error('❌ Edge Function error:', errorMessage);
       return {
         success: false,
-        error: `Edge Function failed: ${error.message || error}`,
+        error: errorMessage,
       };
     }
   }
