@@ -342,7 +342,6 @@ const Verification = () => {
   const [eventSessions, setEventSessions] = useState<Array<{ session_id: number; event_id: number; session_name: string; description?: string | null; session_date: string; start_time: string; end_time?: string | null; max_capacity?: number | null; current_bookings?: number | null; is_active?: boolean | null }>>([]);
   const [eventSessionTranslations, setEventSessionTranslations] = useState<Record<number | string, Record<LanguageCode, { session_name: string; description: string }>>>({});
   const [eventTicketTypes, setEventTicketTypes] = useState<Array<{ ticket_type_id: number; event_id: number; ticket_name: string; description?: string | null; price: number; currency: string; is_active?: boolean | null }>>([]);
-  const [eventTicketTypeTranslations, setEventTicketTypeTranslations] = useState<Record<number, Record<LanguageCode, { ticket_name: string; description: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; message: string; onConfirm: (() => void) | null }>({
     open: false,
@@ -625,40 +624,6 @@ const Verification = () => {
       await fetchTableData(tabConfig.tableName);
     } catch (err: any) {
       setError(err.message || 'Failed to update');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // Handle drafting event/tour/hotel/food (set status to 'draft') - not used for product
-  const handleDraftTableRecord = async (record: any) => {
-    const recordId = record.event_id || record.tour_id || record.hotel_id || record.food_id || record.id;
-    const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
-    if (!tabConfig?.tableName || !recordId || currentTab === 'product') return;
-
-    // Determine the ID column name based on table
-    let idColumn = '';
-    if (currentTab === 'event') idColumn = 'event_id';
-    else if (currentTab === 'tour') idColumn = 'tour_id';
-    else if (currentTab === 'hotel') idColumn = 'hotel_id';
-    else if (currentTab === 'food') idColumn = 'food_id';
-    else return;
-
-    setActionLoading(recordId);
-    try {
-      const { error } = await supabase
-        .from(tabConfig.tableName)
-        .update({ status: 'draft' })
-        .eq(idColumn, recordId);
-
-      if (error) {
-        throw error;
-      }
-
-      // Refresh table data
-      await fetchTableData(tabConfig.tableName);
-    } catch (err: any) {
-      setError(err.message || 'Failed to set as draft');
     } finally {
       setActionLoading(null);
     }
@@ -1051,35 +1016,14 @@ const Verification = () => {
       if (error) {
         console.error('Error loading event ticket types:', error);
         setEventTicketTypes([]);
-        setEventTicketTypeTranslations({});
         return;
       }
 
       const ticketTypes = ticketTypesData || [];
       setEventTicketTypes(ticketTypes);
-
-      // Load ticket type translations (if they exist in a translation table)
-      // Note: Based on the images, ticket types might not have translations, but we'll prepare for it
-      const ticketTypeTranslations: Record<number, Record<LanguageCode, { ticket_name: string; description: string }>> = {};
-      
-      for (const ticketType of ticketTypes) {
-        if (ticketType.ticket_type_id) {
-          ticketTypeTranslations[ticketType.ticket_type_id] = {
-            en: { ticket_name: ticketType.ticket_name || '', description: ticketType.description || '' },
-            hi: { ticket_name: '', description: '' },
-            gu: { ticket_name: '', description: '' },
-            ja: { ticket_name: '', description: '' },
-            es: { ticket_name: '', description: '' },
-            fr: { ticket_name: '', description: '' },
-          };
-        }
-      }
-
-      setEventTicketTypeTranslations(ticketTypeTranslations);
     } catch (error) {
       console.error('Error loading event ticket types:', error);
       setEventTicketTypes([]);
-      setEventTicketTypeTranslations({});
     }
   };
 
@@ -1337,7 +1281,6 @@ const Verification = () => {
           setEventSessions([]);
           setEventSessionTranslations({});
           setEventTicketTypes([]);
-          setEventTicketTypeTranslations({});
         }
       } else if (currentTab === 'hotel') {
         const hotelId = record.hotel_id || record.id;
