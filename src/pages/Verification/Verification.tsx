@@ -2668,14 +2668,33 @@ const Verification = () => {
             // Array fields - ensure they're arrays
             baseFieldsToUpdate[field] = Array.isArray(val) ? val : (typeof val === 'string' ? val.split(',').map(s => s.trim()).filter(Boolean) : []);
           } else {
-            baseFieldsToUpdate[field] = val;
+            // For string fields, save even if empty (to allow clearing values)
+            baseFieldsToUpdate[field] = val !== null && val !== undefined ? String(val) : null;
           }
         }
       });
       
-      // Also update pincode (not translatable)
-      if (currentLanguageTab === 'en' && editedEventDetails.pincode !== undefined) {
-        baseFieldsToUpdate.pincode = editedEventDetails.pincode;
+      // Also update pincode, nearest_metro, and nearest_bus_stop in main table
+      // These should always be saved to the main table when in English tab
+      if (currentLanguageTab === 'en') {
+        // Pincode (not translatable)
+        if (editedEventDetails.pincode !== undefined) {
+          baseFieldsToUpdate.pincode = editedEventDetails.pincode !== null && editedEventDetails.pincode !== undefined 
+            ? String(editedEventDetails.pincode) 
+            : null;
+        }
+        // nearest_metro and nearest_bus_stop (translatable but also stored in main table)
+        // They're already in EVENT_TRANSLATABLE_FIELDS so handled above, but ensure they're saved
+        if (editedEventDetails.nearest_metro !== undefined) {
+          baseFieldsToUpdate.nearest_metro = editedEventDetails.nearest_metro !== null && editedEventDetails.nearest_metro !== undefined 
+            ? String(editedEventDetails.nearest_metro) 
+            : null;
+        }
+        if (editedEventDetails.nearest_bus_stop !== undefined) {
+          baseFieldsToUpdate.nearest_bus_stop = editedEventDetails.nearest_bus_stop !== null && editedEventDetails.nearest_bus_stop !== undefined 
+            ? String(editedEventDetails.nearest_bus_stop) 
+            : null;
+        }
       }
 
       // Update base event record if there are changes
