@@ -48,6 +48,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import StarIcon from '@mui/icons-material/Star';
+import ImageIcon from '@mui/icons-material/Image';
 import { format } from 'date-fns';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MapIcon from '@mui/icons-material/Map';
@@ -117,6 +119,8 @@ const EVENT_TRANSLATABLE_FIELDS = [
   'prohibited_items',
   'city',
   'state',
+  'nearest_metro',
+  'nearest_bus_stop',
 ];
 
 // Translatable fields for tour details
@@ -319,7 +323,7 @@ const Verification = () => {
   const [editedBusinessDetails, setEditedBusinessDetails] = useState<Record<string, any>>({});
   const [editedEventDetails, setEditedEventDetails] = useState<Record<string, any>>({});
   const [editedTourDetails, setEditedTourDetails] = useState<Record<string, any>>({});
-  const [editedEventMedia, setEditedEventMedia] = useState<Array<{ media_id?: number; media_type: string; media_url: string; media_title?: string; media_description?: string; media_order?: number; is_featured?: boolean; is_public?: boolean }>>([]);
+  const [editedEventMedia, setEditedEventMedia] = useState<Array<{ media_id?: number; media_type: string; media_url: string; media_title?: string; media_description?: string; media_order?: number; is_featured?: boolean; is_public?: boolean; file?: File }>>([]);
   const [editedTourMedia, setEditedTourMedia] = useState<Array<{ media_id?: number; media_type: string; media_url: string; alt_text?: string; media_order?: number; file?: File }>>([]);
   const [tourHeroImage, setTourHeroImage] = useState<string | null>(null);
   const [tourHeroImageFile, setTourHeroImageFile] = useState<File | null>(null);
@@ -334,6 +338,11 @@ const Verification = () => {
   const [availableTags, setAvailableTags] = useState<Array<{ tag_id: number; tag_key: string; tag_name: string; tag_color: string; tag_icon: string }>>([]);
   const [tagDialog, setTagDialog] = useState<{ open: boolean }>({ open: false });
   const [loadingTags, setLoadingTags] = useState(false);
+  // Event sessions and ticket types
+  const [eventSessions, setEventSessions] = useState<Array<{ session_id: number; event_id: number; session_name: string; description?: string | null; session_date: string; start_time: string; end_time?: string | null; max_capacity?: number | null; current_bookings?: number | null; is_active?: boolean | null }>>([]);
+  const [eventSessionTranslations, setEventSessionTranslations] = useState<Record<number | string, Record<LanguageCode, { session_name: string; description: string }>>>({});
+  const [eventTicketTypes, setEventTicketTypes] = useState<Array<{ ticket_type_id: number; event_id: number; ticket_name: string; description?: string | null; price: number; currency: string; is_active?: boolean | null }>>([]);
+  const [eventTicketTypeTranslations, setEventTicketTypeTranslations] = useState<Record<number, Record<LanguageCode, { ticket_name: string; description: string }>>>({});
   const [saving, setSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; message: string; onConfirm: (() => void) | null }>({
     open: false,
@@ -342,7 +351,7 @@ const Verification = () => {
   });
   //Test
   const [mediaDialog, setMediaDialog] = useState<{ open: boolean; media?: any; index?: number }>({ open: false });
-  const [newMediaData, setNewMediaData] = useState<{ media_type: string; media_url: string; media_title: string; media_description: string; media_order: number; is_featured: boolean; is_public: boolean }>({
+  const [newMediaData, setNewMediaData] = useState<{ media_type: string; media_url: string; media_title: string; media_description: string; media_order: number; is_featured: boolean; is_public: boolean; file?: File }>({
     media_type: 'media',
     media_url: '',
     media_title: '',
@@ -351,6 +360,7 @@ const Verification = () => {
     is_featured: false,
     is_public: true,
   });
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [addItemDialog, setAddItemDialog] = useState<{ open: boolean; key: string; label: string }>({ open: false, key: '', label: '' });
   const [newItemValue, setNewItemValue] = useState(''); // For Local Guide and other non-event array fields
   const [newEventItemValues, setNewEventItemValues] = useState<Record<string, string>>({
@@ -963,6 +973,116 @@ const Verification = () => {
     }
   };
 
+  // Load event sessions from database
+  const loadEventSessions = async (eventId: number) => {
+    try {
+      const { data: sessionsData, error } = await supabase
+        .from('heritage_eventsession')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('session_date', { ascending: true })
+        .order('start_time', { ascending: true });
+
+      if (error) {
+        console.error('Error loading event sessions:', error);
+        setEventSessions([]);
+        setEventSessionTranslations({});
+        return;
+      }
+
+      const sessions = sessionsData || [];
+      setEventSessions(sessions);
+
+      // Load session translations
+      const sessionTranslations: Record<number, Record<LanguageCode, { session_name: string; description: string }>> = {};
+      
+      for (const session of sessions) {
+        if (session.session_id) {
+          sessionTranslations[session.session_id] = {
+            en: { session_name: session.session_name || '', description: session.description || '' },
+            hi: { session_name: '', description: '' },
+            gu: { session_name: '', description: '' },
+            ja: { session_name: '', description: '' },
+            es: { session_name: '', description: '' },
+            fr: { session_name: '', description: '' },
+          };
+
+          // Load translations from database
+          try {
+            const { data: transData, error: transError } = await supabase
+              .from('heritage_eventsessiontranslation')
+              .select('*')
+              .eq('session_id', session.session_id);
+
+            if (!transError && transData) {
+              transData.forEach((trans: any) => {
+                const langCode = String(trans.language_code || '').toLowerCase() as LanguageCode;
+                if (langCode && LANGUAGES.some(l => l.code === langCode)) {
+                  sessionTranslations[session.session_id][langCode] = {
+                    session_name: String(trans.session_name || ''),
+                    description: String(trans.description || ''),
+                  };
+                }
+              });
+            }
+          } catch (err) {
+            console.error(`Error loading translations for session ${session.session_id}:`, err);
+          }
+        }
+      }
+
+      setEventSessionTranslations(sessionTranslations);
+    } catch (error) {
+      console.error('Error loading event sessions:', error);
+      setEventSessions([]);
+      setEventSessionTranslations({});
+    }
+  };
+
+  // Load event ticket types from database
+  const loadEventTicketTypes = async (eventId: number) => {
+    try {
+      const { data: ticketTypesData, error } = await supabase
+        .from('heritage_eventtickettype')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('ticket_type_id', { ascending: true });
+
+      if (error) {
+        console.error('Error loading event ticket types:', error);
+        setEventTicketTypes([]);
+        setEventTicketTypeTranslations({});
+        return;
+      }
+
+      const ticketTypes = ticketTypesData || [];
+      setEventTicketTypes(ticketTypes);
+
+      // Load ticket type translations (if they exist in a translation table)
+      // Note: Based on the images, ticket types might not have translations, but we'll prepare for it
+      const ticketTypeTranslations: Record<number, Record<LanguageCode, { ticket_name: string; description: string }>> = {};
+      
+      for (const ticketType of ticketTypes) {
+        if (ticketType.ticket_type_id) {
+          ticketTypeTranslations[ticketType.ticket_type_id] = {
+            en: { ticket_name: ticketType.ticket_name || '', description: ticketType.description || '' },
+            hi: { ticket_name: '', description: '' },
+            gu: { ticket_name: '', description: '' },
+            ja: { ticket_name: '', description: '' },
+            es: { ticket_name: '', description: '' },
+            fr: { ticket_name: '', description: '' },
+          };
+        }
+      }
+
+      setEventTicketTypeTranslations(ticketTypeTranslations);
+    } catch (error) {
+      console.error('Error loading event ticket types:', error);
+      setEventTicketTypes([]);
+      setEventTicketTypeTranslations({});
+    }
+  };
+
   // Fetch tour details using RPC function
   const fetchTourDetails = async (tourId: number) => {
     try {
@@ -1146,6 +1266,9 @@ const Verification = () => {
             prohibited_items: Array.isArray(eventData.prohibited_items) ? eventData.prohibited_items : [],
             city: eventData.city || '',
             state: eventData.state || '',
+            pincode: eventData.pincode || '',
+            nearest_metro: eventData.nearest_metro || '',
+            nearest_bus_stop: eventData.nearest_bus_stop || '',
           });
 
           // Load translations
@@ -1201,10 +1324,20 @@ const Verification = () => {
             is_public: m.is_public !== undefined ? m.is_public : true,
           }));
           setEditedEventMedia(normalizedMedia);
+          
+          // Load event sessions
+          await loadEventSessions(eventId);
+          
+          // Load event ticket types
+          await loadEventTicketTypes(eventId);
         } else {
           setEditedEventDetails({});
           setTranslations({});
           setEditedEventMedia([]);
+          setEventSessions([]);
+          setEventSessionTranslations({});
+          setEventTicketTypes([]);
+          setEventTicketTypeTranslations({});
         }
       } else if (currentTab === 'hotel') {
         const hotelId = record.hotel_id || record.id;
@@ -1832,6 +1965,152 @@ const Verification = () => {
   };
 
   // Auto-translate a tag name to all other languages - works from any language
+  // Auto-translate session name - works from any language
+  const autoTranslateSessionName = async (text: string, sessionId: number | string) => {
+    if (!sessionId || !text || !text.trim()) return;
+    
+    try {
+      const sourceLanguage = currentLanguageTab;
+      const timerKey = `translate_session_name_${sessionId}_${sourceLanguage}`;
+      if (translationTimerRef.current[timerKey]) {
+        clearTimeout(translationTimerRef.current[timerKey]);
+      }
+
+      translationTimerRef.current[timerKey] = setTimeout(async () => {
+        // Get all languages except the current one
+        const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
+        if (targetLanguages.length === 0) return;
+
+        setTranslatingFields(prev => new Set(prev).add(`session_name_${sessionId}`));
+        
+        try {
+          for (const lang of targetLanguages) {
+            try {
+              const result = await TranslationService.translate(text, lang.code, sourceLanguage);
+              if (result.success && result.translations && result.translations[lang.code]) {
+                const translatedText = Array.isArray(result.translations[lang.code]) 
+                  ? result.translations[lang.code][0] 
+                  : String(result.translations[lang.code] || '');
+                
+                setEventSessionTranslations(prev => {
+                  const sessionIdKey = typeof sessionId === 'number' ? sessionId : Number(sessionId) || sessionId;
+                  const current = prev[sessionIdKey] || {
+                    en: { session_name: '', description: '' },
+                    hi: { session_name: '', description: '' },
+                    gu: { session_name: '', description: '' },
+                    ja: { session_name: '', description: '' },
+                    es: { session_name: '', description: '' },
+                    fr: { session_name: '', description: '' },
+                  };
+                  
+                  return {
+                    ...prev,
+                    [sessionIdKey]: {
+                      ...current,
+                      [sourceLanguage]: {
+                        ...(current[sourceLanguage] || { session_name: '', description: '' }),
+                        session_name: text, // Update source language with current text
+                      },
+                      [lang.code]: {
+                        ...(current[lang.code] || { session_name: '', description: '' }),
+                        session_name: translatedText,
+                      },
+                    },
+                  };
+                });
+              }
+            } catch (langError) {
+              console.error(`Translation error for ${lang.code}:`, langError);
+            }
+          }
+        } catch (error) {
+          console.error('Translation error:', error);
+        } finally {
+          setTranslatingFields(prev => {
+            const next = new Set(prev);
+            next.delete(`session_name_${sessionId}`);
+            return next;
+          });
+        }
+      }, 1000); // 1 second debounce
+    } catch (error) {
+      console.error('Error setting up translation:', error);
+    }
+  };
+
+  // Auto-translate session description - works from any language
+  const autoTranslateSessionDescription = async (text: string, sessionId: number | string) => {
+    if (!sessionId || !text || !text.trim()) return;
+    
+    try {
+      const sourceLanguage = currentLanguageTab;
+      const timerKey = `translate_session_description_${sessionId}_${sourceLanguage}`;
+      if (translationTimerRef.current[timerKey]) {
+        clearTimeout(translationTimerRef.current[timerKey]);
+      }
+
+      translationTimerRef.current[timerKey] = setTimeout(async () => {
+        // Get all languages except the current one
+        const targetLanguages = LANGUAGES.filter(l => l.code !== sourceLanguage);
+        if (targetLanguages.length === 0) return;
+
+        setTranslatingFields(prev => new Set(prev).add(`session_description_${sessionId}`));
+        
+        try {
+          for (const lang of targetLanguages) {
+            try {
+              const result = await TranslationService.translate(text, lang.code, sourceLanguage);
+              if (result.success && result.translations && result.translations[lang.code]) {
+                const translatedText = Array.isArray(result.translations[lang.code]) 
+                  ? result.translations[lang.code][0] 
+                  : String(result.translations[lang.code] || '');
+                
+                setEventSessionTranslations(prev => {
+                  const sessionIdKey = typeof sessionId === 'number' ? sessionId : Number(sessionId) || sessionId;
+                  const current = prev[sessionIdKey] || {
+                    en: { session_name: '', description: '' },
+                    hi: { session_name: '', description: '' },
+                    gu: { session_name: '', description: '' },
+                    ja: { session_name: '', description: '' },
+                    es: { session_name: '', description: '' },
+                    fr: { session_name: '', description: '' },
+                  };
+                  
+                  return {
+                    ...prev,
+                    [sessionIdKey]: {
+                      ...current,
+                      [sourceLanguage]: {
+                        ...(current[sourceLanguage] || { session_name: '', description: '' }),
+                        description: text, // Update source language with current text
+                      },
+                      [lang.code]: {
+                        ...(current[lang.code] || { session_name: '', description: '' }),
+                        description: translatedText,
+                      },
+                    },
+                  };
+                });
+              }
+            } catch (langError) {
+              console.error(`Translation error for ${lang.code}:`, langError);
+            }
+          }
+        } catch (error) {
+          console.error('Translation error:', error);
+        } finally {
+          setTranslatingFields(prev => {
+            const next = new Set(prev);
+            next.delete(`session_description_${sessionId}`);
+            return next;
+          });
+        }
+      }, 1000); // 1 second debounce
+    } catch (error) {
+      console.error('Error setting up translation:', error);
+    }
+  };
+
   const autoTranslateTagName = async (text: string, tagId: number) => {
     if (!text || !text.trim() || !tagId) return;
     
@@ -2393,6 +2672,11 @@ const Verification = () => {
           }
         }
       });
+      
+      // Also update pincode (not translatable)
+      if (currentLanguageTab === 'en' && editedEventDetails.pincode !== undefined) {
+        baseFieldsToUpdate.pincode = editedEventDetails.pincode;
+      }
 
       // Update base event record if there are changes
       if (Object.keys(baseFieldsToUpdate).length > 0) {
@@ -2490,24 +2774,28 @@ const Verification = () => {
       }
 
       // Save event media
+      setUploadingMedia(true);
+      const folder = `events/${eventId}`;
+      
       if (editedEventMedia.length > 0) {
-        // First, delete media that are no longer in the list (if they have media_id)
+        // First, get current media from database to identify files to delete
+        const { data: currentMedia } = await supabase
+          .from('heritage_eventmedia')
+          .select('media_id, media_url')
+          .eq('event_id', eventId);
+
         const existingMediaIds = editedEventMedia
           .filter(m => m.media_id)
           .map(m => m.media_id);
-        
-        // Get current media from database
-        const { data: currentMedia } = await supabase
-          .from('heritage_eventmedia')
-          .select('media_id')
-          .eq('event_id', eventId);
 
+        // Delete media files from storage that are no longer in the list
         if (currentMedia) {
           const mediaIdsToDelete = currentMedia
             .map((m: any) => m.media_id)
             .filter((id: number) => !existingMediaIds.includes(id));
 
           if (mediaIdsToDelete.length > 0) {
+            // Delete from database
             const { error: deleteError } = await supabase
               .from('heritage_eventmedia')
               .delete()
@@ -2516,16 +2804,56 @@ const Verification = () => {
             if (deleteError) {
               console.error('Error deleting removed media:', deleteError);
             }
+
+            // Delete files from storage
+            for (const mediaToDelete of currentMedia.filter((m: any) => mediaIdsToDelete.includes(m.media_id))) {
+              if (mediaToDelete.media_url) {
+                try {
+                  await StorageService.deleteFile(mediaToDelete.media_url);
+                } catch (deleteFileErr) {
+                  console.error('Error deleting file from storage:', deleteFileErr);
+                }
+              }
+            }
           }
         }
 
         // Upsert all media items
         for (const media of editedEventMedia) {
           try {
+            let mediaUrl = media.media_url || '';
+            
+            // Upload new file if provided
+            if (media.file) {
+              // If updating existing media and it has a URL (and it's not a blob URL), delete the old file first
+              if (media.media_id && media.media_url && !media.media_url.startsWith('blob:')) {
+                try {
+                  await StorageService.deleteFile(media.media_url);
+                } catch (deleteFileErr) {
+                  console.error('Error deleting old file:', deleteFileErr);
+                }
+              }
+              
+              const uploadResult = await StorageService.uploadFile(media.file, folder);
+              
+              if (!uploadResult.success || !uploadResult.url) {
+                console.error(`Failed to upload media: ${uploadResult.error}`);
+                setError(`Failed to upload ${media.file.name}: ${uploadResult.error || 'Unknown error'}`);
+                continue;
+              }
+              
+              mediaUrl = uploadResult.url;
+              
+              // Revoke the blob URL to free memory after upload
+              if (media.media_url && media.media_url.startsWith('blob:')) {
+                URL.revokeObjectURL(media.media_url);
+              }
+            }
+
             const mediaData: any = {
               event_id: eventId,
               media_type: media.media_type || 'media',
-              media_url: media.media_url || '',
+              media_url: mediaUrl,
               media_title: media.media_title || null,
               media_description: media.media_description || null,
               media_order: media.media_order || 0,
@@ -2561,6 +2889,24 @@ const Verification = () => {
         }
       } else {
         // If no media, delete all existing media for this event
+        const { data: allMedia } = await supabase
+          .from('heritage_eventmedia')
+          .select('media_url')
+          .eq('event_id', eventId);
+
+        if (allMedia) {
+          // Delete files from storage
+          for (const media of allMedia) {
+            if (media.media_url) {
+              try {
+                await StorageService.deleteFile(media.media_url);
+              } catch (deleteFileErr) {
+                console.error('Error deleting file from storage:', deleteFileErr);
+              }
+            }
+          }
+        }
+
         const { error: deleteAllError } = await supabase
           .from('heritage_eventmedia')
           .delete()
@@ -2568,6 +2914,160 @@ const Verification = () => {
 
         if (deleteAllError) {
           console.error('Error deleting all media:', deleteAllError);
+        }
+      }
+      
+      setUploadingMedia(false);
+
+      // Save event sessions
+      if (eventSessions.length > 0) {
+        for (const session of eventSessions) {
+          try {
+            const sessionData: any = {
+              event_id: eventId,
+              session_name: session.session_name || '',
+              description: session.description || null,
+              session_date: session.session_date || '',
+              start_time: session.start_time || '',
+              end_time: session.end_time || null,
+              max_capacity: session.max_capacity || null,
+              current_bookings: session.current_bookings || null,
+              is_active: session.is_active !== undefined ? session.is_active : true,
+            };
+
+            if (session.session_id && session.session_id > 0) {
+              // Update existing session
+              const { error: updateError } = await supabase
+                .from('heritage_eventsession')
+                .update(sessionData)
+                .eq('session_id', session.session_id);
+
+              if (updateError) {
+                console.error('Error updating session:', updateError);
+                setError(`Failed to update session: ${updateError.message}`);
+              } else {
+                // Save session translations (including English for consistency)
+                const sessionTrans = eventSessionTranslations[session.session_id];
+                if (sessionTrans) {
+                  // Save all language translations
+                  for (const lang of LANGUAGES) {
+                    const langCode = lang.code.toUpperCase();
+                    const transData = sessionTrans[lang.code];
+                    if (transData && (transData.session_name || transData.description)) {
+                      const { error: transError } = await supabase
+                        .from('heritage_eventsessiontranslation')
+                        .upsert(
+                          {
+                            session_id: session.session_id,
+                            language_code: langCode,
+                            session_name: transData.session_name || null,
+                            description: transData.description || null,
+                          },
+                          {
+                            onConflict: 'session_id,language_code',
+                          }
+                        );
+
+                      if (transError) {
+                        console.error(`Error saving session translation for ${langCode}:`, transError);
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // Insert new session
+              const { data: newSession, error: insertError } = await supabase
+                .from('heritage_eventsession')
+                .insert(sessionData)
+                .select()
+                .single();
+
+              if (insertError) {
+                console.error('Error inserting session:', insertError);
+                setError(`Failed to insert session: ${insertError.message}`);
+              } else if (newSession) {
+                // Save session translations for new session
+                const tempId = session.session_id; // This was the temporary ID
+                const sessionTrans = eventSessionTranslations[tempId];
+                if (sessionTrans) {
+                  // Update the translations map to use the new real ID
+                  const newTrans = { ...eventSessionTranslations };
+                  delete newTrans[tempId];
+                  newTrans[newSession.session_id] = sessionTrans;
+                  setEventSessionTranslations(newTrans);
+                  
+                  // Save all language translations (including English for consistency)
+                  for (const lang of LANGUAGES) {
+                    const langCode = lang.code.toUpperCase();
+                    const transData = sessionTrans[lang.code];
+                    if (transData && (transData.session_name || transData.description)) {
+                      const { error: transError } = await supabase
+                        .from('heritage_eventsessiontranslation')
+                        .upsert(
+                          {
+                            session_id: newSession.session_id,
+                            language_code: langCode,
+                            session_name: transData.session_name || null,
+                            description: transData.description || null,
+                          },
+                          {
+                            onConflict: 'session_id,language_code',
+                          }
+                        );
+
+                      if (transError) {
+                        console.error(`Error saving session translation for ${langCode}:`, transError);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } catch (sessionErr) {
+            console.error('Error during session upsert:', sessionErr);
+          }
+        }
+      }
+
+      // Save event ticket types
+      if (eventTicketTypes.length > 0) {
+        for (const ticketType of eventTicketTypes) {
+          try {
+            const ticketData: any = {
+              event_id: eventId,
+              ticket_name: ticketType.ticket_name || '',
+              description: ticketType.description || null,
+              price: ticketType.price || 0,
+              currency: ticketType.currency || 'INR',
+              is_active: ticketType.is_active !== undefined ? ticketType.is_active : true,
+            };
+
+            if (ticketType.ticket_type_id) {
+              // Update existing ticket type
+              const { error: updateError } = await supabase
+                .from('heritage_eventtickettype')
+                .update(ticketData)
+                .eq('ticket_type_id', ticketType.ticket_type_id);
+
+              if (updateError) {
+                console.error('Error updating ticket type:', updateError);
+                setError(`Failed to update ticket type: ${updateError.message}`);
+              }
+            } else {
+              // Insert new ticket type
+              const { error: insertError } = await supabase
+                .from('heritage_eventtickettype')
+                .insert(ticketData);
+
+              if (insertError) {
+                console.error('Error inserting ticket type:', insertError);
+                setError(`Failed to insert ticket type: ${insertError.message}`);
+              }
+            }
+          } catch (ticketErr) {
+            console.error('Error during ticket type upsert:', ticketErr);
+          }
         }
       }
 
@@ -2613,8 +3113,15 @@ const Verification = () => {
           prohibited_items: Array.isArray(eventData.prohibited_items) ? eventData.prohibited_items : [],
           city: eventData.city || '',
           state: eventData.state || '',
+          pincode: eventData.pincode || '',
+          nearest_metro: eventData.nearest_metro || '',
+          nearest_bus_stop: eventData.nearest_bus_stop || '',
         });
       }
+      
+      // Reload sessions and ticket types
+      await loadEventSessions(eventId);
+      await loadEventTicketTypes(eventId);
 
       // Reload event media - heroes and media are arrays directly, not items arrays
       const allMedia: any[] = [];
@@ -4134,8 +4641,8 @@ const Verification = () => {
                     } else {
                       handleSaveChanges();
                     }
-                  }} color="success" disabled={saving}>
-                    {saving ? <CircularProgress size={20} /> : <SaveIcon />}
+                  }} color="success" disabled={saving || uploadingMedia}>
+                    {(saving || uploadingMedia) ? <CircularProgress size={20} /> : <SaveIcon />}
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="Cancel">
@@ -4158,6 +4665,9 @@ const Verification = () => {
                           prohibited_items: Array.isArray(eventData.prohibited_items) ? eventData.prohibited_items : [],
                           city: eventData.city || '',
                           state: eventData.state || '',
+                          pincode: eventData.pincode || '',
+                          nearest_metro: eventData.nearest_metro || '',
+                          nearest_bus_stop: eventData.nearest_bus_stop || '',
                         });
                       }
                     } else if (currentTab === 'tour' && selectedTableRecord) {
@@ -4499,6 +5009,27 @@ const Verification = () => {
                       </Grid>
                     );
                   })}
+                  
+                  {/* Pincode field (non-translatable) */}
+                  <Grid item xs={6} key="pincode">
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Pincode
+                    </Typography>
+                    {editMode ? (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        value={editedEventDetails.pincode || ''}
+                        onChange={(e) => {
+                          setEditedEventDetails(prev => ({ ...prev, pincode: e.target.value }));
+                        }}
+                      />
+                    ) : (
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {eventDetails?.event?.pincode || '—'}
+                      </Typography>
+                    )}
+                  </Grid>
                 </Grid>
               </Box>
 
@@ -4545,6 +5076,22 @@ const Verification = () => {
                             <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 4, right: 4, zIndex: 1 }}>
                               <IconButton
                                 size="small"
+                                color={media.media_type === 'hero' ? 'primary' : 'default'}
+                                onClick={() => {
+                                  // Toggle between hero and gallery
+                                  setEditedEventMedia(prev => prev.map((m, i) => 
+                                    i === index 
+                                      ? { ...m, media_type: m.media_type === 'hero' ? 'media' : 'hero' }
+                                      : m
+                                  ));
+                                }}
+                                sx={{ bgcolor: 'white', '&:hover': { bgcolor: '#e3f2fd' } }}
+                                title={media.media_type === 'hero' ? 'Set as Gallery' : 'Set as Hero'}
+                              >
+                                {media.media_type === 'hero' ? <StarIcon fontSize="small" /> : <ImageIcon fontSize="small" />}
+                              </IconButton>
+                              <IconButton
+                                size="small"
                                 color="primary"
                                 onClick={() => {
                                   setNewMediaData({
@@ -4555,6 +5102,7 @@ const Verification = () => {
                                     media_order: media.media_order || index,
                                     is_featured: media.is_featured || false,
                                     is_public: media.is_public !== false,
+                                    file: undefined,
                                   });
                                   setMediaDialog({ open: true, media, index });
                                 }}
@@ -4568,11 +5116,11 @@ const Verification = () => {
                                 onClick={() => {
                                   setConfirmDialog({
                                     open: true,
-                                    message: 'Are you sure you want to delete this media?',
+                                    message: 'Are you sure you want to delete this media? This will also delete the file from storage.',
                                     onConfirm: () => {
                                       setConfirmDialog({ open: false, message: '', onConfirm: null });
-                                    const newMedia = editedEventMedia.filter((_, i) => i !== index);
-                                    setEditedEventMedia(newMedia);
+                                      const newMedia = editedEventMedia.filter((_, i) => i !== index);
+                                      setEditedEventMedia(newMedia);
                                     },
                                   });
                                 }}
@@ -4582,29 +5130,44 @@ const Verification = () => {
                               </IconButton>
                             </Stack>
                           )}
-                          {media.media_url && (
-                            media.media_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                              <CardMedia
-                                component="img"
-                                height="180"
-                                image={media.media_url}
-                                alt={media.media_title || 'Event media'}
-                                sx={{ objectFit: 'cover' }}
-                              />
-                            ) : media.media_url.match(/\.(mp4|mov|m4v|webm|avi|mkv)$/i) ? (
-                              <Box sx={{ height: 180, bgcolor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <video
-                                  src={media.media_url}
-                                  style={{ maxWidth: '100%', maxHeight: '100%' }}
-                                  controls
+                          {(() => {
+                            // Get display URL - use media_url if available (could be blob URL for preview or actual URL)
+                            // If file exists but no URL, create preview (shouldn't happen but handle it)
+                            const displayUrl = media.media_url || (media.file ? URL.createObjectURL(media.file) : null);
+                            
+                            if (!displayUrl) return null;
+                            
+                            const isImage = displayUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i) || (media.file && media.file.type.startsWith('image/'));
+                            const isVideo = displayUrl.match(/\.(mp4|mov|m4v|webm|avi|mkv)$/i) || (media.file && media.file.type.startsWith('video/'));
+                            
+                            if (isImage) {
+                              return (
+                                <CardMedia
+                                  component="img"
+                                  height="180"
+                                  image={displayUrl}
+                                  alt={media.media_title || 'Event media'}
+                                  sx={{ objectFit: 'cover' }}
                                 />
-                              </Box>
-                            ) : (
-                              <Box sx={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
-                                <Typography variant="body2" color="text.secondary">Media</Typography>
-                              </Box>
-                            )
-                          )}
+                              );
+                            } else if (isVideo) {
+                              return (
+                                <Box sx={{ height: 180, bgcolor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <video
+                                    src={displayUrl}
+                                    style={{ maxWidth: '100%', maxHeight: '100%' }}
+                                    controls
+                                  />
+                                </Box>
+                              );
+                            } else {
+                              return (
+                                <Box sx={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
+                                  <Typography variant="body2" color="text.secondary">Media</Typography>
+                                </Box>
+                              );
+                            }
+                          })()}
                           <Box sx={{ p: 1.5 }}>
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
                               <Chip
@@ -4641,6 +5204,451 @@ const Verification = () => {
                     ))
                   )}
                 </Grid>
+              </Box>
+
+              {/* Event Sessions Section */}
+              <Box>
+                <Divider sx={{ my: 2 }} />
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Event Sessions ({eventSessions.length})
+                  </Typography>
+                  {editMode && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        const tempId = -Date.now(); // Use negative timestamp as temporary ID
+                        const newSession = {
+                          session_id: tempId,
+                          event_id: selectedTableRecord.event_id || selectedTableRecord.id,
+                          session_name: '',
+                          description: null,
+                          session_date: new Date().toISOString().split('T')[0],
+                          start_time: '00:00:00',
+                          end_time: null,
+                          max_capacity: null,
+                          current_bookings: null,
+                          is_active: true,
+                        };
+                        setEventSessions(prev => [...prev, newSession]);
+                        setEventSessionTranslations(prev => ({
+                          ...prev,
+                          [tempId]: {
+                            en: { session_name: '', description: '' },
+                            hi: { session_name: '', description: '' },
+                            gu: { session_name: '', description: '' },
+                            ja: { session_name: '', description: '' },
+                            es: { session_name: '', description: '' },
+                            fr: { session_name: '', description: '' },
+                          },
+                        }));
+                      }}
+                    >
+                      Add Session
+                    </Button>
+                  )}
+                </Stack>
+                {eventSessions.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No sessions added yet
+                  </Typography>
+                ) : (
+                  <Stack spacing={2}>
+                    {eventSessions.map((session, index) => {
+                      const sessionId = session.session_id || index;
+                      const sessionTrans = eventSessionTranslations[sessionId];
+                      // Display translated session name based on current language tab
+                      const displayName = currentLanguageTab !== 'en' && sessionTrans?.[currentLanguageTab]?.session_name
+                        ? sessionTrans[currentLanguageTab].session_name
+                        : session.session_name || '';
+                      // Display translated description based on current language tab
+                      const displayDesc = currentLanguageTab !== 'en' && sessionTrans?.[currentLanguageTab]?.description
+                        ? sessionTrans[currentLanguageTab].description
+                        : session.description || '';
+
+                      return (
+                        <Card key={sessionId} variant="outlined">
+                          <Box sx={{ p: 2 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
+                              <Typography variant="subtitle2" fontWeight={600}>
+                                {displayName || `Session ${index + 1}`}
+                              </Typography>
+                              {editMode && (
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => {
+                                    setConfirmDialog({
+                                      open: true,
+                                      message: 'Are you sure you want to delete this session?',
+                                      onConfirm: () => {
+                                        setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                        setEventSessions(prev => prev.filter((_, i) => i !== index));
+                                        const sessionId = session.session_id || index;
+                                        const newTrans = { ...eventSessionTranslations };
+                                        delete newTrans[sessionId];
+                                        setEventSessionTranslations(newTrans);
+                                      },
+                                    });
+                                  }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              )}
+                            </Stack>
+                            {editMode ? (
+                              <Grid container spacing={2}>
+                                <Grid item xs={12} sm={6}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Session Name"
+                                    value={currentLanguageTab === 'en' ? (session.session_name || '') : (sessionTrans?.[currentLanguageTab]?.session_name || '')}
+                                    onChange={(e) => {
+                                      const newValue = e.target.value;
+                                      const sessionId = session.session_id || index;
+                                      
+                                      if (currentLanguageTab === 'en') {
+                                        setEventSessions(prev => prev.map((s, i) => 
+                                          i === index ? { ...s, session_name: newValue } : s
+                                        ));
+                                        // Also update English translation
+                                        const newTrans = { ...eventSessionTranslations };
+                                        if (!newTrans[sessionId]) {
+                                          newTrans[sessionId] = {
+                                            en: { session_name: '', description: session.description || '' },
+                                            hi: { session_name: '', description: '' },
+                                            gu: { session_name: '', description: '' },
+                                            ja: { session_name: '', description: '' },
+                                            es: { session_name: '', description: '' },
+                                            fr: { session_name: '', description: '' },
+                                          };
+                                        }
+                                        newTrans[sessionId].en = {
+                                          ...newTrans[sessionId].en,
+                                          session_name: newValue,
+                                        };
+                                        setEventSessionTranslations(newTrans);
+                                      } else {
+                                        const newTrans = { ...eventSessionTranslations };
+                                        if (!newTrans[sessionId]) {
+                                          newTrans[sessionId] = {
+                                            en: { session_name: session.session_name || '', description: session.description || '' },
+                                            hi: { session_name: '', description: '' },
+                                            gu: { session_name: '', description: '' },
+                                            ja: { session_name: '', description: '' },
+                                            es: { session_name: '', description: '' },
+                                            fr: { session_name: '', description: '' },
+                                          };
+                                        }
+                                        newTrans[sessionId][currentLanguageTab] = {
+                                          ...newTrans[sessionId][currentLanguageTab],
+                                          session_name: newValue,
+                                        };
+                                        setEventSessionTranslations(newTrans);
+                                      }
+                                      
+                                      // Auto-translate to all other languages
+                                      if (newValue && newValue.trim()) {
+                                        autoTranslateSessionName(newValue, sessionId);
+                                      }
+                                    }}
+                                    InputProps={{
+                                      endAdornment: translatingFields.has(`session_name_${sessionId}`) ? (
+                                        <InputAdornment position="end">
+                                          <CircularProgress size={16} />
+                                        </InputAdornment>
+                                      ) : undefined,
+                                    }}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} sm={6}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Session Date"
+                                    type="date"
+                                    value={session.session_date || ''}
+                                    onChange={(e) => {
+                                      setEventSessions(prev => prev.map((s, i) => 
+                                        i === index ? { ...s, session_date: e.target.value } : s
+                                      ));
+                                    }}
+                                    InputLabelProps={{ shrink: true }}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} sm={6}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Start Time"
+                                    type="time"
+                                    value={session.start_time || ''}
+                                    onChange={(e) => {
+                                      setEventSessions(prev => prev.map((s, i) => 
+                                        i === index ? { ...s, start_time: e.target.value } : s
+                                      ));
+                                    }}
+                                    InputLabelProps={{ shrink: true }}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} sm={6}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="End Time"
+                                    type="time"
+                                    value={session.end_time || ''}
+                                    onChange={(e) => {
+                                      setEventSessions(prev => prev.map((s, i) => 
+                                        i === index ? { ...s, end_time: e.target.value || null } : s
+                                      ));
+                                    }}
+                                    InputLabelProps={{ shrink: true }}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} sm={6}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Max Capacity"
+                                    type="number"
+                                    value={session.max_capacity || ''}
+                                    onChange={(e) => {
+                                      setEventSessions(prev => prev.map((s, i) => 
+                                        i === index ? { ...s, max_capacity: e.target.value ? parseInt(e.target.value) : null } : s
+                                      ));
+                                    }}
+                                  />
+                                </Grid>
+                                <Grid item xs={12}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Description"
+                                    multiline
+                                    minRows={2}
+                                    value={currentLanguageTab === 'en' ? (session.description || '') : (sessionTrans?.[currentLanguageTab]?.description || '')}
+                                    onChange={(e) => {
+                                      const newValue = e.target.value;
+                                      const sessionId = session.session_id || index;
+                                      
+                                      if (currentLanguageTab === 'en') {
+                                        setEventSessions(prev => prev.map((s, i) => 
+                                          i === index ? { ...s, description: newValue || null } : s
+                                        ));
+                                        // Also update English translation
+                                        const newTrans = { ...eventSessionTranslations };
+                                        if (!newTrans[sessionId]) {
+                                          newTrans[sessionId] = {
+                                            en: { session_name: session.session_name || '', description: '' },
+                                            hi: { session_name: '', description: '' },
+                                            gu: { session_name: '', description: '' },
+                                            ja: { session_name: '', description: '' },
+                                            es: { session_name: '', description: '' },
+                                            fr: { session_name: '', description: '' },
+                                          };
+                                        }
+                                        newTrans[sessionId].en = {
+                                          ...newTrans[sessionId].en,
+                                          description: newValue,
+                                        };
+                                        setEventSessionTranslations(newTrans);
+                                      } else {
+                                        const newTrans = { ...eventSessionTranslations };
+                                        if (!newTrans[sessionId]) {
+                                          newTrans[sessionId] = {
+                                            en: { session_name: session.session_name || '', description: session.description || '' },
+                                            hi: { session_name: '', description: '' },
+                                            gu: { session_name: '', description: '' },
+                                            ja: { session_name: '', description: '' },
+                                            es: { session_name: '', description: '' },
+                                            fr: { session_name: '', description: '' },
+                                          };
+                                        }
+                                        newTrans[sessionId][currentLanguageTab] = {
+                                          ...newTrans[sessionId][currentLanguageTab],
+                                          description: newValue,
+                                        };
+                                        setEventSessionTranslations(newTrans);
+                                      }
+                                      
+                                      // Auto-translate to all other languages
+                                      if (newValue && newValue.trim()) {
+                                        autoTranslateSessionDescription(newValue, sessionId);
+                                      }
+                                    }}
+                                    InputProps={{
+                                      endAdornment: translatingFields.has(`session_description_${sessionId}`) ? (
+                                        <InputAdornment position="end">
+                                          <CircularProgress size={16} />
+                                        </InputAdornment>
+                                      ) : undefined,
+                                    }}
+                                  />
+                                </Grid>
+                              </Grid>
+                            ) : (
+                              <Stack spacing={1}>
+                                <Typography variant="body2" color="text.secondary">
+                                  <strong>Date:</strong> {session.session_date || '—'} | <strong>Time:</strong> {session.start_time || '—'} {session.end_time ? `- ${session.end_time}` : ''}
+                                </Typography>
+                                {session.max_capacity && (
+                                  <Typography variant="body2" color="text.secondary">
+                                    <strong>Capacity:</strong> {session.max_capacity} | <strong>Bookings:</strong> {session.current_bookings || 0}
+                                  </Typography>
+                                )}
+                                {displayDesc && (
+                                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                                    {displayDesc}
+                                  </Typography>
+                                )}
+                              </Stack>
+                            )}
+                          </Box>
+                        </Card>
+                      );
+                    })}
+                  </Stack>
+                )}
+              </Box>
+
+              {/* Event Ticket Types Section */}
+              <Box>
+                <Divider sx={{ my: 2 }} />
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Ticket Types ({eventTicketTypes.length})
+                  </Typography>
+                  {editMode && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        const newTicketType = {
+                          ticket_type_id: 0,
+                          event_id: selectedTableRecord.event_id || selectedTableRecord.id,
+                          ticket_name: '',
+                          description: null,
+                          price: 0,
+                          currency: 'INR',
+                          is_active: true,
+                        };
+                        setEventTicketTypes(prev => [...prev, newTicketType]);
+                      }}
+                    >
+                      Add Ticket Type
+                    </Button>
+                  )}
+                </Stack>
+                {eventTicketTypes.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No ticket types added yet
+                  </Typography>
+                ) : (
+                  <Stack spacing={2}>
+                    {eventTicketTypes.map((ticketType, index) => (
+                      <Card key={ticketType.ticket_type_id || index} variant="outlined">
+                        <Box sx={{ p: 2 }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
+                            <Typography variant="subtitle2" fontWeight={600}>
+                              {ticketType.ticket_name || `Ticket Type ${index + 1}`}
+                            </Typography>
+                            {editMode && (
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  setConfirmDialog({
+                                    open: true,
+                                    message: 'Are you sure you want to delete this ticket type?',
+                                    onConfirm: () => {
+                                      setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                      setEventTicketTypes(prev => prev.filter((_, i) => i !== index));
+                                    },
+                                  });
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                          </Stack>
+                          {editMode ? (
+                            <Grid container spacing={2}>
+                              <Grid item xs={12} sm={6}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Ticket Name"
+                                  value={ticketType.ticket_name || ''}
+                                  onChange={(e) => {
+                                    setEventTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, ticket_name: e.target.value } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={3}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Price"
+                                  type="number"
+                                  value={ticketType.price || 0}
+                                  onChange={(e) => {
+                                    setEventTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, price: parseFloat(e.target.value) || 0 } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={3}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Currency"
+                                  value={ticketType.currency || 'INR'}
+                                  onChange={(e) => {
+                                    setEventTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, currency: e.target.value } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Description"
+                                  multiline
+                                  minRows={2}
+                                  value={ticketType.description || ''}
+                                  onChange={(e) => {
+                                    setEventTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, description: e.target.value || null } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                            </Grid>
+                          ) : (
+                            <Stack spacing={1}>
+                              <Typography variant="body2" color="text.secondary">
+                                <strong>Price:</strong> {ticketType.currency} {ticketType.price || 0}
+                              </Typography>
+                              {ticketType.description && (
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                                  {ticketType.description}
+                                </Typography>
+                              )}
+                            </Stack>
+                          )}
+                        </Box>
+                      </Card>
+                    ))}
+                  </Stack>
+                )}
               </Box>
             </Stack>
           ) : currentTab === 'tour' && selectedTableRecord && tourDetails ? (
@@ -7432,14 +8440,51 @@ const Verification = () => {
                 <MenuItem value="media">Media</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              fullWidth
-              size="small"
-              label="Media URL"
-              value={newMediaData.media_url}
-              onChange={(e) => setNewMediaData(prev => ({ ...prev, media_url: e.target.value }))}
-              required
-            />
+            <Box>
+              <input
+                accept="image/*,video/*"
+                style={{ display: 'none' }}
+                id="event-media-upload"
+                type="file"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    // Create preview URL for immediate display
+                    const previewUrl = URL.createObjectURL(file);
+                    setNewMediaData(prev => ({ ...prev, file, media_url: previewUrl }));
+                  }
+                }}
+              />
+              <label htmlFor="event-media-upload">
+                <Button
+                  variant="outlined"
+                  component="span"
+                  fullWidth
+                  startIcon={<CloudUploadIcon />}
+                  sx={{ mb: 2 }}
+                >
+                  {newMediaData.file ? `Selected: ${newMediaData.file.name}` : 'Upload File'}
+                </Button>
+              </label>
+              {newMediaData.file && (
+                <Button
+                  size="small"
+                  onClick={() => setNewMediaData(prev => ({ ...prev, file: undefined }))}
+                  sx={{ mb: 1 }}
+                >
+                  Clear File
+                </Button>
+              )}
+              <TextField
+                fullWidth
+                size="small"
+                label="Or Enter Media URL"
+                value={newMediaData.media_url}
+                onChange={(e) => setNewMediaData(prev => ({ ...prev, media_url: e.target.value, file: undefined }))}
+                disabled={!!newMediaData.file}
+                sx={{ mt: 1 }}
+              />
+            </Box>
             <TextField
               fullWidth
               size="small"
@@ -7489,25 +8534,44 @@ const Verification = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setMediaDialog({ open: false })}>Cancel</Button>
+          <Button onClick={() => {
+            setMediaDialog({ open: false });
+            setNewMediaData({
+              media_type: 'media',
+              media_url: '',
+              media_title: '',
+              media_description: '',
+              media_order: editedEventMedia.length,
+              is_featured: false,
+              is_public: true,
+              file: undefined,
+            });
+          }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={() => {
-              if (!newMediaData.media_url.trim()) {
-                setError('Media URL is required');
+              if (!newMediaData.media_url.trim() && !newMediaData.file) {
+                setError('Please upload a file or enter a media URL');
                 return;
               }
               if (mediaDialog.index !== undefined && mediaDialog.index >= 0) {
                 // Update existing
                 const updated = [...editedEventMedia];
+                // If file is selected, create preview URL
+                const mediaToAdd = newMediaData.file && !newMediaData.media_url.match(/^blob:/)
+                  ? { ...newMediaData, media_url: URL.createObjectURL(newMediaData.file) }
+                  : newMediaData;
                 updated[mediaDialog.index] = {
                   ...updated[mediaDialog.index],
-                  ...newMediaData,
+                  ...mediaToAdd,
                 };
                 setEditedEventMedia(updated);
               } else {
-                // Add new
-                setEditedEventMedia([...editedEventMedia, newMediaData]);
+                // Add new - create preview URL if file is selected
+                const mediaToAdd = newMediaData.file && !newMediaData.media_url.match(/^blob:/)
+                  ? { ...newMediaData, media_url: URL.createObjectURL(newMediaData.file) }
+                  : newMediaData;
+                setEditedEventMedia([...editedEventMedia, mediaToAdd]);
               }
               setMediaDialog({ open: false });
               setNewMediaData({
@@ -7518,9 +8582,10 @@ const Verification = () => {
                 media_order: editedEventMedia.length,
                 is_featured: false,
                 is_public: true,
+                file: undefined,
               });
             }}
-            disabled={!newMediaData.media_url.trim()}
+            disabled={!newMediaData.media_url.trim() && !newMediaData.file}
           >
             {mediaDialog.media ? 'Update' : 'Add'}
           </Button>
