@@ -1281,47 +1281,6 @@ const Verification = () => {
     }
   };
 
-  // Update amenity translations
-  const updateAmenityTranslations = async (
-    amenityId: number,
-    translations: Record<LanguageCode, string>
-  ) => {
-    try {
-      // Upsert translations for all languages
-      for (const lang of LANGUAGES) {
-        const langCode = lang.code.toUpperCase();
-        const translatedName = translations[lang.code]?.trim();
-        
-        if (translatedName) {
-          const { error: upsertError } = await supabase
-            .from('heritage_amenitytranslation')
-            .upsert(
-              {
-                amenity_id: amenityId,
-                language_code: langCode,
-                name: translatedName,
-              },
-              {
-                onConflict: 'amenity_id,language_code',
-              }
-            );
-
-          if (upsertError) {
-            console.error(`Error upserting translation for ${langCode}:`, upsertError);
-          }
-        }
-      }
-
-      // Reload amenities to refresh translations
-      await loadAvailableAmenities();
-
-      return { success: true };
-    } catch (error: any) {
-      console.error('Error updating amenity translations:', error);
-      return { success: false, error: error.message || 'Failed to update translations' };
-    }
-  };
-
   // Load event features from database
   const loadEventFeatures = async (eventId: number) => {
     try {
