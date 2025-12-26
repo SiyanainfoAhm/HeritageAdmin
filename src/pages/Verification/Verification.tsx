@@ -35,6 +35,7 @@ import {
   Tabs,
   Tab,
   InputAdornment,
+  Checkbox,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -359,6 +360,7 @@ const Verification = () => {
   const [ticketTypeMasters, setTicketTypeMasters] = useState<MasterData[]>([]);
   const [ticketTypeMasterTranslations, setTicketTypeMasterTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   const [eventFeatures, setEventFeatures] = useState<Array<{ feature_id?: number; event_id: number; feature_name: string; feature_description?: string | null; feature_icon?: string | null; is_included: boolean; additional_cost: number; is_highlighted: boolean }>>([]);
+  const [editingFeatureIndex, setEditingFeatureIndex] = useState<number | null>(null);
   const [availableAmenities, setAvailableAmenities] = useState<Array<{ amenity_id: number; name: string; icon: string | null; user_id: number | null }>>([]);
   const [amenityTranslations, setAmenityTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   const [loadingAmenities, setLoadingAmenities] = useState(false);
@@ -6153,14 +6155,15 @@ const Verification = () => {
                       const displayFeatureName = amenityTrans && amenityTrans[currentLanguageTab] 
                         ? amenityTrans[currentLanguageTab] 
                         : (currentLanguageTab === 'en' ? feature.feature_name : (amenityTrans?.en || feature.feature_name));
+                      const isEditing = editingFeatureIndex === index;
                       return (
                         <Grid item xs={12} sm={6} md={4} key={feature.feature_id || index}>
                           <Card variant="outlined" sx={{ height: '100%' }}>
                             <Box sx={{ p: 2 }}>
-                              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
-                                <Stack direction="row" spacing={1} alignItems="center">
+                              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
+                                <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1 }}>
                                   {iconComponent && (
-                                    <Box sx={{ color: 'primary.main' }}>
+                                    <Box sx={{ color: 'primary.main', display: 'flex', alignItems: 'center' }}>
                                       {iconComponent}
                                     </Box>
                                   )}
@@ -6168,38 +6171,42 @@ const Verification = () => {
                                     {displayFeatureName}
                                   </Typography>
                                 </Stack>
-                                {editMode && (
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={() => {
-                                      setConfirmDialog({
-                                        open: true,
-                                        message: 'Are you sure you want to delete this feature?',
-                                        onConfirm: () => {
-                                          setConfirmDialog({ open: false, message: '', onConfirm: null });
-                                          setEventFeatures(prev => prev.filter((_, i) => i !== index));
-                                        },
-                                      });
-                                    }}
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                )}
+                                <Stack direction="row" spacing={0.5}>
+                                  {editMode && (
+                                    <>
+                                      <IconButton
+                                        size="small"
+                                        color="primary"
+                                        onClick={() => {
+                                          setEditingFeatureIndex(isEditing ? null : index);
+                                        }}
+                                      >
+                                        <EditIcon fontSize="small" />
+                                      </IconButton>
+                                      <IconButton
+                                        size="small"
+                                        color="error"
+                                        onClick={() => {
+                                          setConfirmDialog({
+                                            open: true,
+                                            message: 'Are you sure you want to delete this feature?',
+                                            onConfirm: () => {
+                                              setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                              setEventFeatures(prev => prev.filter((_, i) => i !== index));
+                                              setEditingFeatureIndex(null);
+                                            },
+                                          });
+                                        }}
+                                      >
+                                        <DeleteIcon fontSize="small" />
+                                      </IconButton>
+                                    </>
+                                  )}
+                                </Stack>
                               </Stack>
-                              {editMode ? (
-                                <Stack spacing={1}>
-                                  <TextField
-                                    fullWidth
-                                    size="small"
-                                    label="Feature Name"
-                                    value={feature.feature_name || ''}
-                                    onChange={(e) => {
-                                      setEventFeatures(prev => prev.map((f, i) => 
-                                        i === index ? { ...f, feature_name: e.target.value } : f
-                                      ));
-                                    }}
-                                  />
+                              
+                              {isEditing ? (
+                                <Stack spacing={1.5}>
                                   <TextField
                                     fullWidth
                                     size="small"
@@ -6213,74 +6220,121 @@ const Verification = () => {
                                       ));
                                     }}
                                   />
-                                  <Stack direction="row" spacing={1}>
+                                  {!feature.is_included && (
                                     <TextField
+                                      fullWidth
                                       size="small"
-                                      label="Icon"
-                                      value={feature.feature_icon || ''}
+                                      label="Additional Cost"
+                                      type="number"
+                                      value={feature.additional_cost || 0}
                                       onChange={(e) => {
                                         setEventFeatures(prev => prev.map((f, i) => 
-                                          i === index ? { ...f, feature_icon: e.target.value || null } : f
+                                          i === index ? { ...f, additional_cost: parseFloat(e.target.value) || 0 } : f
                                         ));
                                       }}
-                                      sx={{ flex: 1 }}
                                     />
-                                    {getIconFromName(feature.feature_icon) && (
-                                      <Box sx={{ display: 'flex', alignItems: 'center', color: 'primary.main', px: 1 }}>
-                                        {getIconFromName(feature.feature_icon)}
-                                      </Box>
-                                    )}
-                                  </Stack>
-                                  <Stack direction="row" spacing={1} alignItems="center">
-                                    <Chip
-                                      label={feature.is_included ? 'Included' : 'Additional'}
-                                      color={feature.is_included ? 'success' : 'default'}
-                                      size="small"
+                                  )}
+                                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={1}>
+                                    <Box
                                       onClick={() => {
                                         setEventFeatures(prev => prev.map((f, i) => 
                                           i === index ? { ...f, is_included: !f.is_included } : f
                                         ));
                                       }}
-                                    />
-                                    {!feature.is_included && (
-                                      <TextField
+                                      sx={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 0.5,
+                                        px: 1.5,
+                                        py: 0.5,
+                                        borderRadius: '16px',
+                                        border: `1px solid ${feature.is_included ? 'success.main' : 'divider'}`,
+                                        bgcolor: feature.is_included ? 'success.light' : 'transparent',
+                                        cursor: 'pointer',
+                                        '&:hover': {
+                                          bgcolor: feature.is_included ? 'success.light' : 'action.hover',
+                                        },
+                                      }}
+                                    >
+                                      <Checkbox
+                                        checked={feature.is_included}
                                         size="small"
-                                        label="Additional Cost"
-                                        type="number"
-                                        value={feature.additional_cost || 0}
-                                        onChange={(e) => {
-                                          setEventFeatures(prev => prev.map((f, i) => 
-                                            i === index ? { ...f, additional_cost: parseFloat(e.target.value) || 0 } : f
-                                          ));
-                                        }}
-                                        sx={{ width: 120 }}
+                                        sx={{ p: 0, color: feature.is_included ? 'success.main' : 'inherit' }}
                                       />
-                                    )}
-                                    <Chip
-                                      label={feature.is_highlighted ? 'Highlighted' : 'Normal'}
-                                      color={feature.is_highlighted ? 'primary' : 'default'}
-                                      size="small"
+                                      <Typography variant="body2" sx={{ userSelect: 'none' }}>
+                                        Included
+                                      </Typography>
+                                    </Box>
+                                    <Box
                                       onClick={() => {
                                         setEventFeatures(prev => prev.map((f, i) => 
                                           i === index ? { ...f, is_highlighted: !f.is_highlighted } : f
                                         ));
                                       }}
-                                    />
+                                      sx={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 0.5,
+                                        px: 1.5,
+                                        py: 0.5,
+                                        borderRadius: '16px',
+                                        border: `1px solid ${feature.is_highlighted ? 'primary.main' : 'divider'}`,
+                                        bgcolor: feature.is_highlighted ? 'primary.light' : 'transparent',
+                                        cursor: 'pointer',
+                                        '&:hover': {
+                                          bgcolor: feature.is_highlighted ? 'primary.light' : 'action.hover',
+                                        },
+                                      }}
+                                    >
+                                      <Checkbox
+                                        checked={feature.is_highlighted}
+                                        size="small"
+                                        sx={{ p: 0, color: feature.is_highlighted ? 'primary.main' : 'inherit' }}
+                                      />
+                                      <Typography variant="body2" sx={{ userSelect: 'none' }}>
+                                        Highlighted
+                                      </Typography>
+                                    </Box>
                                   </Stack>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => setEditingFeatureIndex(null)}
+                                    sx={{ mt: 1 }}
+                                  >
+                                    Done
+                                  </Button>
                                 </Stack>
                               ) : (
-                                <Stack spacing={0.5}>
+                                <Stack spacing={1}>
                                   {feature.feature_description && (
                                     <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
                                       {feature.feature_description}
                                     </Typography>
                                   )}
-                                  <Stack direction="row" spacing={1} flexWrap="wrap" gap={0.5}>
-                                    <Chip
-                                      label={feature.is_included ? 'Included' : 'Additional'}
-                                      color={feature.is_included ? 'success' : 'default'}
-                                      size="small"
-                                    />
+                                  <Stack direction="row" spacing={1} flexWrap="wrap" gap={0.5} alignItems="center">
+                                    <Box
+                                      sx={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 0.5,
+                                        px: 1.5,
+                                        py: 0.5,
+                                        borderRadius: '16px',
+                                        border: `1px solid ${feature.is_included ? 'success.main' : 'divider'}`,
+                                        bgcolor: feature.is_included ? 'success.light' : 'transparent',
+                                      }}
+                                    >
+                                      <Checkbox
+                                        checked={feature.is_included}
+                                        size="small"
+                                        disabled
+                                        sx={{ p: 0, color: feature.is_included ? 'success.main' : 'inherit' }}
+                                      />
+                                      <Typography variant="body2" sx={{ userSelect: 'none' }}>
+                                        Included
+                                      </Typography>
+                                    </Box>
                                     {!feature.is_included && feature.additional_cost > 0 && (
                                       <Chip
                                         label={`+${feature.additional_cost}`}
@@ -6289,11 +6343,29 @@ const Verification = () => {
                                       />
                                     )}
                                     {feature.is_highlighted && (
-                                      <Chip
-                                        label="Highlighted"
-                                        color="primary"
-                                        size="small"
-                                      />
+                                      <Box
+                                        sx={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 0.5,
+                                          px: 1.5,
+                                          py: 0.5,
+                                          borderRadius: '16px',
+                                          border: '1px solid',
+                                          borderColor: 'primary.main',
+                                          bgcolor: 'primary.light',
+                                        }}
+                                      >
+                                        <Checkbox
+                                          checked={true}
+                                          size="small"
+                                          disabled
+                                          sx={{ p: 0, color: 'primary.main' }}
+                                        />
+                                        <Typography variant="body2" sx={{ userSelect: 'none' }}>
+                                          Highlighted
+                                        </Typography>
+                                      </Box>
                                     )}
                                   </Stack>
                                 </Stack>
