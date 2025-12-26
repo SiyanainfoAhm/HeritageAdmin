@@ -60,10 +60,17 @@ import FamilyRestroomIcon from '@mui/icons-material/FamilyRestroom';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
+import WifiIcon from '@mui/icons-material/Wifi';
+import LocalParkingIcon from '@mui/icons-material/LocalParking';
+import AccessibleIcon from '@mui/icons-material/Accessible';
+import RestaurantIcon from '@mui/icons-material/Restaurant';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import AddIcon from '@mui/icons-material/Add';
 import { VerificationService, VerificationRecord } from '@/services/verification.service';
 import { UserService } from '@/services/user.service';
 import { TranslationService } from '@/services/translation.service';
 import { StorageService } from '@/services/storage.service';
+import { MasterData } from '@/types';
 import { supabase } from '@/config/supabase';
 import { geocodeAddress } from '@/config/googleMaps';
 import HotelDetailsDialog from './components/HotelDetailsDialog';
@@ -278,10 +285,17 @@ const getIconFromName = (iconName: string | null | undefined): ReactElement | un
     'thumb_up': <ThumbUpIcon />,
     'local_fire_department': <LocalFireDepartmentIcon />,
     'dark_mode': <DarkModeIcon />,
+    'wifi': <WifiIcon />,
+    'parking': <LocalParkingIcon />,
+    'wheelchair': <AccessibleIcon />,
+    'restroom': <FamilyRestroomIcon />,
+    'restaurant': <RestaurantIcon />,
+    'photo_spot': <PhotoCameraIcon />,
+    'photo': <PhotoCameraIcon />,
   };
   
-  const normalizedName = iconName.toLowerCase().trim();
-  return iconMap[normalizedName];
+  const normalizedName = iconName.toLowerCase().trim().replace(/[_-]/g, '');
+  return iconMap[normalizedName] || iconMap[iconName.toLowerCase().trim()];
 };
 
 const Verification = () => {
@@ -342,6 +356,19 @@ const Verification = () => {
   const [eventSessions, setEventSessions] = useState<Array<{ session_id: number; event_id: number; session_name: string; description?: string | null; session_date: string; start_time: string; end_time?: string | null; max_capacity?: number | null; current_bookings?: number | null; is_active?: boolean | null }>>([]);
   const [eventSessionTranslations, setEventSessionTranslations] = useState<Record<number | string, Record<LanguageCode, { session_name: string; description: string }>>>({});
   const [eventTicketTypes, setEventTicketTypes] = useState<Array<{ ticket_type_id: number; event_id: number; ticket_name: string; description?: string | null; price: number; currency: string; is_active?: boolean | null }>>([]);
+  const [ticketTypeMasters, setTicketTypeMasters] = useState<MasterData[]>([]);
+  const [ticketTypeMasterTranslations, setTicketTypeMasterTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
+  const [eventFeatures, setEventFeatures] = useState<Array<{ feature_id?: number; event_id: number; feature_name: string; feature_description?: string | null; feature_icon?: string | null; is_included: boolean; additional_cost: number; is_highlighted: boolean }>>([]);
+  const [availableAmenities, setAvailableAmenities] = useState<Array<{ amenity_id: number; name: string; icon: string | null; user_id: number | null }>>([]);
+  const [amenityTranslations, setAmenityTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
+  const [loadingAmenities, setLoadingAmenities] = useState(false);
+  const [customAmenityDialog, setCustomAmenityDialog] = useState<{ open: boolean }>({ open: false });
+  const [newAmenityData, setNewAmenityData] = useState<{ name: string; icon: string; translations: Record<LanguageCode, string> }>({
+    name: '',
+    icon: 'amenity',
+    translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+  });
+  const [creatingAmenity, setCreatingAmenity] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; message: string; onConfirm: (() => void) | null }>({
     open: false,
@@ -425,8 +452,12 @@ const Verification = () => {
       }
 
       // Apply date filter if dateFilter exists
+      // Use updated_at for tour, event, hotel, food, artwork tables
       if (dateFilter) {
-        query = query.gte('created_at', `${dateFilter}T00:00:00`).lte('created_at', `${dateFilter}T23:59:59`);
+        const dateColumn = ['heritage_tour', 'heritage_event', 'heritage_hotel', 'heritage_food', 'heritage_artwork'].includes(tableName)
+          ? 'updated_at'
+          : 'created_at';
+        query = query.gte(dateColumn, `${dateFilter}T00:00:00`).lte(dateColumn, `${dateFilter}T23:59:59`);
       }
 
       // Apply status filter if statusFilter is not 'All'
@@ -442,7 +473,11 @@ const Verification = () => {
         }
       }
 
-      const { data, error: fetchError } = await query.order('created_at', { ascending: false });
+      // Use updated_at for ordering tour, event, hotel, food, artwork tables
+      const orderColumn = ['heritage_tour', 'heritage_event', 'heritage_hotel', 'heritage_food', 'heritage_artwork'].includes(tableName)
+        ? 'updated_at'
+        : 'created_at';
+      const { data, error: fetchError } = await query.order(orderColumn, { ascending: false });
 
       if (fetchError) {
         throw fetchError;
@@ -1004,6 +1039,76 @@ const Verification = () => {
     }
   };
 
+  // Load ticket type masters from heritage_masterdata
+  const loadTicketTypeMasters = async () => {
+    try {
+      // Load masters (base data)
+      const { data: masterData, error: masterError } = await supabase
+        .from('heritage_masterdata')
+        .select('master_id, category, code, display_order, is_active, metadata')
+        .eq('category', 'ticket_type')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (masterError) {
+        console.error('Error loading ticket type masters:', masterError);
+        setTicketTypeMasters([]);
+        setTicketTypeMasterTranslations({});
+        return;
+      }
+
+      if (!masterData || masterData.length === 0) {
+        setTicketTypeMasters([]);
+        setTicketTypeMasterTranslations({});
+        return;
+      }
+
+      const masterIds = masterData.map((m: any) => m.master_id);
+      const translationsMap: Record<number, Record<LanguageCode, string>> = {};
+
+      // Load translations for all languages
+      for (const lang of LANGUAGES) {
+        const langCode = lang.code.toUpperCase();
+        const { data: translations, error: transError } = await supabase
+          .from('heritage_masterdatatranslation')
+          .select('master_id, display_name')
+          .in('master_id', masterIds)
+          .eq('language_code', langCode);
+
+        if (!transError && translations) {
+          translations.forEach((trans: any) => {
+            if (!translationsMap[trans.master_id]) {
+              translationsMap[trans.master_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+            }
+            translationsMap[trans.master_id][lang.code] = trans.display_name || '';
+          });
+        }
+      }
+
+      // Combine with English display names for the list
+      const mastersWithNames = masterData.map((m: any) => {
+        const trans = translationsMap[m.master_id];
+        return {
+          master_id: m.master_id,
+          category: m.category,
+          code: m.code,
+          display_name: trans?.en || m.code,
+          description: '',
+          display_order: m.display_order,
+          is_active: m.is_active,
+          metadata: m.metadata || {},
+        };
+      });
+
+      setTicketTypeMasters(mastersWithNames);
+      setTicketTypeMasterTranslations(translationsMap);
+    } catch (error) {
+      console.error('Error loading ticket type masters:', error);
+      setTicketTypeMasters([]);
+      setTicketTypeMasterTranslations({});
+    }
+  };
+
   // Load event ticket types from database
   const loadEventTicketTypes = async (eventId: number) => {
     try {
@@ -1024,6 +1129,229 @@ const Verification = () => {
     } catch (error) {
       console.error('Error loading event ticket types:', error);
       setEventTicketTypes([]);
+    }
+  };
+
+  // Load available amenities from database (filtered by user_id null or created_by = login user_id)
+  // Also loads translations for each amenity
+  const loadAvailableAmenities = async () => {
+    try {
+      setLoadingAmenities(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ? parseInt(user.id) : null;
+
+      let query = supabase
+        .from('heritage_amenity')
+        .select('amenity_id, name, icon, user_id')
+        .order('name', { ascending: true });
+
+      // Filter: user_id is null OR user_id equals current user_id
+      if (userId) {
+        query = query.or(`user_id.is.null,user_id.eq.${userId}`);
+      } else {
+        query = query.is('user_id', null);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error loading amenities:', error);
+        setAvailableAmenities([]);
+        setAmenityTranslations({});
+        return;
+      }
+
+      const amenities = data || [];
+      setAvailableAmenities(amenities);
+
+      // Load translations for all amenities
+      if (amenities.length > 0) {
+        const amenityIds = amenities.map(a => a.amenity_id);
+        const { data: translationsData, error: transError } = await supabase
+          .from('heritage_amenitytranslation')
+          .select('*')
+          .in('amenity_id', amenityIds);
+
+        if (transError) {
+          console.error('Error loading amenity translations:', transError);
+          setAmenityTranslations({});
+        } else {
+          const translations: Record<number, Record<LanguageCode, string>> = {};
+          
+          // Initialize translations for all amenities
+          amenities.forEach(amenity => {
+            translations[amenity.amenity_id] = {
+              en: amenity.name || '',
+              hi: '',
+              gu: '',
+              ja: '',
+              es: '',
+              fr: '',
+            };
+          });
+
+          // Populate translations from database
+          if (translationsData && Array.isArray(translationsData)) {
+            translationsData.forEach((trans: any) => {
+              const langCode = String(trans.language_code || '').toLowerCase() as LanguageCode;
+              if (langCode && LANGUAGES.some(l => l.code === langCode) && trans.amenity_id) {
+                if (!translations[trans.amenity_id]) {
+                  translations[trans.amenity_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                }
+                translations[trans.amenity_id][langCode] = String(trans.name || '');
+              }
+            });
+          }
+
+          setAmenityTranslations(translations);
+        }
+      } else {
+        setAmenityTranslations({});
+      }
+    } catch (error) {
+      console.error('Error loading amenities:', error);
+      setAvailableAmenities([]);
+      setAmenityTranslations({});
+    } finally {
+      setLoadingAmenities(false);
+    }
+  };
+
+  // Insert amenity with translations
+  const insertAmenityWithTranslations = async (
+    name: string,
+    icon: string | null,
+    translations: Record<LanguageCode, string>,
+    userId?: number | null
+  ) => {
+    try {
+      // Insert the amenity
+      const amenityData: any = {
+        name: name,
+        icon: icon || null,
+        user_id: userId || null,
+      };
+
+      const { data: newAmenity, error: insertError } = await supabase
+        .from('heritage_amenity')
+        .insert(amenityData)
+        .select()
+        .single();
+
+      if (insertError) {
+        throw new Error(`Failed to insert amenity: ${insertError.message}`);
+      }
+
+      if (!newAmenity || !newAmenity.amenity_id) {
+        throw new Error('Failed to get amenity ID after insert');
+      }
+
+      // Insert translations for all languages
+      const translationPayloads: any[] = [];
+      LANGUAGES.forEach(lang => {
+        const langCode = lang.code.toUpperCase();
+        const translatedName = translations[lang.code]?.trim();
+        if (translatedName) {
+          translationPayloads.push({
+            amenity_id: newAmenity.amenity_id,
+            language_code: langCode,
+            name: translatedName,
+          });
+        }
+      });
+
+      if (translationPayloads.length > 0) {
+        const { error: transError } = await supabase
+          .from('heritage_amenitytranslation')
+          .insert(translationPayloads);
+
+        if (transError) {
+          console.error('Error inserting amenity translations:', transError);
+          // Don't throw - amenity was created, translations can be added later
+        }
+      }
+
+      // Reload amenities to include the new one
+      await loadAvailableAmenities();
+
+      return { success: true, amenity: newAmenity };
+    } catch (error: any) {
+      console.error('Error inserting amenity with translations:', error);
+      return { success: false, error: error.message || 'Failed to insert amenity' };
+    }
+  };
+
+  // Update amenity translations
+  const updateAmenityTranslations = async (
+    amenityId: number,
+    translations: Record<LanguageCode, string>
+  ) => {
+    try {
+      // Upsert translations for all languages
+      for (const lang of LANGUAGES) {
+        const langCode = lang.code.toUpperCase();
+        const translatedName = translations[lang.code]?.trim();
+        
+        if (translatedName) {
+          const { error: upsertError } = await supabase
+            .from('heritage_amenitytranslation')
+            .upsert(
+              {
+                amenity_id: amenityId,
+                language_code: langCode,
+                name: translatedName,
+              },
+              {
+                onConflict: 'amenity_id,language_code',
+              }
+            );
+
+          if (upsertError) {
+            console.error(`Error upserting translation for ${langCode}:`, upsertError);
+          }
+        }
+      }
+
+      // Reload amenities to refresh translations
+      await loadAvailableAmenities();
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('Error updating amenity translations:', error);
+      return { success: false, error: error.message || 'Failed to update translations' };
+    }
+  };
+
+  // Load event features from database
+  const loadEventFeatures = async (eventId: number) => {
+    try {
+      const { data: featuresData, error } = await supabase
+        .from('heritage_eventfeature')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('is_highlighted', { ascending: false })
+        .order('feature_name', { ascending: true });
+
+      if (error) {
+        console.error('Error loading event features:', error);
+        setEventFeatures([]);
+        return;
+      }
+
+      const features = featuresData || [];
+      setEventFeatures(features.map((f: any) => ({
+        feature_id: f.feature_id,
+        event_id: f.event_id,
+        feature_name: f.feature_name || '',
+        feature_description: f.feature_description || null,
+        feature_icon: f.feature_icon || null,
+        is_included: f.is_included !== false,
+        additional_cost: f.additional_cost || 0,
+        is_highlighted: f.is_highlighted || false,
+      })));
+    } catch (error) {
+      console.error('Error loading event features:', error);
+      setEventFeatures([]);
     }
   };
 
@@ -1274,6 +1602,35 @@ const Verification = () => {
           
           // Load event ticket types
           await loadEventTicketTypes(eventId);
+          
+          // Load ticket type masters for dropdown
+          await loadTicketTypeMasters();
+          
+          // Load event features from eventDetails first (from RPC response)
+          if (details?.features) {
+            const featuresArray = Array.isArray(details.features) ? details.features : (details.features.items || []);
+            if (Array.isArray(featuresArray) && featuresArray.length > 0) {
+              setEventFeatures(featuresArray.map((f: any) => ({
+                feature_id: f.feature_id,
+                event_id: eventId,
+                feature_name: f.name || f.feature_name || '',
+                feature_description: f.description || f.feature_description || null,
+                feature_icon: f.icon || f.feature_icon || null,
+                is_included: f.is_included !== false,
+                additional_cost: f.additional_cost || 0,
+                is_highlighted: f.is_highlighted || false,
+              })));
+            } else {
+              // If no features in RPC response, load from database
+              await loadEventFeatures(eventId);
+            }
+          } else {
+            // If no features in RPC response, load from database
+            await loadEventFeatures(eventId);
+          }
+          
+          // Load available amenities
+          await loadAvailableAmenities();
         } else {
           setEditedEventDetails({});
           setTranslations({});
@@ -1281,6 +1638,7 @@ const Verification = () => {
           setEventSessions([]);
           setEventSessionTranslations({});
           setEventTicketTypes([]);
+          setEventFeatures([]);
         }
       } else if (currentTab === 'hotel') {
         const hotelId = record.hotel_id || record.id;
@@ -1652,6 +2010,61 @@ const Verification = () => {
       if (typeof value === 'string' && value && value.trim()) {
         autoTranslateField(value, key);
       }
+    }
+  };
+
+  // Auto-translate amenity name to all other languages with debounce
+  const autoTranslateAmenityName = async (text: string) => {
+    if (!text || !text.trim()) return;
+    
+    try {
+      const timerKey = 'translate_amenity_name';
+      // Clear existing timer if user is still typing
+      if (translationTimerRef.current[timerKey]) {
+        clearTimeout(translationTimerRef.current[timerKey]);
+      }
+
+      // Set new timer to translate after user stops typing (1 second delay)
+      translationTimerRef.current[timerKey] = setTimeout(async () => {
+        const targetLanguages = LANGUAGES.filter(l => l.code !== 'en');
+        if (targetLanguages.length === 0) return;
+
+        setTranslatingFields(prev => new Set(prev).add('amenity_name'));
+        
+        try {
+          for (const lang of targetLanguages) {
+            try {
+              const result = await TranslationService.translate(text.trim(), lang.code, 'en');
+              if (result.success && result.translations && result.translations[lang.code]) {
+                const translatedText = Array.isArray(result.translations[lang.code]) 
+                  ? result.translations[lang.code][0] 
+                  : String(result.translations[lang.code] || '');
+                
+                setNewAmenityData(prev => ({
+                  ...prev,
+                  translations: {
+                    ...prev.translations,
+                    [lang.code]: translatedText,
+                  },
+                }));
+              }
+            } catch (langError) {
+              console.error(`Translation error for ${lang.code}:`, langError);
+              // Continue with other languages even if one fails
+            }
+          }
+        } catch (error) {
+          console.error('Error translating amenity name:', error);
+        } finally {
+          setTranslatingFields(prev => {
+            const next = new Set(prev);
+            next.delete('amenity_name');
+            return next;
+          });
+        }
+      }, 1000); // 1 second debounce
+    } catch (error) {
+      console.error('Error setting up amenity name translation:', error);
     }
   };
 
@@ -3033,6 +3446,87 @@ const Verification = () => {
         }
       }
 
+      // Save event features
+      // First, get current features from database to identify features to delete
+      const { data: currentFeatures } = await supabase
+        .from('heritage_eventfeature')
+        .select('feature_id')
+        .eq('event_id', eventId);
+
+      const existingFeatureIds = eventFeatures
+        .filter(f => f.feature_id)
+        .map(f => f.feature_id);
+
+      // Delete features that are no longer in the list
+      if (currentFeatures) {
+        const featureIdsToDelete = currentFeatures
+          .map((f: any) => f.feature_id)
+          .filter((id: number) => !existingFeatureIds.includes(id));
+
+        if (featureIdsToDelete.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('heritage_eventfeature')
+            .delete()
+            .in('feature_id', featureIdsToDelete);
+
+          if (deleteError) {
+            console.error('Error deleting removed features:', deleteError);
+          }
+        }
+      }
+
+      // Upsert all features
+      if (eventFeatures.length > 0) {
+        for (const feature of eventFeatures) {
+          try {
+            const featureData: any = {
+              event_id: eventId,
+              feature_name: feature.feature_name || '',
+              feature_description: feature.feature_description || null,
+              feature_icon: feature.feature_icon || null,
+              is_included: feature.is_included !== false,
+              additional_cost: feature.additional_cost || 0,
+              is_highlighted: feature.is_highlighted || false,
+            };
+
+            if (feature.feature_id) {
+              // Update existing feature
+              const { error: updateError } = await supabase
+                .from('heritage_eventfeature')
+                .update(featureData)
+                .eq('feature_id', feature.feature_id);
+
+              if (updateError) {
+                console.error('Error updating feature:', updateError);
+                setError(`Failed to update feature: ${updateError.message}`);
+              }
+            } else {
+              // Insert new feature
+              const { error: insertError } = await supabase
+                .from('heritage_eventfeature')
+                .insert(featureData);
+
+              if (insertError) {
+                console.error('Error inserting feature:', insertError);
+                setError(`Failed to insert feature: ${insertError.message}`);
+              }
+            }
+          } catch (featureErr) {
+            console.error('Error during feature upsert:', featureErr);
+          }
+        }
+      } else {
+        // If no features, delete all existing features for this event
+        const { error: deleteAllError } = await supabase
+          .from('heritage_eventfeature')
+          .delete()
+          .eq('event_id', eventId);
+
+        if (deleteAllError) {
+          console.error('Error deleting all features:', deleteAllError);
+        }
+      }
+
       // Refresh event details
       const refreshedDetails = await fetchEventDetails(eventId);
       setEventDetails(refreshedDetails);
@@ -3081,9 +3575,10 @@ const Verification = () => {
         });
       }
       
-      // Reload sessions and ticket types
+      // Reload sessions, ticket types, and features
       await loadEventSessions(eventId);
       await loadEventTicketTypes(eventId);
+      await loadEventFeatures(eventId);
 
       // Reload event media - heroes and media are arrays directly, not items arrays
       const allMedia: any[] = [];
@@ -4568,7 +5063,13 @@ const Verification = () => {
       </Paper>
 
       {/* Detail Dialog */}
-      <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={detailOpen} onClose={() => {
+        setDetailOpen(false);
+        // Reset features when dialog closes
+        setEventFeatures([]);
+        setAvailableAmenities([]);
+        setAmenityTranslations({});
+      }} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6">
             {selectedRecord?.name || 
@@ -5488,10 +5989,12 @@ const Verification = () => {
                       variant="outlined"
                       size="small"
                       onClick={() => {
+                        // Get first master as default if available
+                        const defaultMasterCode = ticketTypeMasters.length > 0 ? ticketTypeMasters[0].code : '';
                         const newTicketType = {
                           ticket_type_id: 0,
                           event_id: selectedTableRecord.event_id || selectedTableRecord.id,
-                          ticket_name: '',
+                          ticket_name: defaultMasterCode,
                           description: null,
                           price: 0,
                           currency: 'INR',
@@ -5515,7 +6018,18 @@ const Verification = () => {
                         <Box sx={{ p: 2 }}>
                           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
                             <Typography variant="subtitle2" fontWeight={600}>
-                              {ticketType.ticket_name || `Ticket Type ${index + 1}`}
+                              {(() => {
+                                // Find master by code and display translated name
+                                const master = ticketTypeMasters.find(m => m.code === ticketType.ticket_name);
+                                if (master) {
+                                  const masterTrans = ticketTypeMasterTranslations[master.master_id];
+                                  const displayName = masterTrans && masterTrans[currentLanguageTab] 
+                                    ? masterTrans[currentLanguageTab] 
+                                    : (currentLanguageTab === 'en' ? master.display_name : (masterTrans?.en || master.code));
+                                  return displayName;
+                                }
+                                return ticketType.ticket_name || `Ticket Type ${index + 1}`;
+                              })()}
                             </Typography>
                             {editMode && (
                               <IconButton
@@ -5539,17 +6053,31 @@ const Verification = () => {
                           {editMode ? (
                             <Grid container spacing={2}>
                               <Grid item xs={12} sm={6}>
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  label="Ticket Name"
+                                <FormControl fullWidth size="small">
+                                  <InputLabel>Ticket Type</InputLabel>
+                                  <Select
                                   value={ticketType.ticket_name || ''}
+                                    label="Ticket Type"
                                   onChange={(e) => {
                                     setEventTicketTypes(prev => prev.map((t, i) => 
                                       i === index ? { ...t, ticket_name: e.target.value } : t
                                     ));
                                   }}
-                                />
+                                  >
+                                    {ticketTypeMasters.map((master) => {
+                                      // Get translated name based on current language tab
+                                      const masterTrans = ticketTypeMasterTranslations[master.master_id];
+                                      const displayName = masterTrans && masterTrans[currentLanguageTab] 
+                                        ? masterTrans[currentLanguageTab] 
+                                        : (currentLanguageTab === 'en' ? master.display_name : (masterTrans?.en || master.code));
+                                      return (
+                                        <MenuItem key={master.master_id} value={master.code}>
+                                          {displayName}
+                                        </MenuItem>
+                                      );
+                                    })}
+                                  </Select>
+                                </FormControl>
                               </Grid>
                               <Grid item xs={12} sm={3}>
                                 <TextField
@@ -5597,6 +6125,20 @@ const Verification = () => {
                           ) : (
                             <Stack spacing={1}>
                               <Typography variant="body2" color="text.secondary">
+                                <strong>Ticket Type:</strong> {(() => {
+                                  // Find master by code and display translated name
+                                  const master = ticketTypeMasters.find(m => m.code === ticketType.ticket_name);
+                                  if (master) {
+                                    const masterTrans = ticketTypeMasterTranslations[master.master_id];
+                                    const displayName = masterTrans && masterTrans[currentLanguageTab] 
+                                      ? masterTrans[currentLanguageTab] 
+                                      : (currentLanguageTab === 'en' ? master.display_name : (masterTrans?.en || master.code));
+                                    return displayName;
+                                  }
+                                  return ticketType.ticket_name || '—';
+                                })()}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
                                 <strong>Price:</strong> {ticketType.currency} {ticketType.price || 0}
                               </Typography>
                               {ticketType.description && (
@@ -5610,6 +6152,199 @@ const Verification = () => {
                       </Card>
                     ))}
                   </Stack>
+                )}
+              </Box>
+
+              {/* Event Features Section */}
+              <Box>
+                <Divider sx={{ my: 2 }} />
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Features ({eventFeatures.length})
+                  </Typography>
+                  {editMode && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={async () => {
+                        // Load amenities if not already loaded
+                        if (availableAmenities.length === 0) {
+                          await loadAvailableAmenities();
+                        }
+                        // Open amenity selection dialog
+                        setAddItemDialog({ open: true, key: 'amenity', label: 'Select Amenity' });
+                      }}
+                    >
+                      Add from Amenities
+                    </Button>
+                  )}
+                </Stack>
+                {eventFeatures.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No features added yet
+                  </Typography>
+                ) : (
+                  <Grid container spacing={2}>
+                    {eventFeatures.map((feature, index) => {
+                      const iconComponent = getIconFromName(feature.feature_icon || 'amenity');
+                      // Try to find matching amenity by name to get translation
+                      const matchingAmenity = availableAmenities.find(a => a.name === feature.feature_name);
+                      const amenityTrans = matchingAmenity ? amenityTranslations[matchingAmenity.amenity_id] : null;
+                      const displayFeatureName = amenityTrans && amenityTrans[currentLanguageTab] 
+                        ? amenityTrans[currentLanguageTab] 
+                        : (currentLanguageTab === 'en' ? feature.feature_name : (amenityTrans?.en || feature.feature_name));
+                      return (
+                        <Grid item xs={12} sm={6} md={4} key={feature.feature_id || index}>
+                          <Card variant="outlined" sx={{ height: '100%' }}>
+                            <Box sx={{ p: 2 }}>
+                              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  {iconComponent && (
+                                    <Box sx={{ color: 'primary.main' }}>
+                                      {iconComponent}
+                                    </Box>
+                                  )}
+                                  <Typography variant="subtitle2" fontWeight={600}>
+                                    {displayFeatureName}
+                                  </Typography>
+                                </Stack>
+                                {editMode && (
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => {
+                                      setConfirmDialog({
+                                        open: true,
+                                        message: 'Are you sure you want to delete this feature?',
+                                        onConfirm: () => {
+                                          setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                          setEventFeatures(prev => prev.filter((_, i) => i !== index));
+                                        },
+                                      });
+                                    }}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                )}
+                              </Stack>
+                              {editMode ? (
+                                <Stack spacing={1}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Feature Name"
+                                    value={feature.feature_name || ''}
+                                    onChange={(e) => {
+                                      setEventFeatures(prev => prev.map((f, i) => 
+                                        i === index ? { ...f, feature_name: e.target.value } : f
+                                      ));
+                                    }}
+                                  />
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Description"
+                                    multiline
+                                    minRows={2}
+                                    value={feature.feature_description || ''}
+                                    onChange={(e) => {
+                                      setEventFeatures(prev => prev.map((f, i) => 
+                                        i === index ? { ...f, feature_description: e.target.value || null } : f
+                                      ));
+                                    }}
+                                  />
+                                  <Stack direction="row" spacing={1}>
+                                    <TextField
+                                      size="small"
+                                      label="Icon"
+                                      value={feature.feature_icon || ''}
+                                      onChange={(e) => {
+                                        setEventFeatures(prev => prev.map((f, i) => 
+                                          i === index ? { ...f, feature_icon: e.target.value || null } : f
+                                        ));
+                                      }}
+                                      sx={{ flex: 1 }}
+                                    />
+                                    {getIconFromName(feature.feature_icon) && (
+                                      <Box sx={{ display: 'flex', alignItems: 'center', color: 'primary.main', px: 1 }}>
+                                        {getIconFromName(feature.feature_icon)}
+                                      </Box>
+                                    )}
+                                  </Stack>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <Chip
+                                      label={feature.is_included ? 'Included' : 'Additional'}
+                                      color={feature.is_included ? 'success' : 'default'}
+                                      size="small"
+                                      onClick={() => {
+                                        setEventFeatures(prev => prev.map((f, i) => 
+                                          i === index ? { ...f, is_included: !f.is_included } : f
+                                        ));
+                                      }}
+                                    />
+                                    {!feature.is_included && (
+                                      <TextField
+                                        size="small"
+                                        label="Additional Cost"
+                                        type="number"
+                                        value={feature.additional_cost || 0}
+                                        onChange={(e) => {
+                                          setEventFeatures(prev => prev.map((f, i) => 
+                                            i === index ? { ...f, additional_cost: parseFloat(e.target.value) || 0 } : f
+                                          ));
+                                        }}
+                                        sx={{ width: 120 }}
+                                      />
+                                    )}
+                                    <Chip
+                                      label={feature.is_highlighted ? 'Highlighted' : 'Normal'}
+                                      color={feature.is_highlighted ? 'primary' : 'default'}
+                                      size="small"
+                                      onClick={() => {
+                                        setEventFeatures(prev => prev.map((f, i) => 
+                                          i === index ? { ...f, is_highlighted: !f.is_highlighted } : f
+                                        ));
+                                      }}
+                                    />
+                                  </Stack>
+                                </Stack>
+                              ) : (
+                                <Stack spacing={0.5}>
+                                  {feature.feature_description && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
+                                      {feature.feature_description}
+                                    </Typography>
+                                  )}
+                                  <Stack direction="row" spacing={1} flexWrap="wrap" gap={0.5}>
+                                    <Chip
+                                      label={feature.is_included ? 'Included' : 'Additional'}
+                                      color={feature.is_included ? 'success' : 'default'}
+                                      size="small"
+                                    />
+                                    {!feature.is_included && feature.additional_cost > 0 && (
+                                      <Chip
+                                        label={`+${feature.additional_cost}`}
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                    )}
+                                    {feature.is_highlighted && (
+                                      <Chip
+                                        label="Highlighted"
+                                        color="primary"
+                                        size="small"
+                                      />
+                                    )}
+                                  </Stack>
+                                </Stack>
+                              )}
+                            </Box>
+                          </Card>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
                 )}
               </Box>
             </Stack>
@@ -8186,6 +8921,102 @@ const Verification = () => {
       >
         <DialogTitle>Add {addItemDialog.label}</DialogTitle>
         <DialogContent>
+          {addItemDialog.key === 'amenity' ? (
+            // Amenity selection
+            loadingAmenities ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    setNewAmenityData({
+                      name: '',
+                      icon: 'amenity',
+                      translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                    });
+                    setCustomAmenityDialog({ open: true });
+                  }}
+                  sx={{ mb: 1 }}
+                >
+                  Create Custom Amenity
+                </Button>
+                {availableAmenities.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                    No amenities available
+                  </Typography>
+                ) : (
+                  <Grid container spacing={1}>
+                    {availableAmenities.map((amenity) => {
+                      const iconComponent = getIconFromName(amenity.icon);
+                      const isAlreadyAdded = eventFeatures.some(f => 
+                        f.feature_name === amenity.name && f.feature_icon === amenity.icon
+                      );
+                      // Get translated name based on current language tab
+                      const amenityTrans = amenityTranslations[amenity.amenity_id];
+                      const displayName = amenityTrans && amenityTrans[currentLanguageTab] 
+                        ? amenityTrans[currentLanguageTab] 
+                        : (currentLanguageTab === 'en' ? amenity.name : amenityTrans?.en || amenity.name);
+                      return (
+                        <Grid item xs={6} sm={4} key={amenity.amenity_id}>
+                          <Card
+                            variant={isAlreadyAdded ? 'outlined' : 'elevation'}
+                            sx={{
+                              cursor: isAlreadyAdded ? 'not-allowed' : 'pointer',
+                              opacity: isAlreadyAdded ? 0.5 : 1,
+                              '&:hover': isAlreadyAdded ? {} : { bgcolor: 'action.hover' },
+                            }}
+                            onClick={() => {
+                              if (!isAlreadyAdded) {
+                                const eventId = selectedTableRecord?.event_id || selectedTableRecord?.id;
+                                const newFeature = {
+                                  feature_id: undefined,
+                                  event_id: eventId || 0,
+                                  feature_name: amenity.name, // Store English name as base
+                                  feature_description: 'Included amenity',
+                                  feature_icon: amenity.icon || 'amenity',
+                                  is_included: true,
+                                  additional_cost: 0,
+                                  is_highlighted: false,
+                                };
+                                setEventFeatures(prev => [...prev, newFeature]);
+                                setAddItemDialog({ open: false, key: '', label: '' });
+                              }
+                            }}
+                          >
+                            <Box sx={{ p: 1.5, textAlign: 'center' }}>
+                              {iconComponent && (
+                                <Box sx={{ color: 'primary.main', mb: 0.5, display: 'flex', justifyContent: 'center' }}>
+                                  {iconComponent}
+                                </Box>
+                              )}
+                              <Typography variant="body2" fontWeight={500}>
+                                {displayName}
+                              </Typography>
+                              {currentLanguageTab !== 'en' && amenityTrans?.en && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                  ({amenityTrans.en})
+                                </Typography>
+                              )}
+                              {isAlreadyAdded && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                  Already added
+                                </Typography>
+                              )}
+                            </Box>
+                          </Card>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                )}
+              </Stack>
+            )
+          ) : (
           <TextField
             autoFocus
             fullWidth
@@ -8278,6 +9109,7 @@ const Verification = () => {
             }}
             sx={{ mt: 1 }}
           />
+          )}
         </DialogContent>
         <DialogActions>
           <Button 
@@ -8291,6 +9123,7 @@ const Verification = () => {
           >
             Cancel
           </Button>
+          {addItemDialog.key !== 'amenity' && (
           <Button
             variant="contained"
             disabled={addingItem || !newItemValue.trim()}
@@ -8380,6 +9213,173 @@ const Verification = () => {
             }}
           >
             {addingItem ? 'Adding...' : 'Add'}
+          </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Custom Amenity Creation Dialog */}
+      <Dialog 
+        open={customAmenityDialog.open} 
+        onClose={() => {
+          if (!creatingAmenity) {
+            setCustomAmenityDialog({ open: false });
+            setNewAmenityData({
+              name: '',
+              icon: 'amenity',
+              translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+            });
+          }
+        }} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>Create Custom Amenity</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Amenity Name (English)"
+              value={newAmenityData.name}
+              onChange={(e) => {
+                const name = e.target.value;
+                setNewAmenityData(prev => ({
+                  ...prev,
+                  name,
+                  translations: { ...prev.translations, en: name },
+                }));
+                // Auto-translate to other languages after user stops typing (debounced)
+                if (name && name.trim()) {
+                  autoTranslateAmenityName(name);
+                } else {
+                  // Clear translations if name is empty
+                  setNewAmenityData(prev => ({
+                    ...prev,
+                    translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                  }));
+                }
+              }}
+              InputProps={{
+                endAdornment: translatingFields.has('amenity_name') ? (
+                  <InputAdornment position="end">
+                    <CircularProgress size={16} />
+                  </InputAdornment>
+                ) : undefined,
+              }}
+              required
+            />
+            <TextField
+              fullWidth
+              size="small"
+              label="Icon (e.g., wifi, parking, restaurant)"
+              value={newAmenityData.icon}
+              onChange={(e) => setNewAmenityData(prev => ({ ...prev, icon: e.target.value }))}
+              helperText="Enter icon name (will be used to display icon)"
+            />
+            {getIconFromName(newAmenityData.icon) && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
+                <Typography variant="body2">Icon Preview:</Typography>
+                <Box sx={{ color: 'primary.main' }}>
+                  {getIconFromName(newAmenityData.icon)}
+                </Box>
+              </Box>
+            )}
+            <Divider />
+            <Typography variant="subtitle2" fontWeight={600}>
+              Translations
+            </Typography>
+            {LANGUAGES.filter(l => l.code !== 'en').map(lang => (
+              <TextField
+                key={lang.code}
+                fullWidth
+                size="small"
+                label={`${lang.label} Translation`}
+                value={newAmenityData.translations[lang.code] || ''}
+                onChange={(e) => {
+                  setNewAmenityData(prev => ({
+                    ...prev,
+                    translations: {
+                      ...prev.translations,
+                      [lang.code]: e.target.value,
+                    },
+                  }));
+                }}
+              />
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              if (!creatingAmenity) {
+                setCustomAmenityDialog({ open: false });
+                setNewAmenityData({
+                  name: '',
+                  icon: 'amenity',
+                  translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                });
+              }
+            }}
+            disabled={creatingAmenity}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={creatingAmenity || !newAmenityData.name.trim()}
+            startIcon={creatingAmenity ? <CircularProgress size={16} /> : undefined}
+            onClick={async () => {
+              if (!newAmenityData.name.trim() || creatingAmenity) return;
+              
+              setCreatingAmenity(true);
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                const userId = user?.id ? parseInt(user.id) : null;
+
+                // Insert amenity with translations
+                const result = await insertAmenityWithTranslations(
+                  newAmenityData.name.trim(),
+                  newAmenityData.icon || null,
+                  newAmenityData.translations,
+                  userId
+                );
+
+                if (result.success && result.amenity) {
+                  // Add as feature automatically
+                  const eventId = selectedTableRecord?.event_id || selectedTableRecord?.id;
+                  const newFeature = {
+                    feature_id: undefined,
+                    event_id: eventId || 0,
+                    feature_name: newAmenityData.name.trim(),
+                    feature_description: 'Included amenity',
+                    feature_icon: newAmenityData.icon || 'amenity',
+                    is_included: true,
+                    additional_cost: 0,
+                    is_highlighted: false,
+                  };
+                  setEventFeatures(prev => [...prev, newFeature]);
+                  
+                  // Close both dialogs
+                  setCustomAmenityDialog({ open: false });
+                  setAddItemDialog({ open: false, key: '', label: '' });
+                  setNewAmenityData({
+                    name: '',
+                    icon: 'amenity',
+                    translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                  });
+                } else {
+                  setError(result.error || 'Failed to create amenity');
+                }
+              } catch (error: any) {
+                console.error('Error creating custom amenity:', error);
+                setError(error.message || 'Failed to create amenity');
+              } finally {
+                setCreatingAmenity(false);
+              }
+            }}
+          >
+            {creatingAmenity ? 'Creating...' : 'Create & Add'}
           </Button>
         </DialogActions>
       </Dialog>
