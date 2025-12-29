@@ -36,6 +36,8 @@ import {
   TrendData,
 } from '@/services/dashboard.service';
 import { getDefaultDateRange } from '@/utils/dateRange';
+import FormattedDateInput from '@/components/common/FormattedDateInput';
+import { formatDisplayDate } from '@/utils/dateTime.utils';
 
 type RangePreset = '7d' | '14d' | '30d' | 'custom';
 
@@ -303,20 +305,18 @@ const Analytics = () => {
             </Button>
           </ButtonGroup>
           <Stack direction="row" spacing={2}>
-            <TextField
+            <FormattedDateInput
               label="Start Date"
-              type="date"
               size="small"
               value={range.start}
-              onChange={(event) => handleDateChange('start', event.target.value)}
+              onChange={(value) => handleDateChange('start', value)}
               InputLabelProps={{ shrink: true }}
             />
-            <TextField
+            <FormattedDateInput
               label="End Date"
-              type="date"
               size="small"
               value={range.end}
-              onChange={(event) => handleDateChange('end', event.target.value)}
+              onChange={(value) => handleDateChange('end', value)}
               InputLabelProps={{ shrink: true }}
             />
           </Stack>
@@ -550,7 +550,7 @@ const Analytics = () => {
                           <TableRow key={user.user_id}>
                             <TableCell>{user.full_name}</TableCell>
                             <TableCell>{user.email}</TableCell>
-                            <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell>{formatDisplayDate(user.created_at)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

@@ -35,7 +35,6 @@ import {
   Tabs,
   Tab,
   InputAdornment,
-  Checkbox,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -52,6 +51,8 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import StarIcon from '@mui/icons-material/Star';
 import ImageIcon from '@mui/icons-material/Image';
 import { format } from 'date-fns';
+import { formatDisplayDate, formatDisplayTime, getCurrentDate } from '../../utils/dateTime.utils';
+import FormattedDateInput from '../../components/common/FormattedDateInput';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MapIcon from '@mui/icons-material/Map';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
@@ -300,14 +301,6 @@ const getIconFromName = (iconName: string | null | undefined): ReactElement | un
 };
 
 const Verification = () => {
-  // Get current date in YYYY-MM-DD format for default date filter
-  const getCurrentDate = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
 
   const [currentTab, setCurrentTab] = useState<VerificationTab>('user');
   const [entityFilter, setEntityFilter] = useState<string>('All');
@@ -360,7 +353,6 @@ const Verification = () => {
   const [ticketTypeMasters, setTicketTypeMasters] = useState<MasterData[]>([]);
   const [ticketTypeMasterTranslations, setTicketTypeMasterTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   const [eventFeatures, setEventFeatures] = useState<Array<{ feature_id?: number; event_id: number; feature_name: string; feature_description?: string | null; feature_icon?: string | null; is_included: boolean; additional_cost: number; is_highlighted: boolean }>>([]);
-  const [editingFeatureIndex, setEditingFeatureIndex] = useState<number | null>(null);
   const [availableAmenities, setAvailableAmenities] = useState<Array<{ amenity_id: number; name: string; icon: string | null; user_id: number | null }>>([]);
   const [amenityTranslations, setAmenityTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   const [loadingAmenities, setLoadingAmenities] = useState(false);
@@ -1300,16 +1292,26 @@ const Verification = () => {
       }
 
       const features = featuresData || [];
-      setEventFeatures(features.map((f: any) => ({
-        feature_id: f.feature_id,
-        event_id: f.event_id,
-        feature_name: f.feature_name || '',
-        feature_description: f.feature_description || null,
-        feature_icon: f.feature_icon || null,
-        is_included: f.is_included !== false,
-        additional_cost: f.additional_cost || 0,
-        is_highlighted: f.is_highlighted || false,
-      })));
+      // Deduplicate features based on feature_name and feature_icon
+      const uniqueFeatures = new Map<string, any>();
+      features.forEach((f: any) => {
+        const normalizedIcon = f.feature_icon || 'amenity';
+        const key = `${f.feature_name || ''}_${normalizedIcon}`;
+        // Keep the first occurrence (prefer one with feature_id if available)
+        if (!uniqueFeatures.has(key) || (f.feature_id && !uniqueFeatures.get(key).feature_id)) {
+          uniqueFeatures.set(key, {
+            feature_id: f.feature_id,
+            event_id: f.event_id,
+            feature_name: f.feature_name || '',
+            feature_description: f.feature_description || null,
+            feature_icon: normalizedIcon,
+            is_included: f.is_included !== false,
+            additional_cost: f.additional_cost || 0,
+            is_highlighted: f.is_highlighted || false,
+          });
+        }
+      });
+      setEventFeatures(Array.from(uniqueFeatures.values()));
     } catch (error) {
       console.error('Error loading event features:', error);
       setEventFeatures([]);
@@ -3408,13 +3410,28 @@ const Verification = () => {
       }
 
       // Save event features
+      // Deduplicate features before saving
+      const uniqueFeaturesMap = new Map<string, typeof eventFeatures[0]>();
+      eventFeatures.forEach(feature => {
+        const normalizedIcon = feature.feature_icon || 'amenity';
+        const key = `${feature.feature_name || ''}_${normalizedIcon}`;
+        // Keep the first occurrence (prefer one with feature_id if available)
+        if (!uniqueFeaturesMap.has(key) || (feature.feature_id && !uniqueFeaturesMap.get(key)?.feature_id)) {
+          uniqueFeaturesMap.set(key, {
+            ...feature,
+            feature_icon: normalizedIcon,
+          });
+        }
+      });
+      const deduplicatedFeatures = Array.from(uniqueFeaturesMap.values());
+
       // First, get current features from database to identify features to delete
       const { data: currentFeatures } = await supabase
         .from('heritage_eventfeature')
         .select('feature_id')
         .eq('event_id', eventId);
 
-      const existingFeatureIds = eventFeatures
+      const existingFeatureIds = deduplicatedFeatures
         .filter(f => f.feature_id)
         .map(f => f.feature_id);
 
@@ -3437,8 +3454,8 @@ const Verification = () => {
       }
 
       // Upsert all features
-      if (eventFeatures.length > 0) {
-        for (const feature of eventFeatures) {
+      if (deduplicatedFeatures.length > 0) {
+        for (const feature of deduplicatedFeatures) {
           try {
             const featureData: any = {
               event_id: eventId,
@@ -4618,13 +4635,12 @@ const Verification = () => {
               </Select>
             </FormControl>
 
-            <TextField
+            <FormattedDateInput
               size="small"
               label={currentTab === 'user' ? 'Submitted On' : 'Created On'}
-              type="date"
               value={dateFilter}
-              onChange={(e) => {
-                setDateFilter(e.target.value);
+              onChange={(value) => {
+                setDateFilter(value);
                 setPage(1);
               }}
               InputLabelProps={{ shrink: true }}
@@ -4845,7 +4861,7 @@ const Verification = () => {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{format(new Date(record.submittedOn), 'MMMM d, yyyy')}</Typography>
+                      <Typography variant="body2">{formatDisplayDate(record.submittedOn)}</Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
@@ -4923,7 +4939,7 @@ const Verification = () => {
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">
-                          {record.created_at ? format(new Date(record.created_at), 'MMMM d, yyyy') : '—'}
+                          {formatDisplayDate(record.created_at)}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
@@ -5788,15 +5804,14 @@ const Verification = () => {
                                   />
                                 </Grid>
                                 <Grid item xs={12} sm={6}>
-                                  <TextField
+                                  <FormattedDateInput
                                     fullWidth
                                     size="small"
                                     label="Session Date"
-                                    type="date"
                                     value={session.session_date || ''}
-                                    onChange={(e) => {
+                                    onChange={(value) => {
                                       setEventSessions(prev => prev.map((s, i) => 
-                                        i === index ? { ...s, session_date: e.target.value } : s
+                                        i === index ? { ...s, session_date: value } : s
                                       ));
                                     }}
                                     InputLabelProps={{ shrink: true }}
@@ -5916,7 +5931,7 @@ const Verification = () => {
                             ) : (
                               <Stack spacing={1}>
                                 <Typography variant="body2" color="text.secondary">
-                                  <strong>Date:</strong> {session.session_date || '—'} | <strong>Time:</strong> {session.start_time || '—'} {session.end_time ? `- ${session.end_time}` : ''}
+                                  <strong>Date:</strong> {formatDisplayDate(session.session_date)} | <strong>Time:</strong> {formatDisplayTime(session.start_time)} {session.end_time ? ` - ${formatDisplayTime(session.end_time)}` : ''}
                                 </Typography>
                                 {session.max_capacity && (
                                   <Typography variant="body2" color="text.secondary">
@@ -6133,249 +6148,119 @@ const Verification = () => {
                         if (availableAmenities.length === 0) {
                           await loadAvailableAmenities();
                         }
-                        // Open amenity selection dialog
-                        setAddItemDialog({ open: true, key: 'amenity', label: 'Select Amenity' });
+                        // Open custom amenity creation dialog
+                        setNewAmenityData({
+                          name: '',
+                          icon: 'amenity',
+                          translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                        });
+                        setCustomAmenityDialog({ open: true });
                       }}
                     >
                       Add from Amenities
                     </Button>
                   )}
                 </Stack>
-                {eventFeatures.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                    No features added yet
-                  </Typography>
+                {editMode ? (
+                  // Edit mode: Show all available amenities as choice chips
+                  loadingAmenities ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                      <CircularProgress />
+                    </Box>
+                  ) : availableAmenities.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                      No amenities available. Click "Add from Amenities" to create one.
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {availableAmenities.map((amenity) => {
+                        const iconComponent = getIconFromName(amenity.icon);
+                        // Normalize icon for comparison (handle null/undefined)
+                        const normalizedIcon = amenity.icon || 'amenity';
+                        // Check if this amenity is already in features (normalize both sides for comparison)
+                        const isSelected = eventFeatures.some(f => {
+                          const fIcon = f.feature_icon || 'amenity';
+                          return f.feature_name === amenity.name && fIcon === normalizedIcon;
+                        });
+                        const amenityTrans = amenityTranslations[amenity.amenity_id];
+                        const displayName = amenityTrans && amenityTrans[currentLanguageTab] 
+                          ? amenityTrans[currentLanguageTab] 
+                          : (currentLanguageTab === 'en' ? amenity.name : amenityTrans?.en || amenity.name);
+                        return (
+                          <Chip
+                            key={amenity.amenity_id}
+                            icon={iconComponent ? <Box sx={{ display: 'flex', alignItems: 'center' }}>{iconComponent}</Box> : undefined}
+                            label={displayName}
+                            onClick={() => {
+                              if (isSelected) {
+                                // Remove all matching features (in case of duplicates)
+                                setEventFeatures(prev => prev.filter(f => {
+                                  const fIcon = f.feature_icon || 'amenity';
+                                  return !(f.feature_name === amenity.name && fIcon === normalizedIcon);
+                                }));
+                              } else {
+                                // Check again before adding to prevent duplicates
+                                const alreadyExists = eventFeatures.some(f => {
+                                  const fIcon = f.feature_icon || 'amenity';
+                                  return f.feature_name === amenity.name && fIcon === normalizedIcon;
+                                });
+                                if (!alreadyExists) {
+                                  // Add feature
+                                  const eventId = selectedTableRecord?.event_id || selectedTableRecord?.id;
+                                  const newFeature = {
+                                    feature_id: undefined,
+                                    event_id: eventId || 0,
+                                    feature_name: amenity.name,
+                                    feature_description: 'Included amenity',
+                                    feature_icon: normalizedIcon,
+                                    is_included: true,
+                                    additional_cost: 0,
+                                    is_highlighted: false,
+                                  };
+                                  setEventFeatures(prev => [...prev, newFeature]);
+                                }
+                              }
+                            }}
+                            color={isSelected ? 'primary' : 'default'}
+                            variant={isSelected ? 'filled' : 'outlined'}
+                            sx={{
+                              cursor: 'pointer',
+                              '&:hover': {
+                                bgcolor: isSelected ? 'primary.dark' : 'action.hover',
+                              },
+                            }}
+                          />
+                        );
+                      })}
+                    </Box>
+                  )
                 ) : (
-                  <Grid container spacing={2}>
-                    {eventFeatures.map((feature, index) => {
-                      const iconComponent = getIconFromName(feature.feature_icon || 'amenity');
-                      // Try to find matching amenity by name to get translation
-                      const matchingAmenity = availableAmenities.find(a => a.name === feature.feature_name);
-                      const amenityTrans = matchingAmenity ? amenityTranslations[matchingAmenity.amenity_id] : null;
-                      const displayFeatureName = amenityTrans && amenityTrans[currentLanguageTab] 
-                        ? amenityTrans[currentLanguageTab] 
-                        : (currentLanguageTab === 'en' ? feature.feature_name : (amenityTrans?.en || feature.feature_name));
-                      const isEditing = editingFeatureIndex === index;
-                      return (
-                        <Grid item xs={12} sm={6} md={4} key={feature.feature_id || index}>
-                          <Card variant="outlined" sx={{ height: '100%' }}>
-                            <Box sx={{ p: 2 }}>
-                              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
-                                <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1 }}>
-                                  {iconComponent && (
-                                    <Box sx={{ color: 'primary.main', display: 'flex', alignItems: 'center' }}>
-                                      {iconComponent}
-                                    </Box>
-                                  )}
-                                  <Typography variant="subtitle2" fontWeight={600}>
-                                    {displayFeatureName}
-                                  </Typography>
-                                </Stack>
-                                <Stack direction="row" spacing={0.5}>
-                                  {editMode && (
-                                    <>
-                                      <IconButton
-                                        size="small"
-                                        color="primary"
-                                        onClick={() => {
-                                          setEditingFeatureIndex(isEditing ? null : index);
-                                        }}
-                                      >
-                                        <EditIcon fontSize="small" />
-                                      </IconButton>
-                                      <IconButton
-                                        size="small"
-                                        color="error"
-                                        onClick={() => {
-                                          setConfirmDialog({
-                                            open: true,
-                                            message: 'Are you sure you want to delete this feature?',
-                                            onConfirm: () => {
-                                              setConfirmDialog({ open: false, message: '', onConfirm: null });
-                                              setEventFeatures(prev => prev.filter((_, i) => i !== index));
-                                              setEditingFeatureIndex(null);
-                                            },
-                                          });
-                                        }}
-                                      >
-                                        <DeleteIcon fontSize="small" />
-                                      </IconButton>
-                                    </>
-                                  )}
-                                </Stack>
-                              </Stack>
-                              
-                              {isEditing ? (
-                                <Stack spacing={1.5}>
-                                  <TextField
-                                    fullWidth
-                                    size="small"
-                                    label="Description"
-                                    multiline
-                                    minRows={2}
-                                    value={feature.feature_description || ''}
-                                    onChange={(e) => {
-                                      setEventFeatures(prev => prev.map((f, i) => 
-                                        i === index ? { ...f, feature_description: e.target.value || null } : f
-                                      ));
-                                    }}
-                                  />
-                                  {!feature.is_included && (
-                                    <TextField
-                                      fullWidth
-                                      size="small"
-                                      label="Additional Cost"
-                                      type="number"
-                                      value={feature.additional_cost || 0}
-                                      onChange={(e) => {
-                                        setEventFeatures(prev => prev.map((f, i) => 
-                                          i === index ? { ...f, additional_cost: parseFloat(e.target.value) || 0 } : f
-                                        ));
-                                      }}
-                                    />
-                                  )}
-                                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" gap={1}>
-                                    <Box
-                                      onClick={() => {
-                                        setEventFeatures(prev => prev.map((f, i) => 
-                                          i === index ? { ...f, is_included: !f.is_included } : f
-                                        ));
-                                      }}
-                                      sx={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 0.5,
-                                        px: 1.5,
-                                        py: 0.5,
-                                        borderRadius: '16px',
-                                        border: `1px solid ${feature.is_included ? 'success.main' : 'divider'}`,
-                                        bgcolor: feature.is_included ? 'success.light' : 'transparent',
-                                        cursor: 'pointer',
-                                        '&:hover': {
-                                          bgcolor: feature.is_included ? 'success.light' : 'action.hover',
-                                        },
-                                      }}
-                                    >
-                                      <Checkbox
-                                        checked={feature.is_included}
-                                        size="small"
-                                        sx={{ p: 0, color: feature.is_included ? 'success.main' : 'inherit' }}
-                                      />
-                                      <Typography variant="body2" sx={{ userSelect: 'none' }}>
-                                        Included
-                                      </Typography>
-                                    </Box>
-                                    <Box
-                                      onClick={() => {
-                                        setEventFeatures(prev => prev.map((f, i) => 
-                                          i === index ? { ...f, is_highlighted: !f.is_highlighted } : f
-                                        ));
-                                      }}
-                                      sx={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 0.5,
-                                        px: 1.5,
-                                        py: 0.5,
-                                        borderRadius: '16px',
-                                        border: `1px solid ${feature.is_highlighted ? 'primary.main' : 'divider'}`,
-                                        bgcolor: feature.is_highlighted ? 'primary.light' : 'transparent',
-                                        cursor: 'pointer',
-                                        '&:hover': {
-                                          bgcolor: feature.is_highlighted ? 'primary.light' : 'action.hover',
-                                        },
-                                      }}
-                                    >
-                                      <Checkbox
-                                        checked={feature.is_highlighted}
-                                        size="small"
-                                        sx={{ p: 0, color: feature.is_highlighted ? 'primary.main' : 'inherit' }}
-                                      />
-                                      <Typography variant="body2" sx={{ userSelect: 'none' }}>
-                                        Highlighted
-                                      </Typography>
-                                    </Box>
-                                  </Stack>
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    onClick={() => setEditingFeatureIndex(null)}
-                                    sx={{ mt: 1 }}
-                                  >
-                                    Done
-                                  </Button>
-                                </Stack>
-                              ) : (
-                                <Stack spacing={1}>
-                                  {feature.feature_description && (
-                                    <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
-                                      {feature.feature_description}
-                                    </Typography>
-                                  )}
-                                  <Stack direction="row" spacing={1} flexWrap="wrap" gap={0.5} alignItems="center">
-                                    <Box
-                                      sx={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 0.5,
-                                        px: 1.5,
-                                        py: 0.5,
-                                        borderRadius: '16px',
-                                        border: `1px solid ${feature.is_included ? 'success.main' : 'divider'}`,
-                                        bgcolor: feature.is_included ? 'success.light' : 'transparent',
-                                      }}
-                                    >
-                                      <Checkbox
-                                        checked={feature.is_included}
-                                        size="small"
-                                        disabled
-                                        sx={{ p: 0, color: feature.is_included ? 'success.main' : 'inherit' }}
-                                      />
-                                      <Typography variant="body2" sx={{ userSelect: 'none' }}>
-                                        Included
-                                      </Typography>
-                                    </Box>
-                                    {!feature.is_included && feature.additional_cost > 0 && (
-                                      <Chip
-                                        label={`+${feature.additional_cost}`}
-                                        size="small"
-                                        variant="outlined"
-                                      />
-                                    )}
-                                    {feature.is_highlighted && (
-                                      <Box
-                                        sx={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: 0.5,
-                                          px: 1.5,
-                                          py: 0.5,
-                                          borderRadius: '16px',
-                                          border: '1px solid',
-                                          borderColor: 'primary.main',
-                                          bgcolor: 'primary.light',
-                                        }}
-                                      >
-                                        <Checkbox
-                                          checked={true}
-                                          size="small"
-                                          disabled
-                                          sx={{ p: 0, color: 'primary.main' }}
-                                        />
-                                        <Typography variant="body2" sx={{ userSelect: 'none' }}>
-                                          Highlighted
-                                        </Typography>
-                                      </Box>
-                                    )}
-                                  </Stack>
-                                </Stack>
-                              )}
-                            </Box>
-                          </Card>
-                        </Grid>
-                      );
-                    })}
-                  </Grid>
+                  // View mode: Show only selected features as chips
+                  eventFeatures.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                      No features added yet
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {eventFeatures.map((feature) => {
+                        const iconComponent = getIconFromName(feature.feature_icon || 'amenity');
+                        const matchingAmenity = availableAmenities.find(a => a.name === feature.feature_name);
+                        const amenityTrans = matchingAmenity ? amenityTranslations[matchingAmenity.amenity_id] : null;
+                        const displayFeatureName = amenityTrans && amenityTrans[currentLanguageTab] 
+                          ? amenityTrans[currentLanguageTab] 
+                          : (currentLanguageTab === 'en' ? feature.feature_name : (amenityTrans?.en || feature.feature_name));
+                        return (
+                          <Chip
+                            key={feature.feature_id || feature.feature_name}
+                            icon={iconComponent ? <Box sx={{ display: 'flex', alignItems: 'center' }}>{iconComponent}</Box> : undefined}
+                            label={displayFeatureName}
+                            color="primary"
+                            variant="filled"
+                          />
+                        );
+                      })}
+                    </Box>
+                  )
                 )}
               </Box>
             </Stack>
@@ -7248,8 +7133,8 @@ const Verification = () => {
                                                 <Stack direction="row" spacing={2} alignItems="flex-start">
                                                   {item.start_time && (
                                                     <Typography variant="caption" color="primary" sx={{ fontWeight: 600, minWidth: 80 }}>
-                                                      {item.start_time}
-                                                      {item.end_time && ` - ${item.end_time}`}
+                                                      {formatDisplayTime(item.start_time)}
+                                                      {item.end_time && ` - ${formatDisplayTime(item.end_time)}`}
                                                     </Typography>
                                                   )}
                                                   <Box sx={{ flex: 1 }}>
@@ -7510,7 +7395,7 @@ const Verification = () => {
                   {userDetails?.user?.verified_on && (
                     <Grid item xs={6}>
                       <Typography variant="body2" color="text.secondary">Verified On</Typography>
-                      <Typography>{format(new Date(userDetails.user.verified_on), 'MMMM d, yyyy')}</Typography>
+                      <Typography>{formatDisplayDate(userDetails.user.verified_on)}</Typography>
                     </Grid>
                   )}
                 </Grid>
@@ -8391,7 +8276,7 @@ const Verification = () => {
                               {labelMap[key] || label}
                             </Typography>
                             <Typography variant="body2">
-                              {currentValue ? String(currentValue) : '—'}
+                              {formatDisplayTime(currentValue)}
                             </Typography>
                           </Grid>
                         );
@@ -8437,20 +8322,19 @@ const Verification = () => {
                         if (editMode) {
                           return (
                             <Grid item xs={6} key={key}>
-                              <TextField
+                              <FormattedDateInput
                                 fullWidth
                                 size="small"
                                 label={label}
-                                type="date"
                                 value={dateValue}
-                                onChange={(e) => {
+                                onChange={(value) => {
                                   // For timestamp fields, convert date to ISO timestamp
-                                  if (isTimestampField && e.target.value) {
-                                    const date = new Date(e.target.value);
+                                  if (isTimestampField && value) {
+                                    const date = new Date(value);
                                     date.setHours(0, 0, 0, 0);
                                     handleFieldChange(key, date.toISOString());
                                   } else {
-                                    handleFieldChange(key, e.target.value);
+                                    handleFieldChange(key, value);
                                   }
                                 }}
                                 InputLabelProps={{ shrink: true }}
@@ -8461,7 +8345,7 @@ const Verification = () => {
                         return (
                           <Grid item xs={6} key={key}>
                             <Typography variant="body2" color="text.secondary">{label}</Typography>
-                            <Typography>{dateValue ? format(new Date(dateValue + 'T00:00:00'), 'MMMM d, yyyy') : '—'}</Typography>
+                            <Typography>{formatDisplayDate(dateValue ? dateValue + 'T00:00:00' : null)}</Typography>
                           </Grid>
                         );
                       }
@@ -8952,102 +8836,7 @@ const Verification = () => {
       >
         <DialogTitle>Add {addItemDialog.label}</DialogTitle>
         <DialogContent>
-          {addItemDialog.key === 'amenity' ? (
-            // Amenity selection
-            loadingAmenities ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              <Stack spacing={2} sx={{ mt: 1 }}>
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  startIcon={<AddIcon />}
-                  onClick={() => {
-                    setNewAmenityData({
-                      name: '',
-                      icon: 'amenity',
-                      translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
-                    });
-                    setCustomAmenityDialog({ open: true });
-                  }}
-                  sx={{ mb: 1 }}
-                >
-                  Create Custom Amenity
-                </Button>
-                {availableAmenities.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                    No amenities available
-                  </Typography>
-                ) : (
-                  <Grid container spacing={1}>
-                    {availableAmenities.map((amenity) => {
-                      const iconComponent = getIconFromName(amenity.icon);
-                      const isAlreadyAdded = eventFeatures.some(f => 
-                        f.feature_name === amenity.name && f.feature_icon === amenity.icon
-                      );
-                      // Get translated name based on current language tab
-                      const amenityTrans = amenityTranslations[amenity.amenity_id];
-                      const displayName = amenityTrans && amenityTrans[currentLanguageTab] 
-                        ? amenityTrans[currentLanguageTab] 
-                        : (currentLanguageTab === 'en' ? amenity.name : amenityTrans?.en || amenity.name);
-                      return (
-                        <Grid item xs={6} sm={4} key={amenity.amenity_id}>
-                          <Card
-                            variant={isAlreadyAdded ? 'outlined' : 'elevation'}
-                            sx={{
-                              cursor: isAlreadyAdded ? 'not-allowed' : 'pointer',
-                              opacity: isAlreadyAdded ? 0.5 : 1,
-                              '&:hover': isAlreadyAdded ? {} : { bgcolor: 'action.hover' },
-                            }}
-                            onClick={() => {
-                              if (!isAlreadyAdded) {
-                                const eventId = selectedTableRecord?.event_id || selectedTableRecord?.id;
-                                const newFeature = {
-                                  feature_id: undefined,
-                                  event_id: eventId || 0,
-                                  feature_name: amenity.name, // Store English name as base
-                                  feature_description: 'Included amenity',
-                                  feature_icon: amenity.icon || 'amenity',
-                                  is_included: true,
-                                  additional_cost: 0,
-                                  is_highlighted: false,
-                                };
-                                setEventFeatures(prev => [...prev, newFeature]);
-                                setAddItemDialog({ open: false, key: '', label: '' });
-                              }
-                            }}
-                          >
-                            <Box sx={{ p: 1.5, textAlign: 'center' }}>
-                              {iconComponent && (
-                                <Box sx={{ color: 'primary.main', mb: 0.5, display: 'flex', justifyContent: 'center' }}>
-                                  {iconComponent}
-                                </Box>
-                              )}
-                              <Typography variant="body2" fontWeight={500}>
-                                {displayName}
-                              </Typography>
-                              {currentLanguageTab !== 'en' && amenityTrans?.en && (
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                  ({amenityTrans.en})
-                                </Typography>
-                              )}
-                              {isAlreadyAdded && (
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                  Already added
-                                </Typography>
-                              )}
-                            </Box>
-                          </Card>
-                        </Grid>
-                      );
-                    })}
-                  </Grid>
-                )}
-              </Stack>
-            )
-          ) : (
+          {addItemDialog.key !== 'amenity' && (
           <TextField
             autoFocus
             fullWidth

@@ -44,6 +44,7 @@ import { supabase } from '@/config/supabase';
 import HeritageSiteFormDialog, { HeritageSiteFormValues } from './HeritageSiteFormDialog';
 import HeritageSiteViewDialog from './HeritageSiteViewDialog';
 import MobilePreviewDialog from './MobilePreviewDialog';
+import { formatDisplayDate, formatDisplayTime, formatDisplayDateTime } from '@/utils/dateTime.utils';
 
 type SnackbarState = {
   open: boolean;
@@ -234,20 +235,20 @@ const HeritageSitesManager: React.FC = () => {
   const handleFormSubmit = async (values: HeritageSiteFormValues) => {
     const payload: HeritageSitePayload = {
       name_default: values.name_default.trim(),
-      short_desc_default: values.short_desc_default.trim(),
-      full_desc_default: values.full_desc_default.trim(),
-      site_type: values.site_type.trim() || null,
+      short_desc_default: values.short_desc_default?.trim() || null,
+      full_desc_default: values.full_desc_default?.trim() || null,
+      site_type: values.site_type?.trim() || null,
       latitude: values.latitude ? Number(values.latitude) : null,
       longitude: values.longitude ? Number(values.longitude) : null,
-      vr_link: values.vr_link.trim() || null,
-      qr_link: values.qr_link.trim() || null,
-      meta_title_def: values.meta_title_def.trim() || null,
-      meta_description_def: values.meta_description_def.trim() || null,
+      vr_link: values.vr_link?.trim() || null,
+      qr_link: values.qr_link?.trim() || null,
+      meta_title_def: values.meta_title_def?.trim() || null,
+      meta_description_def: values.meta_description_def?.trim() || null,
       is_active: values.is_active,
       entry_type: values.entry_type || null,
       entry_fee: values.entry_type === 'paid' ? Number(values.entry_fee || 0) : 0,
       experience: values.experience || null,
-      accessibility: values.accessibility.trim() || null,
+      accessibility: values.accessibility || null,
     };
 
     setActionLoading(true);
@@ -718,10 +719,10 @@ const HeritageSitesManager: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
-                        {site.updated_at ? new Date(site.updated_at).toLocaleDateString() : '—'}
+                        {formatDisplayDate(site.updated_at)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {site.updated_at ? new Date(site.updated_at).toLocaleTimeString() : ''}
+                        {formatDisplayTime(site.updated_at)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
