@@ -53,6 +53,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import { format } from 'date-fns';
 import { formatDisplayDate, formatDisplayTime, getCurrentDate } from '../../utils/dateTime.utils';
 import FormattedDateInput from '../../components/common/FormattedDateInput';
+import FormattedTimeInput from '../../components/common/FormattedTimeInput';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MapIcon from '@mui/icons-material/Map';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
@@ -357,6 +358,7 @@ const Verification = () => {
   const [amenityTranslations, setAmenityTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   const [loadingAmenities, setLoadingAmenities] = useState(false);
   const [customAmenityDialog, setCustomAmenityDialog] = useState<{ open: boolean }>({ open: false });
+  const [amenitySelectionDialog, setAmenitySelectionDialog] = useState<{ open: boolean }>({ open: false });
   const [newAmenityData, setNewAmenityData] = useState<{ name: string; icon: string; translations: Record<LanguageCode, string> }>({
     name: '',
     icon: 'amenity',
@@ -1292,19 +1294,18 @@ const Verification = () => {
       }
 
       const features = featuresData || [];
-      // Deduplicate features based on feature_name and feature_icon
+      // Deduplicate features based on feature_name only (case-insensitive)
       const uniqueFeatures = new Map<string, any>();
       features.forEach((f: any) => {
-        const normalizedIcon = f.feature_icon || 'amenity';
-        const key = `${f.feature_name || ''}_${normalizedIcon}`;
+        const normalizedName = ((f.feature_name || '') + '').toLowerCase().trim();
         // Keep the first occurrence (prefer one with feature_id if available)
-        if (!uniqueFeatures.has(key) || (f.feature_id && !uniqueFeatures.get(key).feature_id)) {
-          uniqueFeatures.set(key, {
+        if (!uniqueFeatures.has(normalizedName) || (f.feature_id && !uniqueFeatures.get(normalizedName).feature_id)) {
+          uniqueFeatures.set(normalizedName, {
             feature_id: f.feature_id,
             event_id: f.event_id,
-            feature_name: f.feature_name || '',
+            feature_name: (f.feature_name || '').trim(),
             feature_description: f.feature_description || null,
-            feature_icon: normalizedIcon,
+            feature_icon: (f.feature_icon || 'amenity').trim(),
             is_included: f.is_included !== false,
             additional_cost: f.additional_cost || 0,
             is_highlighted: f.is_highlighted || false,
@@ -1573,16 +1574,25 @@ const Verification = () => {
           if (details?.features) {
             const featuresArray = Array.isArray(details.features) ? details.features : (details.features.items || []);
             if (Array.isArray(featuresArray) && featuresArray.length > 0) {
-              setEventFeatures(featuresArray.map((f: any) => ({
-                feature_id: f.feature_id,
-                event_id: eventId,
-                feature_name: f.name || f.feature_name || '',
-                feature_description: f.description || f.feature_description || null,
-                feature_icon: f.icon || f.feature_icon || null,
-                is_included: f.is_included !== false,
-                additional_cost: f.additional_cost || 0,
-                is_highlighted: f.is_highlighted || false,
-              })));
+              // Deduplicate features from RPC response by name only
+              const uniqueFeaturesMap = new Map<string, any>();
+              featuresArray.forEach((f: any) => {
+                const normalizedName = ((f.name || f.feature_name || '') + '').toLowerCase().trim();
+                // Keep the first occurrence (prefer one with feature_id if available)
+                if (!uniqueFeaturesMap.has(normalizedName) || (f.feature_id && !uniqueFeaturesMap.get(normalizedName)?.feature_id)) {
+                  uniqueFeaturesMap.set(normalizedName, {
+                    feature_id: f.feature_id,
+                    event_id: eventId,
+                    feature_name: ((f.name || f.feature_name || '') + '').trim(),
+                    feature_description: f.description || f.feature_description || null,
+                    feature_icon: ((f.icon || f.feature_icon || 'amenity') + '').trim(),
+                    is_included: f.is_included !== false,
+                    additional_cost: f.additional_cost || 0,
+                    is_highlighted: f.is_highlighted || false,
+                  });
+                }
+              });
+              setEventFeatures(Array.from(uniqueFeaturesMap.values()));
             } else {
               // If no features in RPC response, load from database
               await loadEventFeatures(eventId);
@@ -3410,16 +3420,16 @@ const Verification = () => {
       }
 
       // Save event features
-      // Deduplicate features before saving
+      // Deduplicate features before saving by name only (case-insensitive)
       const uniqueFeaturesMap = new Map<string, typeof eventFeatures[0]>();
       eventFeatures.forEach(feature => {
-        const normalizedIcon = feature.feature_icon || 'amenity';
-        const key = `${feature.feature_name || ''}_${normalizedIcon}`;
+        const normalizedName = ((feature.feature_name || '') + '').toLowerCase().trim();
         // Keep the first occurrence (prefer one with feature_id if available)
-        if (!uniqueFeaturesMap.has(key) || (feature.feature_id && !uniqueFeaturesMap.get(key)?.feature_id)) {
-          uniqueFeaturesMap.set(key, {
+        if (!uniqueFeaturesMap.has(normalizedName) || (feature.feature_id && !uniqueFeaturesMap.get(normalizedName)?.feature_id)) {
+          uniqueFeaturesMap.set(normalizedName, {
             ...feature,
-            feature_icon: normalizedIcon,
+            feature_name: (feature.feature_name || '').trim(),
+            feature_icon: (feature.feature_icon || 'amenity').trim(),
           });
         }
       });
@@ -5818,30 +5828,28 @@ const Verification = () => {
                                   />
                                 </Grid>
                                 <Grid item xs={12} sm={6}>
-                                  <TextField
+                                  <FormattedTimeInput
                                     fullWidth
                                     size="small"
                                     label="Start Time"
-                                    type="time"
                                     value={session.start_time || ''}
-                                    onChange={(e) => {
+                                    onChange={(value) => {
                                       setEventSessions(prev => prev.map((s, i) => 
-                                        i === index ? { ...s, start_time: e.target.value } : s
+                                        i === index ? { ...s, start_time: value } : s
                                       ));
                                     }}
                                     InputLabelProps={{ shrink: true }}
                                   />
                                 </Grid>
                                 <Grid item xs={12} sm={6}>
-                                  <TextField
+                                  <FormattedTimeInput
                                     fullWidth
                                     size="small"
                                     label="End Time"
-                                    type="time"
                                     value={session.end_time || ''}
-                                    onChange={(e) => {
+                                    onChange={(value) => {
                                       setEventSessions(prev => prev.map((s, i) => 
-                                        i === index ? { ...s, end_time: e.target.value || null } : s
+                                        i === index ? { ...s, end_time: value || null } : s
                                       ));
                                     }}
                                     InputLabelProps={{ shrink: true }}
@@ -6138,49 +6146,57 @@ const Verification = () => {
                   <Typography variant="subtitle1" fontWeight={600}>
                     Features ({eventFeatures.length})
                   </Typography>
-                  {editMode && (
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<AddIcon />}
-                      onClick={async () => {
-                        // Load amenities if not already loaded
-                        if (availableAmenities.length === 0) {
-                          await loadAvailableAmenities();
-                        }
-                        // Open custom amenity creation dialog
-                        setNewAmenityData({
-                          name: '',
-                          icon: 'amenity',
-                          translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
-                        });
-                        setCustomAmenityDialog({ open: true });
-                      }}
-                    >
-                      Add from Amenities
-                    </Button>
-                  )}
                 </Stack>
                 {editMode ? (
-                  // Edit mode: Show all available amenities as choice chips
+                  // Edit mode: Show all available amenities as choice chips (selected and unselected) + Custom button
                   loadingAmenities ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                       <CircularProgress />
                     </Box>
                   ) : availableAmenities.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                      No amenities available. Click "Add from Amenities" to create one.
-                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ width: '100%', textAlign: 'center', py: 2 }}>
+                        No amenities available. Click "Custom" to create one.
+                      </Typography>
+                      {/* Custom amenity button with + icon */}
+                      <Chip
+                        icon={<AddIcon />}
+                        label="Custom"
+                        onClick={async () => {
+                          // Load amenities if not already loaded
+                          if (availableAmenities.length === 0) {
+                            await loadAvailableAmenities();
+                          }
+                          // Open custom amenity creation dialog
+                          setNewAmenityData({
+                            name: '',
+                            icon: 'amenity',
+                            translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                          });
+                          setCustomAmenityDialog({ open: true });
+                        }}
+                        color="default"
+                        variant="outlined"
+                        sx={{
+                          cursor: 'pointer',
+                          borderStyle: 'dashed',
+                          '&:hover': {
+                            bgcolor: 'action.hover',
+                            borderColor: 'primary.main',
+                          },
+                        }}
+                      />
+                    </Box>
                   ) : (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                       {availableAmenities.map((amenity) => {
                         const iconComponent = getIconFromName(amenity.icon);
-                        // Normalize icon for comparison (handle null/undefined)
-                        const normalizedIcon = amenity.icon || 'amenity';
-                        // Check if this amenity is already in features (normalize both sides for comparison)
+                        // Normalize amenity name for comparison (compare by name only, not icon)
+                        const normalizedAmenityName = (amenity.name || '').toLowerCase().trim();
+                        // Check if this amenity is already in features (compare by name only)
                         const isSelected = eventFeatures.some(f => {
-                          const fIcon = f.feature_icon || 'amenity';
-                          return f.feature_name === amenity.name && fIcon === normalizedIcon;
+                          const fName = (f.feature_name || '').toLowerCase().trim();
+                          return fName === normalizedAmenityName;
                         });
                         const amenityTrans = amenityTranslations[amenity.amenity_id];
                         const displayName = amenityTrans && amenityTrans[currentLanguageTab] 
@@ -6189,20 +6205,34 @@ const Verification = () => {
                         return (
                           <Chip
                             key={amenity.amenity_id}
-                            icon={iconComponent ? <Box sx={{ display: 'flex', alignItems: 'center' }}>{iconComponent}</Box> : undefined}
+                            icon={iconComponent ? (
+                              <Box 
+                                sx={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center',
+                                  '& svg': {
+                                    color: isSelected ? 'white' : 'inherit',
+                                  }
+                                }}
+                              >
+                                {iconComponent}
+                              </Box>
+                            ) : undefined}
                             label={displayName}
                             onClick={() => {
                               if (isSelected) {
-                                // Remove all matching features (in case of duplicates)
-                                setEventFeatures(prev => prev.filter(f => {
-                                  const fIcon = f.feature_icon || 'amenity';
-                                  return !(f.feature_name === amenity.name && fIcon === normalizedIcon);
-                                }));
+                                // Remove all matching features by name only (in case of duplicates)
+                                setEventFeatures(prev => {
+                                  return prev.filter(f => {
+                                    const fName = (f.feature_name || '').toLowerCase().trim();
+                                    return fName !== normalizedAmenityName;
+                                  });
+                                });
                               } else {
-                                // Check again before adding to prevent duplicates
+                                // Check again before adding to prevent duplicates - compare by name only
                                 const alreadyExists = eventFeatures.some(f => {
-                                  const fIcon = f.feature_icon || 'amenity';
-                                  return f.feature_name === amenity.name && fIcon === normalizedIcon;
+                                  const fName = (f.feature_name || '').toLowerCase().trim();
+                                  return fName === normalizedAmenityName;
                                 });
                                 if (!alreadyExists) {
                                   // Add feature
@@ -6210,9 +6240,9 @@ const Verification = () => {
                                   const newFeature = {
                                     feature_id: undefined,
                                     event_id: eventId || 0,
-                                    feature_name: amenity.name,
+                                    feature_name: amenity.name.trim(),
                                     feature_description: 'Included amenity',
-                                    feature_icon: normalizedIcon,
+                                    feature_icon: amenity.icon || 'amenity',
                                     is_included: true,
                                     additional_cost: 0,
                                     is_highlighted: false,
@@ -6225,13 +6255,54 @@ const Verification = () => {
                             variant={isSelected ? 'filled' : 'outlined'}
                             sx={{
                               cursor: 'pointer',
+                              bgcolor: isSelected ? 'primary.main' : 'background.paper',
+                              color: isSelected ? 'white !important' : 'text.primary',
+                              borderColor: isSelected ? 'primary.main' : 'divider',
+                              borderWidth: isSelected ? 2 : 1,
+                              borderStyle: 'solid',
+                              fontWeight: isSelected ? 600 : 400,
+                              '& .MuiChip-label': {
+                                color: isSelected ? 'white !important' : 'text.primary',
+                              },
+                              '& .MuiChip-icon': {
+                                color: isSelected ? 'white !important' : 'text.secondary',
+                              },
                               '&:hover': {
                                 bgcolor: isSelected ? 'primary.dark' : 'action.hover',
+                                borderColor: isSelected ? 'primary.dark' : 'primary.main',
                               },
                             }}
                           />
                         );
                       })}
+                      {/* Custom amenity button with + icon */}
+                      <Chip
+                        icon={<AddIcon />}
+                        label="Custom"
+                        onClick={async () => {
+                          // Load amenities if not already loaded
+                          if (availableAmenities.length === 0) {
+                            await loadAvailableAmenities();
+                          }
+                          // Open custom amenity creation dialog
+                          setNewAmenityData({
+                            name: '',
+                            icon: 'amenity',
+                            translations: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                          });
+                          setCustomAmenityDialog({ open: true });
+                        }}
+                        color="default"
+                        variant="outlined"
+                        sx={{
+                          cursor: 'pointer',
+                          borderStyle: 'dashed',
+                          '&:hover': {
+                            bgcolor: 'action.hover',
+                            borderColor: 'primary.main',
+                          },
+                        }}
+                      />
                     </Box>
                   )
                 ) : (
@@ -6888,32 +6959,30 @@ const Verification = () => {
                                             {editMode ? (
                                               <>
                                                 <Stack direction="row" spacing={1}>
-                                                  <TextField
+                                                  <FormattedTimeInput
                                                     size="small"
-                                                    type="time"
                                                     label="Start Time"
                                                     value={item.start_time || ''}
-                                                    onChange={(e) => {
+                                                    onChange={(value) => {
                                                       const newItems = [...tourItineraryItems];
                                                       const idx = newItems.findIndex(i => i.item_id === item.item_id);
                                                       if (idx >= 0) {
-                                                        newItems[idx] = { ...newItems[idx], start_time: e.target.value || null };
+                                                        newItems[idx] = { ...newItems[idx], start_time: value || null };
                                                         setTourItineraryItems(newItems);
                                                       }
                                                     }}
                                                     InputLabelProps={{ shrink: true }}
                                                     sx={{ width: 150 }}
                                                   />
-                                                  <TextField
+                                                  <FormattedTimeInput
                                                     size="small"
-                                                    type="time"
                                                     label="End Time"
                                                     value={item.end_time || ''}
-                                                    onChange={(e) => {
+                                                    onChange={(value) => {
                                                       const newItems = [...tourItineraryItems];
                                                       const idx = newItems.findIndex(i => i.item_id === item.item_id);
                                                       if (idx >= 0) {
-                                                        newItems[idx] = { ...newItems[idx], end_time: e.target.value || null };
+                                                        newItems[idx] = { ...newItems[idx], end_time: value || null };
                                                         setTourItineraryItems(newItems);
                                                       }
                                                     }}
@@ -8256,15 +8325,13 @@ const Verification = () => {
                         if (editMode) {
                           return (
                             <Grid item xs={6} key={key}>
-                              <TextField
+                              <FormattedTimeInput
                                 fullWidth
                                 size="small"
                                 label={labelMap[key] || label}
-                                type="time"
                                 value={timeValue}
-                                onChange={(e) => handleFieldChange(key, e.target.value)}
+                                onChange={(value) => handleFieldChange(key, value)}
                                 InputLabelProps={{ shrink: true }}
-                                inputProps={{ step: 60 }}
                               />
                             </Grid>
                           );
@@ -9200,6 +9267,89 @@ const Verification = () => {
             }}
           >
             {creatingAmenity ? 'Creating...' : 'Create & Add'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Amenity Selection Dialog */}
+      <Dialog 
+        open={amenitySelectionDialog.open} 
+        onClose={() => setAmenitySelectionDialog({ open: false })} 
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle>Amenities</DialogTitle>
+        <DialogContent dividers>
+          {loadingAmenities ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : availableAmenities.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+              No amenities available. Click "Custom" to create one.
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, py: 2 }}>
+              {availableAmenities.map((amenity) => {
+                const iconComponent = getIconFromName(amenity.icon);
+                const normalizedIcon = amenity.icon || 'amenity';
+                const isSelected = eventFeatures.some(f => {
+                  const fIcon = f.feature_icon || 'amenity';
+                  return f.feature_name === amenity.name && fIcon === normalizedIcon;
+                });
+                const amenityTrans = amenityTranslations[amenity.amenity_id];
+                const displayName = amenityTrans && amenityTrans[currentLanguageTab] 
+                  ? amenityTrans[currentLanguageTab] 
+                  : (currentLanguageTab === 'en' ? amenity.name : amenityTrans?.en || amenity.name);
+                return (
+                  <Chip
+                    key={amenity.amenity_id}
+                    icon={iconComponent ? <Box sx={{ display: 'flex', alignItems: 'center' }}>{iconComponent}</Box> : undefined}
+                    label={displayName}
+                    onClick={() => {
+                      if (isSelected) {
+                        setEventFeatures(prev => prev.filter(f => {
+                          const fIcon = f.feature_icon || 'amenity';
+                          return !(f.feature_name === amenity.name && fIcon === normalizedIcon);
+                        }));
+                      } else {
+                        const alreadyExists = eventFeatures.some(f => {
+                          const fIcon = f.feature_icon || 'amenity';
+                          return f.feature_name === amenity.name && fIcon === normalizedIcon;
+                        });
+                        if (!alreadyExists) {
+                          const eventId = selectedTableRecord?.event_id || selectedTableRecord?.id;
+                          const newFeature = {
+                            feature_id: undefined,
+                            event_id: eventId || 0,
+                            feature_name: amenity.name,
+                            feature_description: 'Included amenity',
+                            feature_icon: normalizedIcon,
+                            is_included: true,
+                            additional_cost: 0,
+                            is_highlighted: false,
+                          };
+                          setEventFeatures(prev => [...prev, newFeature]);
+                        }
+                      }
+                    }}
+                    color={isSelected ? 'primary' : 'default'}
+                    variant={isSelected ? 'filled' : 'outlined'}
+                    sx={{
+                      cursor: 'pointer',
+                      '&:hover': {
+                        bgcolor: isSelected ? 'primary.dark' : 'action.hover',
+                      },
+                    }}
+                  />
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAmenitySelectionDialog({ open: false })}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>
