@@ -40,6 +40,8 @@ import EditUserDialog from '@/components/users/EditUserDialog';
 import DeleteConfirmDialog from '@/components/users/DeleteConfirmDialog';
 import { format } from 'date-fns';
 import { getDefaultDateRange } from '@/utils/dateRange';
+import FormattedDateInput from '@/components/common/FormattedDateInput';
+import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
 
 const Users = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -292,29 +294,27 @@ const Users = () => {
               <MenuItem value="unverified">Unverified</MenuItem>
             </Select>
           </FormControl>
-          <TextField
+          <FormattedDateInput
             label="Start Date"
-            type="date"
             size="small"
             value={filters.startDate ? format(filters.startDate, 'yyyy-MM-dd') : ''}
-            onChange={(e) =>
+            onChange={(value) =>
               setFilters({
                 ...filters,
-                startDate: e.target.value ? new Date(e.target.value) : null,
+                startDate: value ? new Date(value) : null,
               })
             }
             InputLabelProps={{ shrink: true }}
             sx={{ minWidth: 150 }}
           />
-          <TextField
+          <FormattedDateInput
             label="End Date"
-            type="date"
             size="small"
             value={filters.endDate ? format(filters.endDate, 'yyyy-MM-dd') : ''}
-            onChange={(e) =>
+            onChange={(value) =>
               setFilters({
                 ...filters,
-                endDate: e.target.value ? new Date(e.target.value) : null,
+                endDate: value ? new Date(value) : null,
               })
             }
             InputLabelProps={{ shrink: true }}
@@ -446,10 +446,10 @@ const Users = () => {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
-                        {format(new Date(user.created_at), 'MMM dd, yyyy')}
+                        {formatDisplayDate(user.created_at)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {format(new Date(user.created_at), 'HH:mm')}
+                        {formatDisplayTime(user.created_at)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">

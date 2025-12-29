@@ -1,5 +1,6 @@
-import { Box, TextField } from '@mui/material';
+import { Box } from '@mui/material';
 import { DateRange } from '@/services/reports.service';
+import FormattedDateInput from '../common/FormattedDateInput';
 
 interface DateRangeFilterProps {
   dateRange: DateRange;
@@ -9,14 +10,13 @@ interface DateRangeFilterProps {
 const DateRangeFilter: React.FC<DateRangeFilterProps> = ({ dateRange, onChange }) => {
   return (
     <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-      <TextField
+      <FormattedDateInput
         label="Start Date"
-        type="date"
         value={dateRange.startDate ? dateRange.startDate.toISOString().split('T')[0] : ''}
-        onChange={(e) => {
+        onChange={(value) => {
           onChange({
             ...dateRange,
-            startDate: e.target.value ? new Date(e.target.value) : null,
+            startDate: value ? new Date(value) : null,
           });
         }}
         InputLabelProps={{
@@ -24,14 +24,13 @@ const DateRangeFilter: React.FC<DateRangeFilterProps> = ({ dateRange, onChange }
         }}
         size="small"
       />
-      <TextField
+      <FormattedDateInput
         label="End Date"
-        type="date"
         value={dateRange.endDate ? dateRange.endDate.toISOString().split('T')[0] : ''}
-        onChange={(e) => {
+        onChange={(value) => {
           onChange({
             ...dateRange,
-            endDate: e.target.value ? new Date(e.target.value) : null,
+            endDate: value ? new Date(value) : null,
           });
         }}
         InputLabelProps={{
