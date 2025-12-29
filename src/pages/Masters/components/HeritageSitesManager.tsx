@@ -44,7 +44,7 @@ import { supabase } from '@/config/supabase';
 import HeritageSiteFormDialog, { HeritageSiteFormValues } from './HeritageSiteFormDialog';
 import HeritageSiteViewDialog from './HeritageSiteViewDialog';
 import MobilePreviewDialog from './MobilePreviewDialog';
-import { formatDisplayDate, formatDisplayTime, formatDisplayDateTime } from '@/utils/dateTime.utils';
+import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
 
 type SnackbarState = {
   open: boolean;
@@ -71,8 +71,8 @@ const HeritageSitesManager: React.FC = () => {
   const [siteTypeMasterData, setSiteTypeMasterData] = useState<MasterData[]>([]);
 
   const [formOpen, setFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
-  const [selectedSite, setSelectedSite] = useState<HeritageSite | null>(null);
+  const [formMode] = useState<'create' | 'edit'>('create');
+  const [selectedSite] = useState<HeritageSite | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
 
   const [deleteConfirm, setDeleteConfirm] = useState<HeritageSite | null>(null);
@@ -218,10 +218,6 @@ const HeritageSitesManager: React.FC = () => {
     navigate(`/masters/heritage-sites/${site.site_id}/edit`);
   };
 
-  const openViewDialog = (site: HeritageSite) => {
-    setSelectedSite(site);
-    setViewDialogOpen(true);
-  };
 
   const openMobilePreview = (site: HeritageSite) => {
     setMobilePreviewSiteId(site.site_id);
