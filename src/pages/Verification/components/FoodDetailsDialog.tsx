@@ -37,6 +37,7 @@ import * as Icons from '@mui/icons-material';
 import { supabase } from '@/config/supabase';
 import { StorageService } from '@/services/storage.service';
 import { TranslationService } from '@/services/translation.service';
+import FormattedTimeInput from '@/components/common/FormattedTimeInput';
 
 type LanguageCode = 'en' | 'hi' | 'gu' | 'ja' | 'es' | 'fr';
 
@@ -1608,15 +1609,14 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
                           <>
                             <Grid item xs={6} md={2}>
                               {editMode ? (
-                                <TextField
+                                <FormattedTimeInput
                                   fullWidth
                                   size="small"
                                   label="Open Time"
-                                  type="time"
                                   value={hour.open_time || ''}
-                                  onChange={(e) => {
+                                  onChange={(value) => {
                                     const newHours = [...foodHours];
-                                    newHours[index] = { ...newHours[index], open_time: e.target.value || null };
+                                    newHours[index] = { ...newHours[index], open_time: value || null };
                                     setFoodHours(newHours);
                                   }}
                                   InputLabelProps={{ shrink: true }}
@@ -1627,15 +1627,14 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
                             </Grid>
                             <Grid item xs={6} md={2}>
                               {editMode ? (
-                                <TextField
+                                <FormattedTimeInput
                                   fullWidth
                                   size="small"
                                   label="Close Time"
-                                  type="time"
                                   value={hour.close_time || ''}
-                                  onChange={(e) => {
+                                  onChange={(value) => {
                                     const newHours = [...foodHours];
-                                    newHours[index] = { ...newHours[index], close_time: e.target.value || null };
+                                    newHours[index] = { ...newHours[index], close_time: value || null };
                                     setFoodHours(newHours);
                                   }}
                                   InputLabelProps={{ shrink: true }}
@@ -1907,18 +1906,17 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
                                   />
                                 </Grid>
                                 <Grid item xs={12} sm={6} md={4.5}>
-                                  <TextField
+                                  <FormattedTimeInput
                                     fullWidth
                                     label="Start Time"
-                                    type="time"
                                     size="small"
                                     value={mapping.start_time ? mapping.start_time.substring(0, 5) : ''}
-                                    onChange={(e) => {
+                                    onChange={(value) => {
                                       setMealTypeMappings(prev => ({
                                         ...prev,
                                         [mealType.meal_type_id]: {
                                           ...prev[mealType.meal_type_id],
-                                          start_time: e.target.value ? `${e.target.value}:00` : null,
+                                          start_time: value ? `${value}:00` : null,
                                         },
                                       }));
                                     }}
@@ -1926,18 +1924,17 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
                                   />
                                 </Grid>
                                 <Grid item xs={12} sm={6} md={4.5}>
-                                  <TextField
+                                  <FormattedTimeInput
                                     fullWidth
                                     label="End Time"
-                                    type="time"
                                     size="small"
                                     value={mapping.end_time ? mapping.end_time.substring(0, 5) : ''}
-                                    onChange={(e) => {
+                                    onChange={(value) => {
                                       setMealTypeMappings(prev => ({
                                         ...prev,
                                         [mealType.meal_type_id]: {
                                           ...prev[mealType.meal_type_id],
-                                          end_time: e.target.value ? `${e.target.value}:00` : null,
+                                          end_time: value ? `${value}:00` : null,
                                         },
                                       }));
                                     }}

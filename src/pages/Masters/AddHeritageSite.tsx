@@ -81,6 +81,7 @@ import { MasterDataService } from '@/services/masterData.service';
 import { MasterData } from '@/types';
 import { geocodeAddress } from '@/config/googleMaps';
 import { useAuth } from '@/context/AuthContext';
+import FormattedTimeInput from '@/components/common/FormattedTimeInput';
 
 type StepKey = 'overview' | 'about' | 'plan' | 'review';
 type LanguageCode = 'en' | 'gu' | 'hi' | 'es' | 'ja' | 'fr';
@@ -4527,14 +4528,12 @@ const AddHeritageSite = () => {
           </Stack>
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
-              <TextField
+              <FormattedTimeInput
                 fullWidth
                 label="Opening Time"
-                type="time"
                 value={formState.overview.openingHours.schedule.find(d => d.is_open)?.opening_time || formState.overview.openingHours.schedule[0]?.opening_time || ''}
                 InputLabelProps={{ shrink: true }}
-                onChange={(event) => {
-                  const value = event.target.value;
+                onChange={(value) => {
                   DAY_ORDER.forEach((day) => {
                     updateOpeningDay(day, { opening_time: value });
                   });
@@ -4542,14 +4541,12 @@ const AddHeritageSite = () => {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
+              <FormattedTimeInput
                 fullWidth
                 label="Closing Time"
-                type="time"
                 value={formState.overview.openingHours.schedule.find(d => d.is_open)?.closing_time || formState.overview.openingHours.schedule[0]?.closing_time || ''}
                 InputLabelProps={{ shrink: true }}
-                onChange={(event) => {
-                  const value = event.target.value;
+                onChange={(value) => {
                   DAY_ORDER.forEach((day) => {
                     updateOpeningDay(day, { closing_time: value });
                   });
