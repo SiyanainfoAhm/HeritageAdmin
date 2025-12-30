@@ -35,6 +35,8 @@ import {
   Tabs,
   Tab,
   InputAdornment,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -340,7 +342,8 @@ const Verification = () => {
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [tourTags, setTourTags] = useState<Array<{ tag_id: number; key: string; name: string; name_en: string; color: string; icon: string }>>([]);
   const [tourTagTranslations, setTourTagTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
-  const [tourItineraryDays, setTourItineraryDays] = useState<Array<{ day_id: number; tour_id: number; day_number: number; day_title: string }>>([]);
+  const [tourItineraryDays, setTourItineraryDays] = useState<Array<{ day_id: number; tour_id: number; day_number: number; day_title: string; day_date?: string | null }>>([]);
+  const [tourTicketTypes, setTourTicketTypes] = useState<Array<{ ticket_type_id: number; tour_id: number; ticket_name: string; description?: string | null; price: number; currency: string; age_min?: number | null; age_max?: number | null; includes_features?: string[] | null; max_quantity_per_booking?: number | null; is_active?: boolean | null; tax_percentage?: number | null }>>([]);
   const [tourItineraryTranslations, setTourItineraryTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   const [tourItineraryItems, setTourItineraryItems] = useState<Array<{ item_id: number; tour_id: number; day_id: number; start_time: string | null; end_time: string | null; title: string; description?: string | null }>>([]);
   const [tourItineraryItemTranslations, setTourItineraryItemTranslations] = useState<Record<number, Record<LanguageCode, { title: string; description: string }>>>({});
@@ -1128,6 +1131,29 @@ const Verification = () => {
     }
   };
 
+  // Load tour ticket types from database
+  const loadTourTicketTypes = async (tourId: number) => {
+    try {
+      const { data: ticketTypesData, error } = await supabase
+        .from('heritage_tourtickettype')
+        .select('*')
+        .eq('tour_id', tourId)
+        .order('ticket_type_id', { ascending: true });
+
+      if (error) {
+        console.error('Error loading tour ticket types:', error);
+        setTourTicketTypes([]);
+        return;
+      }
+
+      const ticketTypes = ticketTypesData || [];
+      setTourTicketTypes(ticketTypes);
+    } catch (error) {
+      console.error('Error loading tour ticket types:', error);
+      setTourTicketTypes([]);
+    }
+  };
+
   // Load available amenities from database (filtered by user_id null or created_by = login user_id)
   // Also loads translations for each amenity
   const loadAvailableAmenities = async () => {
@@ -1197,7 +1223,7 @@ const Verification = () => {
                 translations[trans.amenity_id][langCode] = String(trans.name || '');
               }
             });
-          }
+      }
 
           setAmenityTranslations(translations);
         }
@@ -1738,7 +1764,27 @@ const Verification = () => {
               .order('day_number', { ascending: true });
             
             if (!itineraryError && itineraryData) {
-              setTourItineraryDays(itineraryData);
+              // Format day_date to YYYY-MM-DD format if present
+              const formattedDays = itineraryData.map((day: any) => {
+                if (day.day_date) {
+                  try {
+                    const date = new Date(day.day_date);
+                    if (!isNaN(date.getTime())) {
+                      const year = date.getFullYear();
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const dayNum = String(date.getDate()).padStart(2, '0');
+                      return { ...day, day_date: `${year}-${month}-${dayNum}` };
+                    }
+                  } catch {
+                    // If already in YYYY-MM-DD format, keep as is
+                    if (day.day_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                      return day;
+                    }
+                  }
+                }
+                return day;
+              });
+              setTourItineraryDays(formattedDays);
               
               // Load itinerary translations
               const itineraryTranslations: Record<number, Record<LanguageCode, string>> = {};
@@ -1842,6 +1888,14 @@ const Verification = () => {
             setTourItineraryItemTranslations({});
           }
           
+          // Load tour ticket types
+          await loadTourTicketTypes(tourId);
+          
+          // Load ticket type masters for dropdown (if not already loaded)
+          if (ticketTypeMasters.length === 0) {
+            await loadTicketTypeMasters();
+          }
+          
           // Load tour tags
           const tagsArray = Array.isArray(details.tags) ? details.tags : (details.tags?.items || []);
           setTourTags(tagsArray);
@@ -1888,6 +1942,7 @@ const Verification = () => {
           setTourItineraryTranslations({});
           setTourItineraryItems([]);
           setTourItineraryItemTranslations({});
+          setTourTicketTypes([]);
         }
       } else {
         // For Hotel, Food - just show basic info for now
@@ -3624,11 +3679,18 @@ const Verification = () => {
     
     try {
       // First, update base tour fields if changed
+      // Exclude columns that are not required: tax_percentage, base_price, currency, duration_days, duration_hours
+      const excludedFields = ['tax_percentage', 'base_price', 'currency', 'duration_days', 'duration_hours'];
       const baseFieldsToUpdate: Record<string, any> = {};
       TOUR_TRANSLATABLE_FIELDS.forEach(field => {
-        if (currentLanguageTab === 'en' && editedTourDetails[field] !== undefined) {
+        if (currentLanguageTab === 'en' && editedTourDetails[field] !== undefined && !excludedFields.includes(field)) {
           baseFieldsToUpdate[field] = editedTourDetails[field];
         }
+      });
+
+      // Ensure excluded fields are never included in the update
+      excludedFields.forEach(field => {
+        delete baseFieldsToUpdate[field];
       });
 
       // Update base tour record if there are changes
@@ -3970,6 +4032,7 @@ const Verification = () => {
               tour_id: tourId,
               day_number: day.day_number || 0,
               day_title: day.day_title || '',
+              day_date: day.day_date || null,
             };
 
             let finalDayId = day.day_id;
@@ -4179,6 +4242,62 @@ const Verification = () => {
 
         if (deleteAllItemsError) {
           console.error('Error deleting all itinerary items:', deleteAllItemsError);
+        }
+      }
+
+      // Save tour ticket types
+      if (tourTicketTypes.length > 0) {
+        for (const ticketType of tourTicketTypes) {
+          try {
+            const ticketData: any = {
+              tour_id: tourId,
+              ticket_name: ticketType.ticket_name || '',
+              description: ticketType.description || null,
+              price: ticketType.price || 0,
+              currency: ticketType.currency || 'INR',
+              age_min: ticketType.age_min || null,
+              age_max: ticketType.age_max || null,
+              includes_features: ticketType.includes_features || null,
+              max_quantity_per_booking: ticketType.max_quantity_per_booking || null,
+              is_active: ticketType.is_active !== undefined ? ticketType.is_active : true,
+              tax_percentage: ticketType.tax_percentage || null,
+            };
+
+            if (ticketType.ticket_type_id && ticketType.ticket_type_id > 0) {
+              // Update existing ticket type
+              const { error: updateError } = await supabase
+                .from('heritage_tourtickettype')
+                .update(ticketData)
+                .eq('ticket_type_id', ticketType.ticket_type_id);
+
+              if (updateError) {
+                console.error('Error updating tour ticket type:', updateError);
+                setError(`Failed to update ticket type: ${updateError.message}`);
+              }
+            } else {
+              // Insert new ticket type
+              const { error: insertError } = await supabase
+                .from('heritage_tourtickettype')
+                .insert(ticketData);
+
+              if (insertError) {
+                console.error('Error inserting tour ticket type:', insertError);
+                setError(`Failed to insert ticket type: ${insertError.message}`);
+              }
+            }
+          } catch (ticketErr) {
+            console.error('Error during tour ticket type upsert:', ticketErr);
+          }
+        }
+      } else {
+        // If no ticket types, delete all existing ticket types for this tour
+        const { error: deleteAllTicketTypesError } = await supabase
+          .from('heritage_tourtickettype')
+          .delete()
+          .eq('tour_id', tourId);
+
+        if (deleteAllTicketTypesError) {
+          console.error('Error deleting all tour ticket types:', deleteAllTicketTypesError);
         }
       }
 
@@ -4448,7 +4567,10 @@ const Verification = () => {
         setTourItineraryItems([]);
         setTourItineraryItemTranslations({});
       }
-
+      
+      // Reload tour ticket types
+      await loadTourTicketTypes(tourId);
+      
       // Reload tour tags
       const tagsArray = Array.isArray(refreshedDetails.tags) ? refreshedDetails.tags : (refreshedDetails.tags?.items || []);
       setTourTags(tagsArray);
@@ -6423,13 +6545,15 @@ const Verification = () => {
                             value={currentValue || ''}
                             onChange={(e) => {
                               const newVal = e.target.value;
-                              if (currentLanguageTab === 'en') {
+                              // Exclude columns that are not required: tax_percentage, base_price, currency, duration_days, duration_hours
+                              const excludedFields = ['tax_percentage', 'base_price', 'currency', 'duration_days', 'duration_hours'];
+                              if (currentLanguageTab === 'en' && !excludedFields.includes(field)) {
                                 setEditedTourDetails(prev => ({ ...prev, [field]: newVal }));
                                 setTranslations(prev => ({
                                   ...prev,
                                   [field]: { ...prev[field], en: newVal }
                                 }));
-                              } else {
+                              } else if (!excludedFields.includes(field)) {
                                 setTranslations(prev => ({
                                   ...prev,
                                   [field]: { ...prev[field], [currentLanguageTab]: newVal }
@@ -6740,6 +6864,7 @@ const Verification = () => {
                           tour_id: selectedTableRecord?.tour_id || selectedTableRecord?.id || 0,
                           day_number: dayNumber,
                           day_title: '',
+                          day_date: null,
                         };
                         setTourItineraryDays([...tourItineraryDays, newDay]);
                         setTourItineraryTranslations({
@@ -6864,6 +6989,35 @@ const Verification = () => {
                                             setTourItineraryDays(newDays);
                                           }}
                                           sx={{ width: 120 }}
+                                        />
+                                        <FormattedDateInput
+                                          size="small"
+                                          label="Day Date"
+                                          value={(() => {
+                                            if (!day.day_date) return '';
+                                            // Ensure date is in YYYY-MM-DD format
+                                            try {
+                                              const dateObj = new Date(day.day_date);
+                                              if (isNaN(dateObj.getTime())) return '';
+                                              const year = dateObj.getFullYear();
+                                              const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                                              const dayNum = String(dateObj.getDate()).padStart(2, '0');
+                                              return `${year}-${month}-${dayNum}`;
+                                            } catch {
+                                              // If already in YYYY-MM-DD format, return as is
+                                              if (day.day_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                                                return day.day_date;
+                                              }
+                                              return '';
+                                            }
+                                          })()}
+                                          onChange={(value) => {
+                                            const newDays = [...tourItineraryDays];
+                                            newDays[index] = { ...newDays[index], day_date: value || null };
+                                            setTourItineraryDays(newDays);
+                                          }}
+                                          InputLabelProps={{ shrink: true }}
+                                          sx={{ width: 180 }}
                                         />
                                         <Button
                                           variant="outlined"
@@ -7230,6 +7384,265 @@ const Verification = () => {
                           </Card>
                         );
                       })}
+                  </Stack>
+                )}
+              </Box>
+
+              {/* Tour Ticket Types Section */}
+              <Box>
+                <Divider sx={{ my: 2 }} />
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Ticket Types ({tourTicketTypes.length})
+                  </Typography>
+                  {editMode && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        // Get first master as default if available
+                        const defaultMasterCode = ticketTypeMasters.length > 0 ? ticketTypeMasters[0].code : '';
+                        const newTicketType = {
+                          ticket_type_id: 0,
+                          tour_id: selectedTableRecord?.tour_id || selectedTableRecord?.id || 0,
+                          ticket_name: defaultMasterCode,
+                          description: null,
+                          price: 0,
+                          currency: 'INR',
+                          age_min: null,
+                          age_max: null,
+                          includes_features: null,
+                          max_quantity_per_booking: null,
+                          is_active: true,
+                          tax_percentage: null,
+                        };
+                        setTourTicketTypes(prev => [...prev, newTicketType]);
+                      }}
+                    >
+                      Add Ticket Type
+                    </Button>
+                  )}
+                </Stack>
+                {tourTicketTypes.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No ticket types added yet
+                  </Typography>
+                ) : (
+                  <Stack spacing={2}>
+                    {tourTicketTypes.map((ticketType, index) => (
+                      <Card key={ticketType.ticket_type_id || index} variant="outlined">
+                        <Box sx={{ p: 2 }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
+                            <Typography variant="subtitle2" fontWeight={600}>
+                              {(() => {
+                                // Find master by code and display translated name
+                                const master = ticketTypeMasters.find(m => m.code === ticketType.ticket_name);
+                                if (master) {
+                                  const masterTrans = ticketTypeMasterTranslations[master.master_id];
+                                  const displayName = masterTrans && masterTrans[currentLanguageTab] 
+                                    ? masterTrans[currentLanguageTab] 
+                                    : (currentLanguageTab === 'en' ? master.display_name : (masterTrans?.en || master.code));
+                                  return displayName;
+                                }
+                                return ticketType.ticket_name || `Ticket Type ${index + 1}`;
+                              })()}
+                            </Typography>
+                            {editMode && (
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  setConfirmDialog({
+                                    open: true,
+                                    message: 'Are you sure you want to delete this ticket type?',
+                                    onConfirm: () => {
+                                      setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                      setTourTicketTypes(prev => prev.filter((_, i) => i !== index));
+                                    },
+                                  });
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                          </Stack>
+                          {editMode ? (
+                            <Grid container spacing={2}>
+                              <Grid item xs={12} sm={6}>
+                                <FormControl fullWidth size="small">
+                                  <InputLabel>Ticket Type</InputLabel>
+                                  <Select
+                                    value={ticketType.ticket_name || ''}
+                                    label="Ticket Type"
+                                    onChange={(e) => {
+                                      setTourTicketTypes(prev => prev.map((t, i) => 
+                                        i === index ? { ...t, ticket_name: e.target.value } : t
+                                      ));
+                                    }}
+                                  >
+                                    {ticketTypeMasters.map((master) => {
+                                      // Get translated name based on current language tab
+                                      const masterTrans = ticketTypeMasterTranslations[master.master_id];
+                                      const displayName = masterTrans && masterTrans[currentLanguageTab] 
+                                        ? masterTrans[currentLanguageTab] 
+                                        : (currentLanguageTab === 'en' ? master.display_name : (masterTrans?.en || master.code));
+                                      return (
+                                        <MenuItem key={master.master_id} value={master.code}>
+                                          {displayName}
+                                        </MenuItem>
+                                      );
+                                    })}
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              <Grid item xs={12} sm={3}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Price"
+                                  type="number"
+                                  value={ticketType.price || 0}
+                                  onChange={(e) => {
+                                    setTourTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, price: parseFloat(e.target.value) || 0 } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={3}>
+                                <FormControl fullWidth size="small">
+                                  <InputLabel>Currency</InputLabel>
+                                  <Select
+                                    value={ticketType.currency || 'INR'}
+                                    label="Currency"
+                                    onChange={(e) => {
+                                      setTourTicketTypes(prev => prev.map((t, i) => 
+                                        i === index ? { ...t, currency: e.target.value } : t
+                                      ));
+                                    }}
+                                  >
+                                    <MenuItem value="INR">INR</MenuItem>
+                                    <MenuItem value="USD">USD</MenuItem>
+                                    <MenuItem value="EUR">EUR</MenuItem>
+                                    <MenuItem value="GBP">GBP</MenuItem>
+                                    <MenuItem value="JPY">JPY</MenuItem>
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              <Grid item xs={12} sm={4}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Min Age"
+                                  type="number"
+                                  value={ticketType.age_min || ''}
+                                  onChange={(e) => {
+                                    setTourTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, age_min: e.target.value ? parseInt(e.target.value) : null } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={4}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Max Age"
+                                  type="number"
+                                  value={ticketType.age_max || ''}
+                                  onChange={(e) => {
+                                    setTourTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, age_max: e.target.value ? parseInt(e.target.value) : null } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={4}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Max Quantity per Booking"
+                                  type="number"
+                                  value={ticketType.max_quantity_per_booking || ''}
+                                  onChange={(e) => {
+                                    setTourTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, max_quantity_per_booking: e.target.value ? parseInt(e.target.value) : null } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={4}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Tax Percentage"
+                                  type="number"
+                                  inputProps={{ step: 0.01 }}
+                                  value={ticketType.tax_percentage || ''}
+                                  onChange={(e) => {
+                                    setTourTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, tax_percentage: e.target.value ? parseFloat(e.target.value) : null } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={4}>
+                                <FormControlLabel
+                                  control={
+                                    <Switch
+                                      checked={ticketType.is_active !== false}
+                                      onChange={(e) => {
+                                        setTourTicketTypes(prev => prev.map((t, i) => 
+                                          i === index ? { ...t, is_active: e.target.checked } : t
+                                        ));
+                                      }}
+                                    />
+                                  }
+                                  label="Active"
+                                />
+                              </Grid>
+                              <Grid item xs={12}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Description"
+                                  multiline
+                                  minRows={2}
+                                  value={ticketType.description || ''}
+                                  onChange={(e) => {
+                                    setTourTicketTypes(prev => prev.map((t, i) => 
+                                      i === index ? { ...t, description: e.target.value || null } : t
+                                    ));
+                                  }}
+                                />
+                              </Grid>
+                            </Grid>
+                          ) : (
+                            <Stack spacing={1}>
+                              <Typography variant="body2" color="text.secondary">
+                                <strong>Price:</strong> {ticketType.currency} {ticketType.price || 0}
+                                {ticketType.tax_percentage && ` (Tax: ${ticketType.tax_percentage}%)`}
+                              </Typography>
+                              {(ticketType.age_min || ticketType.age_max) && (
+                                <Typography variant="body2" color="text.secondary">
+                                  <strong>Age Range:</strong> {ticketType.age_min || 'Any'} - {ticketType.age_max || 'Any'}
+                                </Typography>
+                              )}
+                              {ticketType.max_quantity_per_booking && (
+                                <Typography variant="body2" color="text.secondary">
+                                  <strong>Max per Booking:</strong> {ticketType.max_quantity_per_booking}
+                                </Typography>
+                              )}
+                              {ticketType.description && (
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                                  {ticketType.description}
+                                </Typography>
+                              )}
+                            </Stack>
+                          )}
+                        </Box>
+                      </Card>
+                    ))}
                   </Stack>
                 )}
               </Box>
