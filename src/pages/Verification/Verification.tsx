@@ -342,11 +342,15 @@ const Verification = () => {
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [tourTags, setTourTags] = useState<Array<{ tag_id: number; key: string; name: string; name_en: string; color: string; icon: string }>>([]);
   const [tourTagTranslations, setTourTagTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
-  const [tourItineraryDays, setTourItineraryDays] = useState<Array<{ day_id: number; tour_id: number; day_number: number; day_title: string; day_date?: string | null }>>([]);
+  const [tourItineraryDays, setTourItineraryDays] = useState<Array<{ day_id: number; tour_id: number; day_number: number; day_title: string }>>([]);
   const [tourTicketTypes, setTourTicketTypes] = useState<Array<{ ticket_type_id: number; tour_id: number; ticket_name: string; description?: string | null; price: number; currency: string; age_min?: number | null; age_max?: number | null; includes_features?: string[] | null; max_quantity_per_booking?: number | null; is_active?: boolean | null; tax_percentage?: number | null }>>([]);
   const [tourItineraryTranslations, setTourItineraryTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   const [tourItineraryItems, setTourItineraryItems] = useState<Array<{ item_id: number; tour_id: number; day_id: number; start_time: string | null; end_time: string | null; title: string; description?: string | null }>>([]);
   const [tourItineraryItemTranslations, setTourItineraryItemTranslations] = useState<Record<number, Record<LanguageCode, { title: string; description: string }>>>({});
+  const [tourScheduleType, setTourScheduleType] = useState<string>('always_available');
+  const [tourScheduleConfig, setTourScheduleConfig] = useState<any>({});
+  const [tourBookingCutoffHours, setTourBookingCutoffHours] = useState<number>(24);
+  const [tourMaxAdvanceBookingDays, setTourMaxAdvanceBookingDays] = useState<number>(90);
   const [availableTags, setAvailableTags] = useState<Array<{ tag_id: number; tag_key: string; tag_name: string; tag_color: string; tag_icon: string }>>([]);
   const [tagDialog, setTagDialog] = useState<{ open: boolean }>({ open: false });
   const [loadingTags, setLoadingTags] = useState(false);
@@ -1701,6 +1705,12 @@ const Verification = () => {
             meeting_point: tourData.meeting_point || '',
           });
 
+          // Initialize schedule data
+          setTourScheduleType(tourData.tour_schedule_type || 'always_available');
+          setTourScheduleConfig(tourData.schedule_config || {});
+          setTourBookingCutoffHours(tourData.booking_cutoff_hours ?? 24);
+          setTourMaxAdvanceBookingDays(tourData.max_advance_booking_days ?? 90);
+
           // Load translations
           const loadedTranslations = await loadTourTranslations(tourId);
           
@@ -1764,27 +1774,7 @@ const Verification = () => {
               .order('day_number', { ascending: true });
             
             if (!itineraryError && itineraryData) {
-              // Format day_date to YYYY-MM-DD format if present
-              const formattedDays = itineraryData.map((day: any) => {
-                if (day.day_date) {
-                  try {
-                    const date = new Date(day.day_date);
-                    if (!isNaN(date.getTime())) {
-                      const year = date.getFullYear();
-                      const month = String(date.getMonth() + 1).padStart(2, '0');
-                      const dayNum = String(date.getDate()).padStart(2, '0');
-                      return { ...day, day_date: `${year}-${month}-${dayNum}` };
-                    }
-                  } catch {
-                    // If already in YYYY-MM-DD format, keep as is
-                    if (day.day_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                      return day;
-                    }
-                  }
-                }
-                return day;
-              });
-              setTourItineraryDays(formattedDays);
+              setTourItineraryDays(itineraryData);
               
               // Load itinerary translations
               const itineraryTranslations: Record<number, Record<LanguageCode, string>> = {};
@@ -1943,6 +1933,10 @@ const Verification = () => {
           setTourItineraryItems([]);
           setTourItineraryItemTranslations({});
           setTourTicketTypes([]);
+          setTourScheduleType('always_available');
+          setTourScheduleConfig({});
+          setTourBookingCutoffHours(24);
+          setTourMaxAdvanceBookingDays(90);
         }
       } else {
         // For Hotel, Food - just show basic info for now
@@ -1959,6 +1953,10 @@ const Verification = () => {
         setTourItineraryTranslations({});
         setTourItineraryItems([]);
         setTourItineraryItemTranslations({});
+        setTourScheduleType('always_available');
+        setTourScheduleConfig({});
+        setTourBookingCutoffHours(24);
+        setTourMaxAdvanceBookingDays(90);
       }
     } catch (error: any) {
       console.error('Error loading table details:', error);
@@ -3693,6 +3691,12 @@ const Verification = () => {
         delete baseFieldsToUpdate[field];
       });
 
+      // Add schedule fields
+      baseFieldsToUpdate.tour_schedule_type = tourScheduleType;
+      baseFieldsToUpdate.schedule_config = tourScheduleConfig;
+      baseFieldsToUpdate.booking_cutoff_hours = tourBookingCutoffHours;
+      baseFieldsToUpdate.max_advance_booking_days = tourMaxAdvanceBookingDays;
+
       // Update base tour record if there are changes
       if (Object.keys(baseFieldsToUpdate).length > 0) {
         const { error: updateError } = await supabase
@@ -4032,7 +4036,6 @@ const Verification = () => {
               tour_id: tourId,
               day_number: day.day_number || 0,
               day_title: day.day_title || '',
-              day_date: day.day_date || null,
             };
 
             let finalDayId = day.day_id;
@@ -4414,6 +4417,12 @@ const Verification = () => {
           route_name: tourData.route_name || '',
           meeting_point: tourData.meeting_point || '',
         });
+
+        // Reload schedule data
+        setTourScheduleType(tourData.tour_schedule_type || 'always_available');
+        setTourScheduleConfig(tourData.schedule_config || {});
+        setTourBookingCutoffHours(tourData.booking_cutoff_hours ?? 24);
+        setTourMaxAdvanceBookingDays(tourData.max_advance_booking_days ?? 90);
       }
 
       // Reload tour media from heritage_tourmedia table
@@ -4570,7 +4579,7 @@ const Verification = () => {
       
       // Reload tour ticket types
       await loadTourTicketTypes(tourId);
-      
+
       // Reload tour tags
       const tagsArray = Array.isArray(refreshedDetails.tags) ? refreshedDetails.tags : (refreshedDetails.tags?.items || []);
       setTourTags(tagsArray);
@@ -6586,6 +6595,393 @@ const Verification = () => {
                 </Grid>
               </Box>
 
+              {/* Tour Schedule Section */}
+              <Box>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Tour Schedule {editMode && <Chip label="Editing" size="small" color="warning" sx={{ ml: 1 }} />}
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Schedule Type
+                    </Typography>
+                    {editMode ? (
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={tourScheduleType}
+                          onChange={(e) => {
+                            setTourScheduleType(e.target.value);
+                            // Reset config when changing schedule type
+                            if (e.target.value === 'always_available') {
+                              setTourScheduleConfig({});
+                            } else if (e.target.value === 'weekly') {
+                              setTourScheduleConfig({ day_of_week: 1, time: '09:00' });
+                            } else if (e.target.value === 'monthly') {
+                              setTourScheduleConfig({ day_of_month: 1, day_of_week: 6, time: '09:00' });
+                            } else if (e.target.value === 'yearly') {
+                              setTourScheduleConfig({ month: 3, day: 15, time: '09:00' });
+                            } else if (e.target.value === 'custom_dates') {
+                              setTourScheduleConfig({ dates: [], times: ['09:00'] });
+                            }
+                          }}
+                        >
+                          <MenuItem value="always_available">Always Available</MenuItem>
+                          <MenuItem value="weekly">Weekly</MenuItem>
+                          <MenuItem value="monthly">Monthly</MenuItem>
+                          <MenuItem value="yearly">Yearly</MenuItem>
+                          <MenuItem value="custom_dates">Custom Dates</MenuItem>
+                        </Select>
+                      </FormControl>
+                    ) : (
+                      <Typography variant="body2">
+                        {tourScheduleType === 'always_available' ? 'Always Available' :
+                         tourScheduleType === 'weekly' ? 'Weekly' :
+                         tourScheduleType === 'monthly' ? 'Monthly' :
+                         tourScheduleType === 'yearly' ? 'Yearly' :
+                         tourScheduleType === 'custom_dates' ? 'Custom Dates' : tourScheduleType}
+                      </Typography>
+                    )}
+                  </Grid>
+
+                  {/* Schedule Configuration based on type */}
+                  {tourScheduleType !== 'always_available' && (
+                    <>
+                      {tourScheduleType === 'weekly' && (
+                        <>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Day of Week
+                            </Typography>
+                            {editMode ? (
+                              <FormControl fullWidth size="small">
+                                <Select
+                                  value={tourScheduleConfig.day_of_week || 1}
+                                  onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, day_of_week: e.target.value })}
+                                >
+                                  <MenuItem value={1}>Monday</MenuItem>
+                                  <MenuItem value={2}>Tuesday</MenuItem>
+                                  <MenuItem value={3}>Wednesday</MenuItem>
+                                  <MenuItem value={4}>Thursday</MenuItem>
+                                  <MenuItem value={5}>Friday</MenuItem>
+                                  <MenuItem value={6}>Saturday</MenuItem>
+                                  <MenuItem value={7}>Sunday</MenuItem>
+                                </Select>
+                              </FormControl>
+                            ) : (
+                              <Typography variant="body2">
+                                {['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][tourScheduleConfig.day_of_week || 1]}
+                              </Typography>
+                            )}
+                          </Grid>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Time
+                            </Typography>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                type="time"
+                                value={tourScheduleConfig.time || '09:00'}
+                                onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, time: e.target.value })}
+                              />
+                            ) : (
+                              <Typography variant="body2">
+                                {tourScheduleConfig.time || '—'}
+                              </Typography>
+                            )}
+                          </Grid>
+                        </>
+                      )}
+
+                      {tourScheduleType === 'monthly' && (
+                        <>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Day of Month
+                            </Typography>
+                            {editMode ? (
+                              <FormControl fullWidth size="small">
+                                <Select
+                                  value={tourScheduleConfig.day_of_month || 1}
+                                  onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, day_of_month: e.target.value })}
+                                >
+                                  <MenuItem value={1}>1st</MenuItem>
+                                  <MenuItem value={2}>2nd</MenuItem>
+                                  <MenuItem value={3}>3rd</MenuItem>
+                                  <MenuItem value={4}>4th</MenuItem>
+                                  <MenuItem value={5}>5th</MenuItem>
+                                  <MenuItem value={6}>6th</MenuItem>
+                                  <MenuItem value={7}>7th</MenuItem>
+                                  <MenuItem value={8}>8th</MenuItem>
+                                  <MenuItem value={9}>9th</MenuItem>
+                                  <MenuItem value={10}>10th</MenuItem>
+                                  <MenuItem value={15}>15th</MenuItem>
+                                  <MenuItem value={20}>20th</MenuItem>
+                                  <MenuItem value={25}>25th</MenuItem>
+                                  <MenuItem value={28}>28th</MenuItem>
+                                </Select>
+                              </FormControl>
+                            ) : (
+                              <Typography variant="body2">
+                                {tourScheduleConfig.day_of_month ? (() => {
+                                  const day = tourScheduleConfig.day_of_month;
+                                  const suffix = day % 10 === 1 && day % 100 !== 11 ? 'st' :
+                                                day % 10 === 2 && day % 100 !== 12 ? 'nd' :
+                                                day % 10 === 3 && day % 100 !== 13 ? 'rd' : 'th';
+                                  return `${day}${suffix}`;
+                                })() : '—'}
+                              </Typography>
+                            )}
+                          </Grid>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Day of Week
+                            </Typography>
+                            {editMode ? (
+                              <FormControl fullWidth size="small">
+                                <Select
+                                  value={tourScheduleConfig.day_of_week || 6}
+                                  onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, day_of_week: e.target.value })}
+                                >
+                                  <MenuItem value={1}>Monday</MenuItem>
+                                  <MenuItem value={2}>Tuesday</MenuItem>
+                                  <MenuItem value={3}>Wednesday</MenuItem>
+                                  <MenuItem value={4}>Thursday</MenuItem>
+                                  <MenuItem value={5}>Friday</MenuItem>
+                                  <MenuItem value={6}>Saturday</MenuItem>
+                                  <MenuItem value={7}>Sunday</MenuItem>
+                                </Select>
+                              </FormControl>
+                            ) : (
+                              <Typography variant="body2">
+                                {['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][tourScheduleConfig.day_of_week || 6]}
+                              </Typography>
+                            )}
+                          </Grid>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Time
+                            </Typography>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                type="time"
+                                value={tourScheduleConfig.time || '09:00'}
+                                onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, time: e.target.value })}
+                              />
+                            ) : (
+                              <Typography variant="body2">
+                                {tourScheduleConfig.time || '—'}
+                              </Typography>
+                            )}
+                          </Grid>
+                        </>
+                      )}
+
+                      {tourScheduleType === 'yearly' && (
+                        <>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Month
+                            </Typography>
+                            {editMode ? (
+                              <FormControl fullWidth size="small">
+                                <Select
+                                  value={tourScheduleConfig.month || 3}
+                                  onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, month: e.target.value })}
+                                >
+                                  <MenuItem value={1}>January</MenuItem>
+                                  <MenuItem value={2}>February</MenuItem>
+                                  <MenuItem value={3}>March</MenuItem>
+                                  <MenuItem value={4}>April</MenuItem>
+                                  <MenuItem value={5}>May</MenuItem>
+                                  <MenuItem value={6}>June</MenuItem>
+                                  <MenuItem value={7}>July</MenuItem>
+                                  <MenuItem value={8}>August</MenuItem>
+                                  <MenuItem value={9}>September</MenuItem>
+                                  <MenuItem value={10}>October</MenuItem>
+                                  <MenuItem value={11}>November</MenuItem>
+                                  <MenuItem value={12}>December</MenuItem>
+                                </Select>
+                              </FormControl>
+                            ) : (
+                              <Typography variant="body2">
+                                {['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][tourScheduleConfig.month || 3]}
+                              </Typography>
+                            )}
+                          </Grid>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Day
+                            </Typography>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                type="number"
+                                inputProps={{ min: 1, max: 31 }}
+                                value={tourScheduleConfig.day || 15}
+                                onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, day: parseInt(e.target.value) || 15 })}
+                              />
+                            ) : (
+                              <Typography variant="body2">
+                                {tourScheduleConfig.day || '—'}
+                              </Typography>
+                            )}
+                          </Grid>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Time
+                            </Typography>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                type="time"
+                                value={tourScheduleConfig.time || '09:00'}
+                                onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, time: e.target.value })}
+                              />
+                            ) : (
+                              <Typography variant="body2">
+                                {tourScheduleConfig.time || '—'}
+                              </Typography>
+                            )}
+                          </Grid>
+                        </>
+                      )}
+
+                      {tourScheduleType === 'custom_dates' && (
+                        <Grid item xs={12}>
+                          <Typography variant="body2" color="text.secondary" gutterBottom>
+                            Custom Dates & Times
+                          </Typography>
+                          {editMode ? (
+                            <Box>
+                              {((tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : []).map((date: string, idx: number) => (
+                                <Stack key={idx} direction="row" spacing={2} sx={{ mb: 1 }} alignItems="center">
+                                  <TextField
+                                    size="small"
+                                    type="date"
+                                    label="Date"
+                                    value={date}
+                                    onChange={(e) => {
+                                      const currentDates = (tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : [];
+                                      const newDates = [...currentDates];
+                                      newDates[idx] = e.target.value;
+                                      setTourScheduleConfig({ ...tourScheduleConfig, dates: newDates });
+                                    }}
+                                    InputLabelProps={{ shrink: true }}
+                                  />
+                                  <TextField
+                                    size="small"
+                                    type="time"
+                                    label="Time"
+                                    value={((tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'])[idx] || '09:00'}
+                                    onChange={(e) => {
+                                      const currentTimes = (tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'];
+                                      const newTimes = [...currentTimes];
+                                      newTimes[idx] = e.target.value;
+                                      setTourScheduleConfig({ ...tourScheduleConfig, times: newTimes });
+                                    }}
+                                    InputLabelProps={{ shrink: true }}
+                                  />
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => {
+                                      const currentDates = (tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : [];
+                                      const currentTimes = (tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'];
+                                      const newDates = [...currentDates];
+                                      const newTimes = [...currentTimes];
+                                      newDates.splice(idx, 1);
+                                      newTimes.splice(idx, 1);
+                                      setTourScheduleConfig({ ...tourScheduleConfig, dates: newDates, times: newTimes });
+                                    }}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Stack>
+                              ))}
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<AddIcon />}
+                                onClick={() => {
+                                  const currentDates = (tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : [];
+                                  const currentTimes = (tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'];
+                                  const newDates = [...currentDates, ''];
+                                  const newTimes = [...currentTimes, '09:00'];
+                                  setTourScheduleConfig({ ...tourScheduleConfig, dates: newDates, times: newTimes });
+                                }}
+                              >
+                                Add Date
+                              </Button>
+                            </Box>
+                          ) : (
+                            <Box>
+                              {((tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : []).length > 0 ? (
+                                ((tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : []).map((date: string, idx: number) => (
+                                  <Typography key={idx} variant="body2" sx={{ mb: 0.5 }}>
+                                    {date} at {((tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'])[idx] || '09:00'}
+                                  </Typography>
+                                ))
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">No custom dates set</Typography>
+                              )}
+                            </Box>
+                          )}
+                        </Grid>
+                      )}
+                    </>
+                  )}
+
+                  {/* Booking Settings */}
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Booking Cutoff (Hours)
+                    </Typography>
+                    {editMode ? (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        inputProps={{ min: 0 }}
+                        value={tourBookingCutoffHours}
+                        onChange={(e) => setTourBookingCutoffHours(parseInt(e.target.value) || 24)}
+                        helperText="Hours before tour start when booking closes"
+                      />
+                    ) : (
+                      <Typography variant="body2">
+                        {tourBookingCutoffHours} hours
+                      </Typography>
+                    )}
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Max Advance Booking (Days)
+                    </Typography>
+                    {editMode ? (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        inputProps={{ min: 1 }}
+                        value={tourMaxAdvanceBookingDays}
+                        onChange={(e) => setTourMaxAdvanceBookingDays(parseInt(e.target.value) || 90)}
+                        helperText="Maximum days in advance users can book"
+                      />
+                    ) : (
+                      <Typography variant="body2">
+                        {tourMaxAdvanceBookingDays} days
+                      </Typography>
+                    )}
+                  </Grid>
+                </Grid>
+              </Box>
+
               {/* Tour Hero Image Section */}
               <Box>
                 <Divider sx={{ my: 2 }} />
@@ -6864,7 +7260,6 @@ const Verification = () => {
                           tour_id: selectedTableRecord?.tour_id || selectedTableRecord?.id || 0,
                           day_number: dayNumber,
                           day_title: '',
-                          day_date: null,
                         };
                         setTourItineraryDays([...tourItineraryDays, newDay]);
                         setTourItineraryTranslations({
@@ -6989,35 +7384,6 @@ const Verification = () => {
                                             setTourItineraryDays(newDays);
                                           }}
                                           sx={{ width: 120 }}
-                                        />
-                                        <FormattedDateInput
-                                          size="small"
-                                          label="Day Date"
-                                          value={(() => {
-                                            if (!day.day_date) return '';
-                                            // Ensure date is in YYYY-MM-DD format
-                                            try {
-                                              const dateObj = new Date(day.day_date);
-                                              if (isNaN(dateObj.getTime())) return '';
-                                              const year = dateObj.getFullYear();
-                                              const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-                                              const dayNum = String(dateObj.getDate()).padStart(2, '0');
-                                              return `${year}-${month}-${dayNum}`;
-                                            } catch {
-                                              // If already in YYYY-MM-DD format, return as is
-                                              if (day.day_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                                                return day.day_date;
-                                              }
-                                              return '';
-                                            }
-                                          })()}
-                                          onChange={(value) => {
-                                            const newDays = [...tourItineraryDays];
-                                            newDays[index] = { ...newDays[index], day_date: value || null };
-                                            setTourItineraryDays(newDays);
-                                          }}
-                                          InputLabelProps={{ shrink: true }}
-                                          sx={{ width: 180 }}
                                         />
                                         <Button
                                           variant="outlined"
