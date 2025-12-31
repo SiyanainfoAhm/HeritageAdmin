@@ -142,9 +142,6 @@ const TOUR_TRANSLATABLE_FIELDS = [
   'full_description',
   'city',
   'state',
-  'area_or_zone',
-  'route_name',
-  'meeting_point',
 ];
 
 // Preferred display order for artisan fields
@@ -436,7 +433,25 @@ const Verification = () => {
     setLoading(true);
     setError('');
     try {
-      let query = supabase.from(tableName).select('*');
+      // Include user information - join with heritage_user using user_id foreign key
+      // The column user_id in the table references heritage_user.user_id
+      // Use alias 'user' for the joined heritage_user data
+      // Note: heritage_artwork doesn't have user_id, it has artisan_id instead
+      let selectQuery = '*';
+      
+      // Add user join only for tables that have user_id (not artwork)
+      if (tableName !== 'heritage_artwork') {
+        selectQuery += `,
+        user:heritage_user!user_id(user_id, full_name, email)`;
+      }
+      
+      // Add artisan join for artwork table
+      if (tableName === 'heritage_artwork') {
+        selectQuery += `,
+        artisan:heritage_artisan!artisan_id(artisan_id, artisan_name)`;
+      }
+      
+      let query = supabase.from(tableName).select(selectQuery);
       
       // Apply search filter if searchTerm exists
       if (searchTerm) {
@@ -483,10 +498,111 @@ const Verification = () => {
       const { data, error: fetchError } = await query.order(orderColumn, { ascending: false });
 
       if (fetchError) {
-        throw fetchError;
+        console.error('Error fetching with user join:', fetchError);
+        // If join fails, try without join and fetch user data separately
+        if (fetchError.message?.includes('foreign key') || fetchError.message?.includes('relation') || fetchError.message?.includes('column')) {
+          console.warn('User join failed, fetching without join:', fetchError.message);
+          const fallbackQuery = supabase.from(tableName).select('*');
+          // Reapply filters
+          if (searchTerm) {
+            if (tableName === 'heritage_event') {
+              fallbackQuery.or(`event_name.ilike.%${searchTerm}%,event_key.ilike.%${searchTerm}%`);
+            } else if (tableName === 'heritage_tour') {
+              fallbackQuery.or(`tour_name.ilike.%${searchTerm}%,tour_key.ilike.%${searchTerm}%`);
+            } else if (tableName === 'heritage_hotel') {
+              fallbackQuery.or(`hotel_name.ilike.%${searchTerm}%,hotel_key.ilike.%${searchTerm}%`);
+            } else if (tableName === 'heritage_food') {
+              fallbackQuery.or(`food_name.ilike.%${searchTerm}%,food_key.ilike.%${searchTerm}%`);
+            } else if (tableName === 'heritage_artwork') {
+              fallbackQuery.or(`artwork_name.ilike.%${searchTerm}%`);
+            }
+          }
+          if (dateFilter) {
+            const dateColumn = ['heritage_tour', 'heritage_event', 'heritage_hotel', 'heritage_food', 'heritage_artwork'].includes(tableName)
+              ? 'updated_at'
+              : 'created_at';
+            fallbackQuery.gte(dateColumn, `${dateFilter}T00:00:00`).lte(dateColumn, `${dateFilter}T23:59:59`);
+          }
+          if (statusFilter !== 'All') {
+            if (tableName === 'heritage_artwork') {
+              const isActive = statusFilter === 'published' ? true : false;
+              fallbackQuery.eq('is_active', isActive);
+            } else {
+              const statusValue = statusFilter.toLowerCase();
+              fallbackQuery.eq('status', statusValue);
+            }
+          }
+          const { data: fallbackData, error: fallbackError } = await fallbackQuery.order(orderColumn, { ascending: false });
+          if (fallbackError) {
+            throw fallbackError;
+          }
+          
+          // If we have data, fetch user/artisan information separately
+          if (fallbackData && fallbackData.length > 0) {
+            // For artwork, fetch artisan data instead of user data
+            if (tableName === 'heritage_artwork') {
+              const artisanIds = [...new Set(fallbackData.map((r: any) => r.artisan_id).filter(Boolean))];
+              if (artisanIds.length > 0) {
+                const { data: artisansData } = await supabase
+                  .from('heritage_artisan')
+                  .select('artisan_id, artisan_name')
+                  .in('artisan_id', artisanIds);
+                
+                const artisanMap = new Map();
+                if (artisansData) {
+                  artisansData.forEach((a: any) => {
+                    artisanMap.set(a.artisan_id, a);
+                  });
+                }
+                
+                const dataWithArtisans = fallbackData.map((record: any) => ({
+                  ...record,
+                  artisan: record.artisan_id ? artisanMap.get(record.artisan_id) : null
+                }));
+                
+                setTableData(dataWithArtisans);
+              } else {
+                setTableData(fallbackData);
+              }
+            } else {
+              // For other tables, fetch user data
+              const userIds = [...new Set(fallbackData.map((r: any) => r.user_id).filter(Boolean))];
+              if (userIds.length > 0) {
+                const { data: usersData } = await supabase
+                  .from('heritage_user')
+                  .select('user_id, full_name, email')
+                  .in('user_id', userIds);
+                
+                const userMap = new Map();
+                if (usersData) {
+                  usersData.forEach((u: any) => {
+                    userMap.set(u.user_id, u);
+                  });
+                }
+                
+                const dataWithUsers = fallbackData.map((record: any) => ({
+                  ...record,
+                  user: record.user_id ? userMap.get(record.user_id) : null
+                }));
+                
+                setTableData(dataWithUsers);
+              } else {
+                setTableData(fallbackData);
+              }
+            }
+          } else {
+            setTableData(fallbackData || []);
+          }
+        } else {
+          throw fetchError;
+        }
+      } else {
+        // Log the data structure to debug
+        if (data && data.length > 0) {
+          console.log('Sample record with user data:', data[0]);
+        }
+        setTableData(data || []);
       }
-
-      setTableData(data || []);
     } catch (err: any) {
       setError(err.message || `Failed to fetch ${tableName} data`);
       setTableData([]);
@@ -1700,9 +1816,6 @@ const Verification = () => {
             full_description: tourData.full_description || '',
             city: tourData.city || '',
             state: tourData.state || '',
-            area_or_zone: tourData.area_or_zone || '',
-            route_name: tourData.route_name || '',
-            meeting_point: tourData.meeting_point || '',
           });
 
           // Initialize schedule data
@@ -4413,9 +4526,6 @@ const Verification = () => {
           full_description: tourData.full_description || '',
           city: tourData.city || '',
           state: tourData.state || '',
-          area_or_zone: tourData.area_or_zone || '',
-          route_name: tourData.route_name || '',
-          meeting_point: tourData.meeting_point || '',
         });
 
         // Reload schedule data
@@ -4912,7 +5022,7 @@ const Verification = () => {
                       </Stack>
                     </TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>
-                      {currentTab === 'product' ? 'Category' : 'Key'}
+                      {currentTab === 'product' ? 'Artisan Name' : 'Key'}
                     </TableCell>
                     <TableCell 
                       sx={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
@@ -4935,6 +5045,9 @@ const Verification = () => {
                           sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
                         )}
                       </Stack>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>
+                      Created By
                     </TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>
                       Actions
@@ -5066,7 +5179,9 @@ const Verification = () => {
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" color="text.secondary">
-                          {keyField || '—'}
+                          {currentTab === 'product' 
+                            ? (record.artisan?.artisan_name || '—')
+                            : (keyField || '—')}
                         </Typography>
                       </TableCell>
                       <TableCell>
@@ -5081,6 +5196,13 @@ const Verification = () => {
                       <TableCell>
                         <Typography variant="body2">
                           {formatDisplayDate(record.created_at)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">
+                          {currentTab === 'product' 
+                            ? (record.artisan?.artisan_name || '—')
+                            : (record.heritage_user?.full_name || record.user?.full_name || '—')}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
@@ -5261,7 +5383,6 @@ const Verification = () => {
                           full_description: tourData.full_description || '',
                           city: tourData.city || '',
                           state: tourData.state || '',
-                          area_or_zone: tourData.area_or_zone || '',
                           route_name: tourData.route_name || '',
                           meeting_point: tourData.meeting_point || '',
                         });
@@ -6679,16 +6800,17 @@ const Verification = () => {
                               Time
                             </Typography>
                             {editMode ? (
-                              <TextField
+                              <FormattedTimeInput
                                 fullWidth
                                 size="small"
-                                type="time"
+                                label="Time"
                                 value={tourScheduleConfig.time || '09:00'}
-                                onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, time: e.target.value })}
+                                onChange={(value) => setTourScheduleConfig({ ...tourScheduleConfig, time: value })}
+                                InputLabelProps={{ shrink: true }}
                               />
                             ) : (
                               <Typography variant="body2">
-                                {tourScheduleConfig.time || '—'}
+                                {tourScheduleConfig.time ? formatDisplayTime(tourScheduleConfig.time) : '—'}
                               </Typography>
                             )}
                           </Grid>
@@ -6765,16 +6887,17 @@ const Verification = () => {
                               Time
                             </Typography>
                             {editMode ? (
-                              <TextField
+                              <FormattedTimeInput
                                 fullWidth
                                 size="small"
-                                type="time"
+                                label="Time"
                                 value={tourScheduleConfig.time || '09:00'}
-                                onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, time: e.target.value })}
+                                onChange={(value) => setTourScheduleConfig({ ...tourScheduleConfig, time: value })}
+                                InputLabelProps={{ shrink: true }}
                               />
                             ) : (
                               <Typography variant="body2">
-                                {tourScheduleConfig.time || '—'}
+                                {tourScheduleConfig.time ? formatDisplayTime(tourScheduleConfig.time) : '—'}
                               </Typography>
                             )}
                           </Grid>
@@ -6837,16 +6960,17 @@ const Verification = () => {
                               Time
                             </Typography>
                             {editMode ? (
-                              <TextField
+                              <FormattedTimeInput
                                 fullWidth
                                 size="small"
-                                type="time"
+                                label="Time"
                                 value={tourScheduleConfig.time || '09:00'}
-                                onChange={(e) => setTourScheduleConfig({ ...tourScheduleConfig, time: e.target.value })}
+                                onChange={(value) => setTourScheduleConfig({ ...tourScheduleConfig, time: value })}
+                                InputLabelProps={{ shrink: true }}
                               />
                             ) : (
                               <Typography variant="body2">
-                                {tourScheduleConfig.time || '—'}
+                                {tourScheduleConfig.time ? formatDisplayTime(tourScheduleConfig.time) : '—'}
                               </Typography>
                             )}
                           </Grid>
@@ -6855,35 +6979,30 @@ const Verification = () => {
 
                       {tourScheduleType === 'custom_dates' && (
                         <Grid item xs={12}>
-                          <Typography variant="body2" color="text.secondary" gutterBottom>
-                            Custom Dates & Times
-                          </Typography>
                           {editMode ? (
                             <Box>
                               {((tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : []).map((date: string, idx: number) => (
                                 <Stack key={idx} direction="row" spacing={2} sx={{ mb: 1 }} alignItems="center">
-                                  <TextField
+                                  <FormattedDateInput
                                     size="small"
-                                    type="date"
                                     label="Date"
                                     value={date}
-                                    onChange={(e) => {
+                                    onChange={(value) => {
                                       const currentDates = (tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : [];
                                       const newDates = [...currentDates];
-                                      newDates[idx] = e.target.value;
+                                      newDates[idx] = value || '';
                                       setTourScheduleConfig({ ...tourScheduleConfig, dates: newDates });
                                     }}
                                     InputLabelProps={{ shrink: true }}
                                   />
-                                  <TextField
+                                  <FormattedTimeInput
                                     size="small"
-                                    type="time"
                                     label="Time"
                                     value={((tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'])[idx] || '09:00'}
-                                    onChange={(e) => {
+                                    onChange={(value) => {
                                       const currentTimes = (tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'];
                                       const newTimes = [...currentTimes];
-                                      newTimes[idx] = e.target.value;
+                                      newTimes[idx] = value || '09:00';
                                       setTourScheduleConfig({ ...tourScheduleConfig, times: newTimes });
                                     }}
                                     InputLabelProps={{ shrink: true }}
@@ -6923,11 +7042,16 @@ const Verification = () => {
                           ) : (
                             <Box>
                               {((tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : []).length > 0 ? (
-                                ((tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : []).map((date: string, idx: number) => (
-                                  <Typography key={idx} variant="body2" sx={{ mb: 0.5 }}>
-                                    {date} at {((tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'])[idx] || '09:00'}
-                                  </Typography>
-                                ))
+                                ((tourScheduleConfig.dates && Array.isArray(tourScheduleConfig.dates)) ? tourScheduleConfig.dates : []).map((date: string, idx: number) => {
+                                  const timeValue = ((tourScheduleConfig.times && Array.isArray(tourScheduleConfig.times)) ? tourScheduleConfig.times : ['09:00'])[idx] || '09:00';
+                                  const formattedDate = date ? formatDisplayDate(date + 'T00:00:00') : '—';
+                                  const formattedTime = timeValue ? formatDisplayTime(timeValue) : '—';
+                                  return (
+                                    <Typography key={idx} variant="body2" sx={{ mb: 0.5 }}>
+                                      {formattedDate} at {formattedTime}
+                                    </Typography>
+                                  );
+                                })
                               ) : (
                                 <Typography variant="body2" color="text.secondary">No custom dates set</Typography>
                               )}

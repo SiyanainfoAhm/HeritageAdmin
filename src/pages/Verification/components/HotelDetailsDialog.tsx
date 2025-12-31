@@ -20,6 +20,8 @@ import {
   Tooltip,
   Divider,
   InputAdornment,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
@@ -76,6 +78,9 @@ interface RoomType {
   is_active: boolean;
   tax_percentage: number;
   tax: number;
+  available_rooms?: number;
+  allow_extra_beds?: boolean;
+  max_extra_beds?: number;
   translations?: Record<LanguageCode, { room_name: string; short_description: string }>;
   media?: Array<{ media_id?: number; media_url: string; alt_text?: string; position?: number; is_primary?: boolean; file?: File }>;
 }
@@ -617,6 +622,9 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                   is_active: room.is_active !== false,
                   tax_percentage: room.tax_percentage || 0,
                   tax: room.tax || 0,
+                  available_rooms: room.available_rooms ?? 0,
+                  allow_extra_beds: room.allow_extra_beds ?? false,
+                  max_extra_beds: room.max_extra_beds ?? 0,
                   translations: roomTranslations,
                   media: room.media ? room.media.map((m: any) => ({
                     media_id: m.media_id,
@@ -1030,6 +1038,9 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
           is_active: room.is_active,
           tax_percentage: room.tax_percentage,
           tax: room.tax,
+          available_rooms: room.available_rooms ?? 0,
+          allow_extra_beds: room.allow_extra_beds ?? false,
+          max_extra_beds: room.max_extra_beds ?? 0,
         };
 
         let finalRoomId = room.room_type_id;
@@ -1764,6 +1775,9 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                         is_active: true,
                         tax_percentage: 0,
                         tax: 0,
+                        available_rooms: 0,
+                        allow_extra_beds: false,
+                        max_extra_beds: 0,
                         media: [],
                       };
                       setRoomTypes([...roomTypes, newRoom]);
@@ -1942,65 +1956,175 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                             )}
                           </Grid>
 
-                          {editMode && (
-                            <>
-                              <Grid item xs={6} md={3}>
+                          <Grid item xs={6} md={3}>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Base Price"
+                                type="number"
+                                value={room.base_price}
+                                onChange={(e) => {
+                                  const newRooms = [...roomTypes];
+                                  newRooms[roomIndex] = { ...newRooms[roomIndex], base_price: parseFloat(e.target.value) || 0 };
+                                  setRoomTypes(newRooms);
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Base Price
+                                </Typography>
+                                <Typography variant="body2">{room.base_price} {room.currency}</Typography>
+                              </>
+                            )}
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Max Guests"
+                                type="number"
+                                value={room.max_guests}
+                                onChange={(e) => {
+                                  const newRooms = [...roomTypes];
+                                  newRooms[roomIndex] = { ...newRooms[roomIndex], max_guests: parseInt(e.target.value) || 1 };
+                                  setRoomTypes(newRooms);
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Max Guests
+                                </Typography>
+                                <Typography variant="body2">{room.max_guests}</Typography>
+                              </>
+                            )}
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Tax %"
+                                type="number"
+                                value={room.tax_percentage}
+                                onChange={(e) => {
+                                  const newRooms = [...roomTypes];
+                                  newRooms[roomIndex] = { ...newRooms[roomIndex], tax_percentage: parseFloat(e.target.value) || 0 };
+                                  setRoomTypes(newRooms);
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Tax %
+                                </Typography>
+                                <Typography variant="body2">{room.tax_percentage}%</Typography>
+                              </>
+                            )}
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Tax Amount"
+                                type="number"
+                                value={room.tax}
+                                onChange={(e) => {
+                                  const newRooms = [...roomTypes];
+                                  newRooms[roomIndex] = { ...newRooms[roomIndex], tax: parseFloat(e.target.value) || 0 };
+                                  setRoomTypes(newRooms);
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Tax Amount
+                                </Typography>
+                                <Typography variant="body2">{room.tax} {room.currency}</Typography>
+                              </>
+                            )}
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            {editMode ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Available Rooms"
+                                type="number"
+                                inputProps={{ min: 0 }}
+                                value={room.available_rooms ?? 0}
+                                onChange={(e) => {
+                                  const newRooms = [...roomTypes];
+                                  newRooms[roomIndex] = { ...newRooms[roomIndex], available_rooms: parseInt(e.target.value) || 0 };
+                                  setRoomTypes(newRooms);
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Available Rooms
+                                </Typography>
+                                <Typography variant="body2">{room.available_rooms ?? 0}</Typography>
+                              </>
+                            )}
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            {editMode ? (
+                              <FormControlLabel
+                                control={
+                                  <Switch
+                                    checked={room.allow_extra_beds ?? false}
+                                    onChange={(e) => {
+                                      const newRooms = [...roomTypes];
+                                      newRooms[roomIndex] = { 
+                                        ...newRooms[roomIndex], 
+                                        allow_extra_beds: e.target.checked,
+                                        max_extra_beds: e.target.checked ? (newRooms[roomIndex].max_extra_beds || 0) : 0
+                                      };
+                                      setRoomTypes(newRooms);
+                                    }}
+                                  />
+                                }
+                                label="Allow Extra Beds"
+                              />
+                            ) : (
+                              <>
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Allow Extra Beds
+                                </Typography>
+                                <Typography variant="body2">{room.allow_extra_beds ? 'Yes' : 'No'}</Typography>
+                              </>
+                            )}
+                          </Grid>
+                          {room.allow_extra_beds && (
+                            <Grid item xs={6} md={3}>
+                              {editMode ? (
                                 <TextField
                                   fullWidth
                                   size="small"
-                                  label="Base Price"
+                                  label="Max Extra Beds"
                                   type="number"
-                                  value={room.base_price}
+                                  inputProps={{ min: 0 }}
+                                  value={room.max_extra_beds ?? 0}
                                   onChange={(e) => {
                                     const newRooms = [...roomTypes];
-                                    newRooms[roomIndex] = { ...newRooms[roomIndex], base_price: parseFloat(e.target.value) || 0 };
+                                    newRooms[roomIndex] = { ...newRooms[roomIndex], max_extra_beds: parseInt(e.target.value) || 0 };
                                     setRoomTypes(newRooms);
                                   }}
                                 />
-                              </Grid>
-                              <Grid item xs={6} md={3}>
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  label="Max Guests"
-                                  type="number"
-                                  value={room.max_guests}
-                                  onChange={(e) => {
-                                    const newRooms = [...roomTypes];
-                                    newRooms[roomIndex] = { ...newRooms[roomIndex], max_guests: parseInt(e.target.value) || 1 };
-                                    setRoomTypes(newRooms);
-                                  }}
-                                />
-                              </Grid>
-                              <Grid item xs={6} md={3}>
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  label="Tax %"
-                                  type="number"
-                                  value={room.tax_percentage}
-                                  onChange={(e) => {
-                                    const newRooms = [...roomTypes];
-                                    newRooms[roomIndex] = { ...newRooms[roomIndex], tax_percentage: parseFloat(e.target.value) || 0 };
-                                    setRoomTypes(newRooms);
-                                  }}
-                                />
-                              </Grid>
-                              <Grid item xs={6} md={3}>
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  label="Tax Amount"
-                                  type="number"
-                                  value={room.tax}
-                                  onChange={(e) => {
-                                    const newRooms = [...roomTypes];
-                                    newRooms[roomIndex] = { ...newRooms[roomIndex], tax: parseFloat(e.target.value) || 0 };
-                                    setRoomTypes(newRooms);
-                                  }}
-                                />
-                              </Grid>
-                            </>
+                              ) : (
+                                <>
+                                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                                    Max Extra Beds
+                                  </Typography>
+                                  <Typography variant="body2">{room.max_extra_beds ?? 0}</Typography>
+                                </>
+                              )}
+                            </Grid>
                           )}
 
                           {/* Room Media */}
