@@ -408,10 +408,22 @@ const Verification = () => {
   const [rejectionDialogOpen, setRejectionDialogOpen] = useState(false);
   const [rejectionRecord, setRejectionRecord] = useState<{ record: VerificationRecord | any; type: 'user' | 'table' } | null>(null);
 
+  // Ref to track if a fetch is in progress to prevent race conditions
+  const fetchingRef = useRef<boolean>(false);
+
   // Fetch verification records (for User Verification tab)
   const fetchRecords = async () => {
+    // Prevent concurrent fetches
+    if (fetchingRef.current) {
+      console.log('Fetch already in progress, skipping...');
+      return;
+    }
+    
+    fetchingRef.current = true;
     setLoading(true);
     setError('');
+    let finalData: VerificationRecord[] = [];
+    
     try {
       const data = await VerificationService.getVerificationRecords({
         entityType: entityFilter,
@@ -420,18 +432,34 @@ const Verification = () => {
         dateFrom: dateFilter || undefined,
         dateTo: dateFilter || undefined,
       });
-      setRecords(data);
+      // Ensure data is an array
+      finalData = Array.isArray(data) ? data : [];
+      console.log('Fetched verification records:', finalData.length);
     } catch (err: any) {
+      console.error('Error fetching verification records:', err);
       setError(err.message || 'Failed to fetch records');
+      finalData = [];
     } finally {
+      // Always set the data and loading state, even if there was an error
+      setRecords(finalData);
       setLoading(false);
+      fetchingRef.current = false;
     }
   };
 
   // Fetch table data for Event, Tour, Hotel, Food tabs
   const fetchTableData = async (tableName: string) => {
+    // Prevent concurrent fetches
+    if (fetchingRef.current) {
+      console.log('Fetch already in progress, skipping...');
+      return;
+    }
+    
+    fetchingRef.current = true;
     setLoading(true);
     setError('');
+    let finalData: any[] = [];
+    
     try {
       // Include user information - join with heritage_user using user_id foreign key
       // The column user_id in the table references heritage_user.user_id
@@ -555,14 +583,12 @@ const Verification = () => {
                   });
                 }
                 
-                const dataWithArtisans = fallbackData.map((record: any) => ({
+                finalData = fallbackData.map((record: any) => ({
                   ...record,
                   artisan: record.artisan_id ? artisanMap.get(record.artisan_id) : null
                 }));
-                
-                setTableData(dataWithArtisans);
               } else {
-                setTableData(fallbackData);
+                finalData = fallbackData;
               }
             } else {
               // For other tables, fetch user data
@@ -580,34 +606,38 @@ const Verification = () => {
                   });
                 }
                 
-                const dataWithUsers = fallbackData.map((record: any) => ({
+                finalData = fallbackData.map((record: any) => ({
                   ...record,
                   user: record.user_id ? userMap.get(record.user_id) : null
                 }));
-                
-                setTableData(dataWithUsers);
               } else {
-                setTableData(fallbackData);
+                finalData = fallbackData;
               }
             }
           } else {
-            setTableData(fallbackData || []);
+            finalData = fallbackData || [];
           }
         } else {
           throw fetchError;
         }
       } else {
+        // Ensure data is an array
+        finalData = Array.isArray(data) ? data : [];
         // Log the data structure to debug
-        if (data && data.length > 0) {
-          console.log('Sample record with user data:', data[0]);
+        if (finalData.length > 0) {
+          console.log('Sample record with user data:', finalData[0]);
         }
-        setTableData(data || []);
       }
     } catch (err: any) {
+      console.error(`Error fetching ${tableName} data:`, err);
       setError(err.message || `Failed to fetch ${tableName} data`);
-      setTableData([]);
+      finalData = [];
     } finally {
+      // Always set the data and loading state, even if there was an error
+      console.log(`Fetched ${tableName} data:`, finalData.length, 'records');
+      setTableData(finalData);
       setLoading(false);
+      fetchingRef.current = false;
     }
   };
 
@@ -629,14 +659,22 @@ const Verification = () => {
 
   // Fetch data based on current tab
   useEffect(() => {
-    if (currentTab === 'user') {
-      fetchRecords();
-    } else {
-      const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
-      if (tabConfig?.tableName) {
-        fetchTableData(tabConfig.tableName);
+    // Reset page when filters change
+    setPage(1);
+    
+    // Small delay to prevent rapid successive calls
+    const timeoutId = setTimeout(() => {
+      if (currentTab === 'user') {
+        fetchRecords();
+      } else {
+        const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
+        if (tabConfig?.tableName) {
+          fetchTableData(tabConfig.tableName);
+        }
       }
-    }
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTab, entityFilter, statusFilter, dateFilter, searchTerm]);
 

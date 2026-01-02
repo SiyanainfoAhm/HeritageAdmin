@@ -127,6 +127,19 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
   const [allAvailableAmenities, setAllAvailableAmenities] = useState<Array<{ amenity_id: number; amenity_key: string; amenity_name: string; amenity_icon: string }>>([]);
   const [selectedAmenityIds, setSelectedAmenityIds] = useState<Set<number>>(new Set());
 
+  // House Rules and Quick Rules
+  const [propertyRules, setPropertyRules] = useState<string>('');
+  const [quickRules, setQuickRules] = useState<string[]>([]);
+  
+  // Predefined quick rules options
+  const QUICK_RULES_OPTIONS = [
+    'No smoking',
+    'No pets allowed',
+    'No parties or events',
+    'Check-in after 3:00 PM',
+    'Check-out before 11:00 AM',
+  ];
+
   // Fetch hotel details
   const fetchHotelDetails = async (id: number) => {
     try {
@@ -514,6 +527,23 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               is_active: hotel.is_active !== false,
             });
 
+            // Load property rules and quick rules
+            setPropertyRules(hotel.property_rules || '');
+            // Parse quick_rules from JSONB array or set empty array
+            if (hotel.quick_rules) {
+              try {
+                const parsed = Array.isArray(hotel.quick_rules) 
+                  ? hotel.quick_rules 
+                  : JSON.parse(hotel.quick_rules);
+                setQuickRules(Array.isArray(parsed) ? parsed : []);
+              } catch (e) {
+                console.error('Error parsing quick_rules:', e);
+                setQuickRules([]);
+              }
+            } else {
+              setQuickRules([]);
+            }
+
             // Load translations - first from RPC response, then merge with database translations
             const loadedTranslations: Record<string, Record<LanguageCode, string>> = {};
             HOTEL_TRANSLATABLE_FIELDS.forEach(field => {
@@ -854,6 +884,8 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
           currency: editedHotelDetails.currency,
           priority_level: editedHotelDetails.priority_level,
           is_active: editedHotelDetails.is_active,
+          property_rules: propertyRules || null,
+          quick_rules: quickRules.length > 0 ? quickRules : null,
         })
         .eq('hotel_id', hotelId);
 
@@ -2397,6 +2429,75 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                     );
                   })}
                 </Grid>
+              )}
+            </Box>
+
+            {/* House Rules Section */}
+            <Box>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                House Rules
+              </Typography>
+              {editMode ? (
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  maxRows={6}
+                  value={propertyRules}
+                  onChange={(e) => setPropertyRules(e.target.value)}
+                  placeholder="Enter house rules (e.g., No children, No loud music after 10 PM, etc.)"
+                  sx={{ mt: 1 }}
+                />
+              ) : (
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>
+                  {propertyRules || '—'}
+                </Typography>
+              )}
+            </Box>
+
+            {/* Quick Rules Section */}
+            <Box>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                Quick Rules
+              </Typography>
+              {editMode ? (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  {QUICK_RULES_OPTIONS.map((rule) => (
+                    <FormControlLabel
+                      key={rule}
+                      control={
+                        <Checkbox
+                          checked={quickRules.includes(rule)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setQuickRules([...quickRules, rule]);
+                            } else {
+                              setQuickRules(quickRules.filter(r => r !== rule));
+                            }
+                          }}
+                        />
+                      }
+                      label={rule}
+                    />
+                  ))}
+                </Stack>
+              ) : (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  {quickRules.length > 0 ? (
+                    quickRules.map((rule) => (
+                      <Box key={rule} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Checkbox checked={true} disabled size="small" />
+                        <Typography variant="body2">{rule}</Typography>
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      No quick rules selected
+                    </Typography>
+                  )}
+                </Stack>
               )}
             </Box>
 
