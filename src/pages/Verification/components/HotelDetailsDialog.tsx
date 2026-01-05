@@ -111,9 +111,9 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
   const [amenities, setAmenities] = useState<Array<{ amenity_id: number; amenity_key: string; amenity_name: string; amenity_icon: string }>>([]);
   const [amenityTranslations, setAmenityTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   
-  // Attractions
-  const [attractions, setAttractions] = useState<Array<{ attraction_id?: number; name: string; subtitle: string; description: string; image_url: string; position: number; imageFile?: File }>>([]);
-  const [attractionTranslations, setAttractionTranslations] = useState<Record<number, Record<LanguageCode, { name: string; subtitle: string; description: string }>>>({});
+  // Highlights
+  const [highlights, setHighlights] = useState<Array<{ highlight_id: number; highlight_key: string; highlight_name: string; highlight_icon: string }>>([]);
+  const [highlightTranslations, setHighlightTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   
   // Confirmation dialog
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; message: string; onConfirm: (() => void) | null }>({
@@ -126,6 +126,11 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
   const [amenityDialogOpen, setAmenityDialogOpen] = useState(false);
   const [allAvailableAmenities, setAllAvailableAmenities] = useState<Array<{ amenity_id: number; amenity_key: string; amenity_name: string; amenity_icon: string }>>([]);
   const [selectedAmenityIds, setSelectedAmenityIds] = useState<Set<number>>(new Set());
+
+  // Highlight selection dialog
+  const [highlightDialogOpen, setHighlightDialogOpen] = useState(false);
+  const [allAvailableHighlights, setAllAvailableHighlights] = useState<Array<{ highlight_id: number; highlight_key: string; highlight_name: string; highlight_icon: string }>>([]);
+  const [selectedHighlightIds, setSelectedHighlightIds] = useState<Set<number>>(new Set());
 
   // House Rules and Quick Rules
   const [propertyRules, setPropertyRules] = useState<string>('');
@@ -249,71 +254,115 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
     }, 1000);
   };
 
-  // Auto-translate attraction field - works from any language to all other languages
-  const autoTranslateAttractionField = async (
-    text: string,
-    attractionId: number,
-    field: 'name' | 'subtitle' | 'description'
-  ) => {
-    if (!text || !text.trim()) return;
+  // Load all available highlights for selection dialog
+  const loadAllAvailableHighlights = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('heritage_hotelhighlight')
+        .select('*')
+        .order('sort_order', { ascending: true });
 
-    const timerKey = `attraction_${attractionId}_${field}_${currentLanguageTab}`;
-    if (translationTimerRef.current[timerKey]) {
-      clearTimeout(translationTimerRef.current[timerKey]);
-    }
-
-    translationTimerRef.current[timerKey] = setTimeout(async () => {
-      try {
-        const sourceLanguage = currentLanguageTab;
-        // Get all languages except the current one
-        const targetLanguages: LanguageCode[] = LANGUAGES.filter(l => l.code !== sourceLanguage).map(l => l.code);
+      if (error) throw error;
+      
+      if (data) {
+        setAllAvailableHighlights(data.map((h: any) => ({
+          highlight_id: h.highlight_id,
+          highlight_key: h.highlight_key || '',
+          highlight_name: h.highlight_name || '',
+          highlight_icon: h.highlight_icon || '',
+        })));
         
-        const translationPromises = targetLanguages.map(async (lang) => {
-          try {
-            const result = await TranslationService.translate(text, lang, sourceLanguage);
-            if (result.success && result.translations && result.translations[lang]) {
-              const translations = result.translations[lang];
-              const translated = Array.isArray(translations) ? translations[0] : String(translations || '');
-              return { lang, text: translated };
-            }
-            return { lang, text: '' };
-          } catch (err) {
-            console.error(`Translation error for ${lang}:`, err);
-            return { lang, text: '' };
-          }
-        });
-
-        const results = await Promise.all(translationPromises);
-        setAttractionTranslations(prev => {
-          const newTrans = { ...prev };
-          if (!newTrans[attractionId]) {
-            newTrans[attractionId] = {
-              en: { name: '', subtitle: '', description: '' },
-              hi: { name: '', subtitle: '', description: '' },
-              gu: { name: '', subtitle: '', description: '' },
-              ja: { name: '', subtitle: '', description: '' },
-              es: { name: '', subtitle: '', description: '' },
-              fr: { name: '', subtitle: '', description: '' },
-            };
-          }
-          // Update source language with current text
-          newTrans[attractionId][sourceLanguage] = {
-            ...newTrans[attractionId][sourceLanguage],
-            [field]: text,
-          };
-          // Update all target languages with translations
-          results.forEach(({ lang, text }) => {
-            newTrans[attractionId][lang] = {
-              ...newTrans[attractionId][lang],
-              [field]: text,
-            };
-          });
-          return newTrans;
-        });
-      } catch (error) {
-        console.error('Error in attraction auto-translation:', error);
+        // Pre-select highlights that are already assigned to this hotel
+        const currentHighlightIds = new Set(highlights.map(h => h.highlight_id));
+        setSelectedHighlightIds(currentHighlightIds);
       }
-    }, 1000);
+    } catch (error) {
+      console.error('Error loading available highlights:', error);
+    }
+  };
+
+  // Handle opening highlight selection dialog
+  const handleOpenHighlightDialog = async () => {
+    await loadAllAvailableHighlights();
+    setHighlightDialogOpen(true);
+  };
+
+  // Handle closing highlight selection dialog
+  const handleCloseHighlightDialog = () => {
+    setHighlightDialogOpen(false);
+    setSelectedHighlightIds(new Set());
+  };
+
+  // Handle highlight selection toggle
+  const handleToggleHighlightSelection = (highlightId: number) => {
+    setSelectedHighlightIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(highlightId)) {
+        newSet.delete(highlightId);
+      } else {
+        newSet.add(highlightId);
+      }
+      return newSet;
+    });
+  };
+
+  // Handle confirming highlight selection
+  const handleConfirmHighlightSelection = async () => {
+    try {
+      // Filter selected highlights from all available
+      const selectedHighlights = allAvailableHighlights.filter(h => 
+        selectedHighlightIds.has(h.highlight_id)
+      );
+
+      // Update highlights state
+      setHighlights(selectedHighlights);
+
+      // Load translations for newly selected highlights
+      const highlightIds = selectedHighlights.map(h => h.highlight_id);
+      if (highlightIds.length > 0) {
+        try {
+          const { data: highlightTransData, error: highlightTransError } = await supabase
+            .from('heritage_hotelhighlighttranslation')
+            .select('*')
+            .in('highlight_id', highlightIds);
+
+          if (!highlightTransError && highlightTransData) {
+            const highlightTrans: Record<number, Record<LanguageCode, string>> = {};
+            selectedHighlights.forEach((highlight: any) => {
+              highlightTrans[highlight.highlight_id] = {
+                en: highlight.highlight_name || '',
+                hi: '',
+                gu: '',
+                ja: '',
+                es: '',
+                fr: '',
+              };
+            });
+
+            highlightTransData.forEach((trans: any) => {
+              const langCodeRaw = String(trans.language_code || '');
+              const langCode = langCodeRaw.toLowerCase() as LanguageCode;
+              if (langCode && LANGUAGES.some(l => l.code === langCode) && trans.highlight_id) {
+                if (!highlightTrans[trans.highlight_id]) {
+                  highlightTrans[trans.highlight_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                }
+                if (trans.highlight_name) {
+                  highlightTrans[trans.highlight_id][langCode] = String(trans.highlight_name || '').trim();
+                }
+              }
+            });
+
+            setHighlightTranslations(highlightTrans);
+          }
+        } catch (err) {
+          console.error('Error loading highlight translations:', err);
+        }
+      }
+
+      handleCloseHighlightDialog();
+    } catch (error) {
+      console.error('Error confirming highlight selection:', error);
+    }
   };
 
   // Load all available amenities for selection dialog
@@ -785,64 +834,86 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               }
             }
 
-            // Load attractions
-            if (data.attractions && Array.isArray(data.attractions)) {
-              setAttractions(data.attractions);
-              
-              // Load attraction translations
-              const attractionIds = data.attractions.map((a: any) => a.attraction_id);
-              if (attractionIds.length > 0) {
+            // Load highlights - fetch from heritage_hotelhighlight table
+            try {
+              // First, get all available highlights from the master table
+              const { data: allHighlights, error: allHighlightsError } = await supabase
+                .from('heritage_hotelhighlight')
+                .select('*')
+                .order('sort_order', { ascending: true });
+
+              if (!allHighlightsError && allHighlights && allHighlights.length > 0) {
+                // Get hotel-specific highlights from mapping table
+                let hotelHighlightIds: number[] = [];
                 try {
-                  const { data: attractionTransData, error: attractionTransError } = await supabase
-                    .from('heritage_hotelattractiontranslation')
-                    .select('*')
-                    .in('attraction_id', attractionIds);
+                  const { data: mappings, error: mappingError } = await supabase
+                    .from('heritage_hotelhighlightmapping')
+                    .select('highlight_id')
+                    .eq('hotel_id', hotelId);
 
-                  if (!attractionTransError && attractionTransData) {
-                    const attractionTrans: Record<number, Record<LanguageCode, { name: string; subtitle: string; description: string }>> = {};
-                    data.attractions.forEach((attraction: any) => {
-                      attractionTrans[attraction.attraction_id] = {
-                        en: { name: attraction.name || '', subtitle: attraction.subtitle || '', description: attraction.description || '' },
-                        hi: { name: '', subtitle: '', description: '' },
-                        gu: { name: '', subtitle: '', description: '' },
-                        ja: { name: '', subtitle: '', description: '' },
-                        es: { name: '', subtitle: '', description: '' },
-                        fr: { name: '', subtitle: '', description: '' },
-                      };
-                    });
-
-                    attractionTransData.forEach((trans: any) => {
-                      const langCodeRaw = String(trans.language_code || '');
-                      const langCode = langCodeRaw.toLowerCase() as LanguageCode;
-                      if (langCode && LANGUAGES.some(l => l.code === langCode) && trans.attraction_id) {
-                        if (!attractionTrans[trans.attraction_id]) {
-                          attractionTrans[trans.attraction_id] = {
-                            en: { name: '', subtitle: '', description: '' },
-                            hi: { name: '', subtitle: '', description: '' },
-                            gu: { name: '', subtitle: '', description: '' },
-                            ja: { name: '', subtitle: '', description: '' },
-                            es: { name: '', subtitle: '', description: '' },
-                            fr: { name: '', subtitle: '', description: '' },
-                          };
-                        }
-                        if (trans.name !== null && trans.name !== undefined) {
-                          attractionTrans[trans.attraction_id][langCode].name = String(trans.name || '').trim();
-                        }
-                        if (trans.subtitle !== null && trans.subtitle !== undefined) {
-                          attractionTrans[trans.attraction_id][langCode].subtitle = String(trans.subtitle || '').trim();
-                        }
-                        if (trans.description !== null && trans.description !== undefined) {
-                          attractionTrans[trans.attraction_id][langCode].description = String(trans.description || '').trim();
-                        }
-                      }
-                    });
-
-                    setAttractionTranslations(attractionTrans);
+                  if (!mappingError && mappings) {
+                    hotelHighlightIds = mappings.map((m: any) => m.highlight_id);
                   }
-                } catch (err) {
-                  console.error('Error loading attraction translations:', err);
+                } catch (mappingErr) {
+                  console.error('Error loading highlight mappings:', mappingErr);
+                }
+
+                // Filter highlights to show only those mapped to this hotel
+                const highlightsToShow = hotelHighlightIds.length > 0
+                  ? allHighlights.filter((h: any) => hotelHighlightIds.includes(h.highlight_id))
+                  : [];
+
+                setHighlights(highlightsToShow.map((h: any) => ({
+                  highlight_id: h.highlight_id,
+                  highlight_key: h.highlight_key || '',
+                  highlight_name: h.highlight_name || '',
+                  highlight_icon: h.highlight_icon || '',
+                })));
+
+                // Load highlight translations
+                const highlightIds = highlightsToShow.map((h: any) => h.highlight_id);
+                if (highlightIds.length > 0) {
+                  try {
+                    const { data: highlightTransData, error: highlightTransError } = await supabase
+                      .from('heritage_hotelhighlighttranslation')
+                      .select('*')
+                      .in('highlight_id', highlightIds);
+
+                    if (!highlightTransError && highlightTransData) {
+                      const highlightTrans: Record<number, Record<LanguageCode, string>> = {};
+                      highlightsToShow.forEach((highlight: any) => {
+                        highlightTrans[highlight.highlight_id] = {
+                          en: highlight.highlight_name || '',
+                          hi: '',
+                          gu: '',
+                          ja: '',
+                          es: '',
+                          fr: '',
+                        };
+                      });
+
+                      highlightTransData.forEach((trans: any) => {
+                        const langCodeRaw = String(trans.language_code || '');
+                        const langCode = langCodeRaw.toLowerCase() as LanguageCode;
+                        if (langCode && LANGUAGES.some(l => l.code === langCode) && trans.highlight_id) {
+                          if (!highlightTrans[trans.highlight_id]) {
+                            highlightTrans[trans.highlight_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                          }
+                          if (trans.highlight_name) {
+                            highlightTrans[trans.highlight_id][langCode] = String(trans.highlight_name || '').trim();
+                          }
+                        }
+                      });
+
+                      setHighlightTranslations(highlightTrans);
+                    }
+                  } catch (err) {
+                    console.error('Error loading highlight translations:', err);
+                  }
                 }
               }
+            } catch (err) {
+              console.error('Error loading highlights:', err);
             }
           }
         })
@@ -1247,157 +1318,65 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
         }
       }
 
-      // Save attractions and translations
-      // Get current attractions from database
-      const { data: currentAttractions } = await supabase
-        .from('heritage_hotelattraction')
-        .select('attraction_id, image_url')
-        .eq('hotel_id', hotelId);
+      // Save hotel highlight mappings
+      if (hotelId) {
+        try {
+          // Get current mappings
+          const { data: currentMappings } = await supabase
+            .from('heritage_hotelhighlightmapping')
+            .select('highlight_id')
+            .eq('hotel_id', hotelId);
 
-      const currentAttractionIds = (currentAttractions || []).map((a: any) => a.attraction_id);
-      const newAttractionIds = attractions.filter(a => a.attraction_id).map(a => a.attraction_id!);
-      
-      // Delete removed attractions and their images from storage
-      const attractionsToDelete = currentAttractionIds.filter((id: number) => !newAttractionIds.includes(id));
-      if (attractionsToDelete.length > 0) {
-        // Get image URLs of attractions to delete
-        const attractionsToDeleteData = (currentAttractions || []).filter((a: any) => 
-          attractionsToDelete.includes(a.attraction_id)
-        );
-        
-        // Delete images from storage
-        for (const attractionToDelete of attractionsToDeleteData) {
-          if (attractionToDelete.image_url) {
-            try {
-              await StorageService.deleteFile(attractionToDelete.image_url);
-            } catch (err) {
-              console.error('Error deleting attraction image from storage:', err);
-            }
+          const currentHighlightIds = (currentMappings || []).map((m: any) => m.highlight_id);
+          const newHighlightIds = highlights.map(h => h.highlight_id);
+
+          // Delete removed mappings
+          const highlightsToRemove = currentHighlightIds.filter((id: number) => !newHighlightIds.includes(id));
+          if (highlightsToRemove.length > 0) {
+            await supabase
+              .from('heritage_hotelhighlightmapping')
+              .delete()
+              .eq('hotel_id', hotelId)
+              .in('highlight_id', highlightsToRemove);
           }
+
+          // Insert new mappings
+          const highlightsToAdd = newHighlightIds.filter((id: number) => !currentHighlightIds.includes(id));
+          if (highlightsToAdd.length > 0) {
+            const mappingRows = highlightsToAdd.map((highlightId: number) => ({
+              hotel_id: hotelId,
+              highlight_id: highlightId,
+            }));
+            await supabase
+              .from('heritage_hotelhighlightmapping')
+              .insert(mappingRows);
+          }
+        } catch (err) {
+          console.error('Error saving hotel highlight mappings:', err);
         }
-        
-        // Delete from database
-        await supabase
-          .from('heritage_hotelattraction')
-          .delete()
-          .in('attraction_id', attractionsToDelete);
       }
 
-      // Upsert attractions
-      for (const attraction of attractions) {
-        let imageUrl = attraction.image_url;
-        
-        // Get original image URL from database if this is an existing attraction
-        const originalAttraction = currentAttractions?.find((a: any) => a.attraction_id === attraction.attraction_id);
-        const originalImageUrl = originalAttraction?.image_url;
-        const isBlobUrl = imageUrl && imageUrl.startsWith('blob:');
-        
-        // Upload image file if provided
-        if (attraction.imageFile) {
-          try {
-            const attractionFolder = `hotels/${hotelId}/attractions`;
-            const uploadResult = await StorageService.uploadFile(attraction.imageFile, attractionFolder);
-            
-            if (uploadResult.success && uploadResult.url) {
-              // Delete old image from storage if it was replaced
-              if (originalImageUrl && originalImageUrl !== uploadResult.url) {
-                try {
-                  await StorageService.deleteFile(originalImageUrl);
-                } catch (err) {
-                  console.error('Error deleting old attraction image:', err);
-                }
-              }
-              imageUrl = uploadResult.url;
-            }
-          } catch (error) {
-            console.error('Error uploading attraction image:', error);
-          }
-        } else if ((!imageUrl || imageUrl.trim() === '' || isBlobUrl) && originalImageUrl) {
-          // Image was removed - user deleted it and there was an original
-          try {
-            await StorageService.deleteFile(originalImageUrl);
-          } catch (err) {
-            console.error('Error deleting removed attraction image:', err);
-          }
-          imageUrl = '';
-        } else if (!imageUrl || imageUrl.trim() === '' || isBlobUrl) {
-          // New attraction or blob preview without file - set to empty
-          imageUrl = '';
-        }
-        // Otherwise keep existing imageUrl as-is
-        
-        const attractionData: any = {
-          hotel_id: hotelId,
-          name: attraction.name,
-          subtitle: attraction.subtitle,
-          description: attraction.description,
-          image_url: imageUrl || '',
-          position: attraction.position,
-        };
-
-        let finalAttractionId = attraction.attraction_id;
-        
-        if (attraction.attraction_id) {
-          await supabase
-            .from('heritage_hotelattraction')
-            .update(attractionData)
-            .eq('attraction_id', attraction.attraction_id);
-        } else {
-          const { data: insertedAttraction, error: insertError } = await supabase
-            .from('heritage_hotelattraction')
-            .insert(attractionData)
-            .select()
-            .single();
-
-          if (!insertError && insertedAttraction) {
-            finalAttractionId = insertedAttraction.attraction_id;
-            // Update state with new ID
-            const newAttractions = [...attractions];
-            const attractionIndex = attractions.findIndex(a => a === attraction);
-            if (attractionIndex >= 0) {
-              const tempId = attraction.attraction_id;
-              newAttractions[attractionIndex] = { ...newAttractions[attractionIndex], attraction_id: finalAttractionId };
-              setAttractions(newAttractions);
-              
-              // Move translations from temp ID to real ID
-              if (tempId !== undefined && tempId < 0 && finalAttractionId !== undefined && attractionTranslations[tempId]) {
-                const attractionId = finalAttractionId;
-                setAttractionTranslations(prev => {
-                  const newTrans = { ...prev };
-                  newTrans[attractionId] = newTrans[tempId];
-                  delete newTrans[tempId];
-                  return newTrans;
-                });
-              }
-            }
-          }
-        }
-
-        // Save attraction translations
-        // Use temp ID if it's negative, otherwise use final ID
-        const tempId = attraction.attraction_id && attraction.attraction_id < 0 ? attraction.attraction_id : undefined;
-        const translationKey = tempId ? tempId : (finalAttractionId || attraction.attraction_id || 0);
-        
-        if (finalAttractionId && attractionTranslations[translationKey]) {
-          const attractionTrans = attractionTranslations[translationKey];
+      // Save highlight translations
+      for (const highlight of highlights) {
+        if (highlightTranslations[highlight.highlight_id]) {
+          const highlightTrans = highlightTranslations[highlight.highlight_id];
           for (const lang of LANGUAGES) {
-            if (lang.code !== 'en' && attractionTrans[lang.code]) {
+            if (lang.code !== 'en' && highlightTrans[lang.code]) {
               try {
+                // Use uppercase for consistency (standard format)
                 const langCodeUpper = lang.code.toUpperCase();
                 
                 await supabase
-                  .from('heritage_hotelattractiontranslation')
+                  .from('heritage_hotelhighlighttranslation')
                   .upsert({
-                    attraction_id: finalAttractionId,
+                    highlight_id: highlight.highlight_id,
                     language_code: langCodeUpper,
-                    name: attractionTrans[lang.code].name,
-                    subtitle: attractionTrans[lang.code].subtitle,
-                    description: attractionTrans[lang.code].description,
+                    highlight_name: highlightTrans[lang.code],
                   }, {
-                    onConflict: 'attraction_id,language_code',
+                    onConflict: 'highlight_id,language_code',
                   });
               } catch (err) {
-                console.error(`Error saving attraction translation for ${lang.code}:`, err);
+                console.error(`Error saving highlight translation for ${lang.code}:`, err);
               }
             }
           }
@@ -2432,6 +2411,150 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               )}
             </Box>
 
+            {/* Highlights Section */}
+            <Box>
+              <Divider sx={{ my: 2 }} />
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Highlights ({highlights.length})
+                </Typography>
+                {editMode && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={handleOpenHighlightDialog}
+                  >
+                    Add Highlight
+                  </Button>
+                )}
+              </Stack>
+              {highlights.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                  No highlights added yet
+                </Typography>
+              ) : (
+                <Grid container spacing={2}>
+                  {highlights.map((highlight) => {
+                    const highlightName = currentLanguageTab === 'en'
+                      ? highlight.highlight_name
+                      : highlightTranslations[highlight.highlight_id]?.[currentLanguageTab] || highlight.highlight_name;
+
+                    // Get Material Icon component based on highlight_icon name
+                    const getIconComponent = (iconName: string) => {
+                      if (!iconName) return null;
+                      
+                      // Map common icon names to Material Icons component names
+                      const iconNameMap: Record<string, string> = {
+                        'architecture': 'Architecture',
+                        'arch': 'Arch',
+                        'view_agenda': 'ViewAgenda',
+                        'water': 'Water',
+                        'local_parking': 'LocalParking',
+                        'wifi': 'Wifi',
+                        'ac_unit': 'AcUnit',
+                        'king_bed': 'KingBed',
+                        'local_laundry_service': 'LocalLaundryService',
+                        'elevator': 'Elevator',
+                        'cleaning_services': 'CleaningServices',
+                        'medical_services': 'MedicalServices',
+                        'breakfast': 'Restaurant',
+                        'first_aid': 'MedicalServices',
+                      };
+                      
+                      // Try mapped name first, then convert snake_case to PascalCase
+                      let iconComponentName = iconNameMap[iconName.toLowerCase()];
+                      if (!iconComponentName) {
+                        iconComponentName = iconName
+                          .split('_')
+                          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                          .join('');
+                      }
+                      
+                      // Get the icon component from Material Icons
+                      const IconComponent = (Icons as any)[iconComponentName];
+                      if (IconComponent) {
+                        return <IconComponent sx={{ fontSize: 24, color: 'primary.main' }} />;
+                      }
+                      
+                      // Fallback: try with 'Icon' suffix
+                      const IconComponentWithSuffix = (Icons as any)[`${iconComponentName}Icon`];
+                      return IconComponentWithSuffix ? (
+                        <IconComponentWithSuffix sx={{ fontSize: 24, color: 'primary.main' }} />
+                      ) : null;
+                    };
+
+                    return (
+                      <Grid item xs={12} sm={6} md={4} key={highlight.highlight_id}>
+                        <Card variant="outlined" sx={{ p: 1.5 }}>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            {highlight.highlight_icon && getIconComponent(highlight.highlight_icon)}
+                            {editMode && currentLanguageTab !== 'en' ? (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                value={highlightTranslations[highlight.highlight_id]?.[currentLanguageTab] || ''}
+                                onChange={(e) => {
+                                  setHighlightTranslations(prev => {
+                                    const newTrans = { ...prev };
+                                    if (!newTrans[highlight.highlight_id]) {
+                                      newTrans[highlight.highlight_id] = {
+                                        en: highlight.highlight_name,
+                                        hi: '',
+                                        gu: '',
+                                        ja: '',
+                                        es: '',
+                                        fr: '',
+                                      };
+                                    }
+                                    newTrans[highlight.highlight_id][currentLanguageTab] = e.target.value;
+                                    return newTrans;
+                                  });
+                                }}
+                                label={`Highlight Name (${LANGUAGES.find(l => l.code === currentLanguageTab)?.label})`}
+                                InputProps={{
+                                  endAdornment: editMode ? (
+                                    <InputAdornment position="end">
+                                      <IconButton
+                                        size="small"
+                                        color="error"
+                                        onClick={() => {
+                                          setConfirmDialog({
+                                            open: true,
+                                            message: `Are you sure you want to remove "${highlight.highlight_name}" from this hotel?`,
+                                            onConfirm: () => {
+                                              setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                              const newHighlights = highlights.filter(h => h.highlight_id !== highlight.highlight_id);
+                                              setHighlights(newHighlights);
+                                              // Remove translations for this highlight
+                                              const newTranslations = { ...highlightTranslations };
+                                              delete newTranslations[highlight.highlight_id];
+                                              setHighlightTranslations(newTranslations);
+                                            },
+                                          });
+                                        }}
+                                        edge="end"
+                                      >
+                                        <DeleteIcon fontSize="small" />
+                                      </IconButton>
+                                    </InputAdornment>
+                                  ) : undefined,
+                                }}
+                              />
+                            ) : (
+                              <Typography variant="body2" sx={{ flex: 1 }}>
+                                {highlightName}
+                              </Typography>
+                            )}
+                          </Stack>
+                        </Card>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              )}
+            </Box>
+
             {/* House Rules Section */}
             <Box>
               <Divider sx={{ my: 2 }} />
@@ -2497,343 +2620,6 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                       No quick rules selected
                     </Typography>
                   )}
-                </Stack>
-              )}
-            </Box>
-
-            {/* Attractions Section */}
-            <Box>
-              <Divider sx={{ my: 2 }} />
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  Attractions ({attractions.length})
-                </Typography>
-                {editMode && (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => {
-                      // Generate temporary negative ID for new attraction
-                      const tempId = attractions.length > 0 
-                        ? Math.min(...attractions.map(a => a.attraction_id || 0).filter(id => id < 0)) - 1
-                        : -1;
-                      
-                      const newAttraction: { attraction_id?: number; name: string; subtitle: string; description: string; image_url: string; position: number; imageFile?: File } = {
-                        attraction_id: tempId,
-                        name: '',
-                        subtitle: '',
-                        description: '',
-                        image_url: '',
-                        position: attractions.length + 1,
-                      };
-                      setAttractions([...attractions, newAttraction]);
-                      setAttractionTranslations(prev => ({
-                        ...prev,
-                        [tempId]: {
-                          en: { name: '', subtitle: '', description: '' },
-                          hi: { name: '', subtitle: '', description: '' },
-                          gu: { name: '', subtitle: '', description: '' },
-                          ja: { name: '', subtitle: '', description: '' },
-                          es: { name: '', subtitle: '', description: '' },
-                          fr: { name: '', subtitle: '', description: '' },
-                        },
-                      }));
-                    }}
-                  >
-                    Add Attraction
-                  </Button>
-                )}
-              </Stack>
-              {attractions.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                  No attractions added yet
-                </Typography>
-              ) : (
-                <Stack spacing={2}>
-                  {attractions.map((attraction, attractionIndex) => {
-                    const attractionId = attraction.attraction_id || 0;
-                    const attractionName = currentLanguageTab === 'en'
-                      ? attraction.name
-                      : attractionTranslations[attractionId]?.[currentLanguageTab]?.name || attraction.name;
-                    const attractionSubtitle = currentLanguageTab === 'en'
-                      ? attraction.subtitle
-                      : attractionTranslations[attractionId]?.[currentLanguageTab]?.subtitle || attraction.subtitle;
-                    const attractionDescription = currentLanguageTab === 'en'
-                      ? attraction.description
-                      : attractionTranslations[attractionId]?.[currentLanguageTab]?.description || attraction.description;
-
-                    return (
-                      <Card key={attraction.attraction_id || attractionIndex} variant="outlined" sx={{ p: 2 }}>
-                        <Stack spacing={2}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography variant="h6">
-                              {attractionName || 'New Attraction'}
-                            </Typography>
-                            {editMode && (
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => {
-                                  setConfirmDialog({
-                                    open: true,
-                                    message: 'Are you sure you want to delete this attraction?',
-                                    onConfirm: () => {
-                                      setConfirmDialog({ open: false, message: '', onConfirm: null });
-                                      const newAttractions = attractions.filter((_, i) => i !== attractionIndex);
-                                      setAttractions(newAttractions);
-                                      if (attraction.attraction_id) {
-                                        const newTranslations = { ...attractionTranslations };
-                                        delete newTranslations[attraction.attraction_id];
-                                        setAttractionTranslations(newTranslations);
-                                      }
-                                    },
-                                  });
-                                }}
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            )}
-                          </Stack>
-
-                          <Grid container spacing={2}>
-                            <Grid item xs={12} md={6}>
-                              <Typography variant="body2" color="text.secondary" gutterBottom>
-                                Name ({LANGUAGES.find(l => l.code === currentLanguageTab)?.label})
-                              </Typography>
-                              {editMode ? (
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  value={
-                                    currentLanguageTab === 'en'
-                                      ? attraction.name
-                                      : attractionTranslations[attractionId]?.[currentLanguageTab]?.name || ''
-                                  }
-                                  onChange={(e) => {
-                                    const newVal = e.target.value;
-                                    if (currentLanguageTab === 'en') {
-                                      const newAttractions = [...attractions];
-                                      newAttractions[attractionIndex] = { ...newAttractions[attractionIndex], name: newVal };
-                                      setAttractions(newAttractions);
-                                    } else {
-                                      setAttractionTranslations(prev => {
-                                        const newTrans = { ...prev };
-                                        if (!newTrans[attractionId]) {
-                                          newTrans[attractionId] = {
-                                            en: { name: attraction.name, subtitle: attraction.subtitle, description: attraction.description },
-                                            hi: { name: '', subtitle: '', description: '' },
-                                            gu: { name: '', subtitle: '', description: '' },
-                                            ja: { name: '', subtitle: '', description: '' },
-                                            es: { name: '', subtitle: '', description: '' },
-                                            fr: { name: '', subtitle: '', description: '' },
-                                          };
-                                        }
-                                        newTrans[attractionId][currentLanguageTab] = {
-                                          ...newTrans[attractionId][currentLanguageTab],
-                                          name: newVal,
-                                        };
-                                        return newTrans;
-                                      });
-                                    }
-                                    // Auto-translate from any language to all others
-                                    if (newVal && newVal.trim()) {
-                                      autoTranslateAttractionField(newVal, attractionId, 'name');
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <Typography variant="body2">
-                                  {attractionName}
-                                </Typography>
-                              )}
-                            </Grid>
-
-                            <Grid item xs={12} md={6}>
-                              <Typography variant="body2" color="text.secondary" gutterBottom>
-                                Subtitle ({LANGUAGES.find(l => l.code === currentLanguageTab)?.label})
-                              </Typography>
-                              {editMode ? (
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  value={
-                                    currentLanguageTab === 'en'
-                                      ? attraction.subtitle
-                                      : attractionTranslations[attractionId]?.[currentLanguageTab]?.subtitle || ''
-                                  }
-                                  onChange={(e) => {
-                                    const newVal = e.target.value;
-                                    if (currentLanguageTab === 'en') {
-                                      const newAttractions = [...attractions];
-                                      newAttractions[attractionIndex] = { ...newAttractions[attractionIndex], subtitle: newVal };
-                                      setAttractions(newAttractions);
-                                    } else {
-                                      setAttractionTranslations(prev => {
-                                        const newTrans = { ...prev };
-                                        if (!newTrans[attractionId]) {
-                                          newTrans[attractionId] = {
-                                            en: { name: attraction.name, subtitle: attraction.subtitle, description: attraction.description },
-                                            hi: { name: '', subtitle: '', description: '' },
-                                            gu: { name: '', subtitle: '', description: '' },
-                                            ja: { name: '', subtitle: '', description: '' },
-                                            es: { name: '', subtitle: '', description: '' },
-                                            fr: { name: '', subtitle: '', description: '' },
-                                          };
-                                        }
-                                        newTrans[attractionId][currentLanguageTab] = {
-                                          ...newTrans[attractionId][currentLanguageTab],
-                                          subtitle: newVal,
-                                        };
-                                        return newTrans;
-                                      });
-                                    }
-                                    // Auto-translate from any language to all others
-                                    if (newVal && newVal.trim()) {
-                                      autoTranslateAttractionField(newVal, attractionId, 'subtitle');
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <Typography variant="body2">
-                                  {attractionSubtitle}
-                                </Typography>
-                              )}
-                            </Grid>
-
-                            <Grid item xs={12}>
-                              <Typography variant="body2" color="text.secondary" gutterBottom>
-                                Description ({LANGUAGES.find(l => l.code === currentLanguageTab)?.label})
-                              </Typography>
-                              {editMode ? (
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  multiline
-                                  minRows={2}
-                                  value={
-                                    currentLanguageTab === 'en'
-                                      ? attraction.description
-                                      : attractionTranslations[attractionId]?.[currentLanguageTab]?.description || ''
-                                  }
-                                  onChange={(e) => {
-                                    const newVal = e.target.value;
-                                    if (currentLanguageTab === 'en') {
-                                      const newAttractions = [...attractions];
-                                      newAttractions[attractionIndex] = { ...newAttractions[attractionIndex], description: newVal };
-                                      setAttractions(newAttractions);
-                                    } else {
-                                      setAttractionTranslations(prev => {
-                                        const newTrans = { ...prev };
-                                        if (!newTrans[attractionId]) {
-                                          newTrans[attractionId] = {
-                                            en: { name: attraction.name, subtitle: attraction.subtitle, description: attraction.description },
-                                            hi: { name: '', subtitle: '', description: '' },
-                                            gu: { name: '', subtitle: '', description: '' },
-                                            ja: { name: '', subtitle: '', description: '' },
-                                            es: { name: '', subtitle: '', description: '' },
-                                            fr: { name: '', subtitle: '', description: '' },
-                                          };
-                                        }
-                                        newTrans[attractionId][currentLanguageTab] = {
-                                          ...newTrans[attractionId][currentLanguageTab],
-                                          description: newVal,
-                                        };
-                                        return newTrans;
-                                      });
-                                    }
-                                    // Auto-translate from any language to all others
-                                    if (newVal && newVal.trim()) {
-                                      autoTranslateAttractionField(newVal, attractionId, 'description');
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <Typography variant="body2">
-                                  {attractionDescription}
-                                </Typography>
-                              )}
-                            </Grid>
-
-                            <Grid item xs={12}>
-                              <Typography variant="body2" color="text.secondary" gutterBottom>
-                                Image
-                              </Typography>
-                              {editMode && (
-                                <input
-                                  accept="image/*"
-                                  style={{ display: 'none' }}
-                                  id={`attraction-image-upload-${attractionIndex}`}
-                                  type="file"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      const previewUrl = URL.createObjectURL(file);
-                                      const newAttractions = [...attractions];
-                                      newAttractions[attractionIndex] = {
-                                        ...newAttractions[attractionIndex],
-                                        image_url: previewUrl,
-                                        imageFile: file,
-                                      };
-                                      setAttractions(newAttractions);
-                                    }
-                                  }}
-                                />
-                              )}
-                              {editMode && (
-                                <label htmlFor={`attraction-image-upload-${attractionIndex}`}>
-                                  <Button
-                                    variant="outlined"
-                                    size="small"
-                                    component="span"
-                                    startIcon={<CloudUploadIcon />}
-                                    sx={{ mb: 2 }}
-                                  >
-                                    {attraction.image_url ? 'Change Image' : 'Upload Image'}
-                                  </Button>
-                                </label>
-                              )}
-                              {attraction.image_url && (
-                                <Box sx={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-                                  <CardMedia
-                                    component="img"
-                                    height="200"
-                                    image={attraction.image_url}
-                                    alt={attractionName}
-                                    sx={{ objectFit: 'cover', borderRadius: 1 }}
-                                  />
-                                  {editMode && (
-                                    <IconButton
-                                      size="small"
-                                      color="error"
-                                      onClick={() => {
-                                        setConfirmDialog({
-                                          open: true,
-                                          message: 'Are you sure you want to remove this image?',
-                                          onConfirm: () => {
-                                            setConfirmDialog({ open: false, message: '', onConfirm: null });
-                                            const newAttractions = [...attractions];
-                                            newAttractions[attractionIndex] = {
-                                              ...newAttractions[attractionIndex],
-                                              image_url: '',
-                                              imageFile: undefined,
-                                            };
-                                            setAttractions(newAttractions);
-                                          },
-                                        });
-                                      }}
-                                      sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'white', '&:hover': { bgcolor: '#ffebee' } }}
-                                    >
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  )}
-                                </Box>
-                              )}
-                            </Grid>
-                          </Grid>
-                        </Stack>
-                      </Card>
-                    );
-                  })}
                 </Stack>
               )}
             </Box>
@@ -2948,6 +2734,117 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
             disabled={selectedAmenityIds.size === 0}
           >
             Add Selected ({selectedAmenityIds.size})
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Highlight Selection Dialog */}
+      <Dialog open={highlightDialogOpen} onClose={handleCloseHighlightDialog} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">Select Highlights</Typography>
+          <IconButton onClick={handleCloseHighlightDialog} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Select highlights to add to this hotel
+          </Typography>
+          <Grid container spacing={2}>
+            {allAvailableHighlights.length === 0 ? (
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress />
+                </Box>
+              </Grid>
+            ) : (
+              allAvailableHighlights.map((highlight) => {
+                const isSelected = selectedHighlightIds.has(highlight.highlight_id);
+                
+                // Get Material Icon component based on highlight_icon name
+                const getIconComponent = (iconName: string) => {
+                  if (!iconName) return null;
+                  
+                  const iconNameMap: Record<string, string> = {
+                    'architecture': 'Architecture',
+                    'arch': 'Arch',
+                    'view_agenda': 'ViewAgenda',
+                    'water': 'Water',
+                    'local_parking': 'LocalParking',
+                    'wifi': 'Wifi',
+                    'ac_unit': 'AcUnit',
+                    'king_bed': 'KingBed',
+                    'local_laundry_service': 'LocalLaundryService',
+                    'elevator': 'Elevator',
+                    'cleaning_services': 'CleaningServices',
+                    'medical_services': 'MedicalServices',
+                    'breakfast': 'Restaurant',
+                    'first_aid': 'MedicalServices',
+                  };
+                  
+                  let iconComponentName = iconNameMap[iconName.toLowerCase()];
+                  if (!iconComponentName) {
+                    iconComponentName = iconName
+                      .split('_')
+                      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                      .join('');
+                  }
+                  
+                  const IconComponent = (Icons as any)[iconComponentName];
+                  if (IconComponent) {
+                    return <IconComponent sx={{ fontSize: 24, color: 'primary.main' }} />;
+                  }
+                  
+                  const IconComponentWithSuffix = (Icons as any)[`${iconComponentName}Icon`];
+                  return IconComponentWithSuffix ? (
+                    <IconComponentWithSuffix sx={{ fontSize: 24, color: 'primary.main' }} />
+                  ) : null;
+                };
+
+                return (
+                  <Grid item xs={12} sm={6} md={4} key={highlight.highlight_id}>
+                    <Card
+                      variant="outlined"
+                      sx={{
+                        p: 1.5,
+                        cursor: 'pointer',
+                        border: isSelected ? 2 : 1,
+                        borderColor: isSelected ? 'primary.main' : 'divider',
+                        bgcolor: isSelected ? 'action.selected' : 'background.paper',
+                        '&:hover': {
+                          bgcolor: 'action.hover',
+                        },
+                      }}
+                      onClick={() => handleToggleHighlightSelection(highlight.highlight_id)}
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Checkbox
+                          checked={isSelected}
+                          onChange={() => handleToggleHighlightSelection(highlight.highlight_id)}
+                          onClick={(e) => e.stopPropagation()}
+                          size="small"
+                        />
+                        {highlight.highlight_icon && getIconComponent(highlight.highlight_icon)}
+                        <Typography variant="body2" sx={{ flex: 1 }}>
+                          {highlight.highlight_name}
+                        </Typography>
+                      </Stack>
+                    </Card>
+                  </Grid>
+                );
+              })
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseHighlightDialog}>Cancel</Button>
+          <Button
+            onClick={handleConfirmHighlightSelection}
+            variant="contained"
+            color="primary"
+            disabled={selectedHighlightIds.size === 0}
+          >
+            Add Selected ({selectedHighlightIds.size})
           </Button>
         </DialogActions>
       </Dialog>
