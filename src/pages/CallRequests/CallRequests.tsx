@@ -34,13 +34,13 @@ import {
   Work as WorkIcon,
   CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
+import TablePagination from '@mui/material/TablePagination';
 import { CallRequestService, CallSupportRequest, CallRequestFilters } from '@/services/callRequest.service';
 import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
 import { format } from 'date-fns';
 import { getDefaultDateRange } from '@/utils/dateRange';
 
 const REQUEST_STATUSES = [
-  { value: '', label: 'All Statuses' },
   { value: 'pending', label: 'Pending' },
   { value: 'working', label: 'Working' },
   { value: 'closed', label: 'Closed' },
@@ -48,19 +48,25 @@ const REQUEST_STATUSES = [
 
 const CallRequests = () => {
   const [requests, setRequests] = useState<CallSupportRequest[]>([]);
-  const [filteredRequests, setFilteredRequests] = useState<CallSupportRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Pagination states
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [total, setTotal] = useState(0);
 
   // Filter states
   const [filters, setFilters] = useState<CallRequestFilters>(() => {
     const { startDate, endDate } = getDefaultDateRange();
     return {
-      status: '',
+      status: 'pending',
       startDate,
       endDate,
       searchTerm: '',
+      page: 1,
+      limit: 10,
     };
   });
 
@@ -77,33 +83,25 @@ const CallRequests = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, [filters]);
-
-  useEffect(() => {
-    // Apply client-side filtering for search
-    if (filters.searchTerm) {
-      const searchLower = filters.searchTerm.toLowerCase();
-      const filtered = requests.filter(
-        (req) =>
-          req.phone_number?.toLowerCase().includes(searchLower) ||
-          req.full_phone_number?.toLowerCase().includes(searchLower) ||
-          req.user_name?.toLowerCase().includes(searchLower) ||
-          req.user_email?.toLowerCase().includes(searchLower)
-      );
-      setFilteredRequests(filtered);
-    } else {
-      setFilteredRequests(requests);
-    }
-  }, [filters.searchTerm, requests]);
+  }, [filters.status, filters.searchTerm, filters.startDate, filters.endDate, page, rowsPerPage]);
 
   const fetchRequests = async () => {
     setLoading(true);
     setError('');
     setSuccess('');
     try {
-      const data = await CallRequestService.getAllCallRequests(filters);
-      setRequests(data);
-      setFilteredRequests(data);
+      // Ensure status is always set to 'pending' if not provided
+      const status = filters.status || 'pending';
+      const response = await CallRequestService.getAllCallRequests({
+        status: status,
+        searchTerm: filters.searchTerm,
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        page: page + 1, // page is 0-indexed in MUI, but 1-indexed in API
+        limit: rowsPerPage,
+      });
+      setRequests(response.data);
+      setTotal(response.total);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch call requests');
     } finally {
@@ -236,7 +234,10 @@ const CallRequests = () => {
           <TextField
             placeholder="Search by phone, name, or email"
             value={filters.searchTerm || ''}
-            onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+            onChange={(e) => {
+              setFilters({ ...filters, searchTerm: e.target.value });
+              setPage(0); // Reset to first page when search changes
+            }}
             size="small"
             sx={{ flexGrow: 1, minWidth: 250 }}
             InputProps={{
@@ -250,9 +251,12 @@ const CallRequests = () => {
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Status</InputLabel>
             <Select
-              value={filters.status || ''}
+              value={filters.status || 'pending'}
               label="Status"
-              onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined })}
+              onChange={(e) => {
+                setFilters({ ...filters, status: e.target.value as string });
+                setPage(0); // Reset to first page when filter changes
+              }}
             >
               {REQUEST_STATUSES.map((status) => (
                 <MenuItem key={status.value} value={status.value}>
@@ -266,12 +270,13 @@ const CallRequests = () => {
             type="date"
             size="small"
             value={filters.startDate ? format(filters.startDate, 'yyyy-MM-dd') : ''}
-            onChange={(e) =>
+            onChange={(e) => {
               setFilters({
                 ...filters,
                 startDate: e.target.value ? new Date(e.target.value) : null,
-              })
-            }
+              });
+              setPage(0); // Reset to first page when filter changes
+            }}
             InputLabelProps={{ shrink: true }}
             sx={{ minWidth: 150 }}
           />
@@ -280,12 +285,13 @@ const CallRequests = () => {
             type="date"
             size="small"
             value={filters.endDate ? format(filters.endDate, 'yyyy-MM-dd') : ''}
-            onChange={(e) =>
+            onChange={(e) => {
               setFilters({
                 ...filters,
                 endDate: e.target.value ? new Date(e.target.value) : null,
-              })
-            }
+              });
+              setPage(0); // Reset to first page when filter changes
+            }}
             InputLabelProps={{ shrink: true }}
             sx={{ minWidth: 150 }}
           />
@@ -312,14 +318,14 @@ const CallRequests = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredRequests.length === 0 ? (
+              {requests.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} align="center">
-                    {requests.length === 0 ? 'No call requests found' : 'No results match your filters'}
+                    {loading ? 'Loading...' : 'No call requests found'}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredRequests.map((request) => (
+                requests.map((request) => (
                   <TableRow key={request.request_id} hover>
                     <TableCell>{request.request_id}</TableCell>
                     <TableCell>
@@ -391,6 +397,18 @@ const CallRequests = () => {
             </TableBody>
           </Table>
         )}
+        <TablePagination
+          component="div"
+          count={total}
+          page={page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => {
+            setRowsPerPage(parseInt(e.target.value, 10));
+            setPage(0);
+          }}
+          rowsPerPageOptions={[10, 25, 50, 100]}
+        />
       </TableContainer>
 
       {/* Action Menu */}
