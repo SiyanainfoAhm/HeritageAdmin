@@ -664,14 +664,14 @@ const Verification = () => {
     
     // Small delay to prevent rapid successive calls
     const timeoutId = setTimeout(() => {
-      if (currentTab === 'user') {
-        fetchRecords();
-      } else {
-        const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
-        if (tabConfig?.tableName) {
-          fetchTableData(tabConfig.tableName);
-        }
+    if (currentTab === 'user') {
+      fetchRecords();
+    } else {
+      const tabConfig = TAB_CONFIG.find(tab => tab.key === currentTab);
+      if (tabConfig?.tableName) {
+        fetchTableData(tabConfig.tableName);
       }
+    }
     }, 100);
 
     return () => clearTimeout(timeoutId);

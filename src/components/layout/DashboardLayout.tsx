@@ -24,6 +24,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import NotificationsIcon from '@mui/icons-material/Notifications';
+import PhoneIcon from '@mui/icons-material/Phone';
 import { useAuth } from '@/context/AuthContext';
 
 const drawerWidth = 260;
@@ -70,6 +71,7 @@ const menuItems: MenuItem[] = [
   { text: 'User Management', icon: PeopleAltIcon, path: '/users' },
   { text: 'Verification', icon: VerifiedUserIcon, path: '/verification' },
   { text: 'Marketing', icon: CampaignIcon, path: '/marketing' },
+  { text: 'Call Requests', icon: PhoneIcon, path: '/call-requests' },
 ];
 
 const DashboardLayout = () => {

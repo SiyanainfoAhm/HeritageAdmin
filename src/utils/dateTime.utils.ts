@@ -24,7 +24,12 @@ export const formatDisplayDate = (date: Date | string | null | undefined): strin
 export const formatDisplayTime = (time: string | Date | null | undefined): string => {
   if (!time) return '—';
   try {
-    let timeStr: string;
+    // If it's a Date object, format it directly
+    if (time instanceof Date) {
+      return format(time, 'h:mm a');
+    }
+    
+    // If it's a string, check the format
     if (typeof time === 'string') {
       // Handle HH:mm format (24-hour)
       if (time.match(/^\d{2}:\d{2}$/)) {
@@ -42,11 +47,16 @@ export const formatDisplayTime = (time: string | Date | null | undefined): strin
         const ampm = hour24 >= 12 ? 'PM' : 'AM';
         return `${hour12}:${minutes} ${ampm}`;
       }
-      timeStr = time;
-    } else {
-      timeStr = format(time, 'h:mm a');
+      // Handle ISO timestamp strings or other date strings - convert to Date first
+      const dateObj = new Date(time);
+      if (!isNaN(dateObj.getTime())) {
+        return format(dateObj, 'h:mm a');
+      }
+      // If it's not a valid date string, return as-is (fallback)
+      return time;
     }
-    return timeStr;
+    
+    return '—';
   } catch (error) {
     return '—';
   }
