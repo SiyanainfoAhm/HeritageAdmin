@@ -22,6 +22,9 @@ import {
   InputAdornment,
   FormControlLabel,
   Switch,
+  Select,
+  MenuItem,
+  FormControl,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
@@ -59,6 +62,12 @@ const HOTEL_TRANSLATABLE_FIELDS = [
   'state',
 ];
 
+const ROOM_CATEGORIES: Array<{ value: string; label: string }> = [
+  { value: 'room', label: 'Rooms' },
+  { value: 'suite', label: 'Suites' },
+  { value: 'dorm', label: 'Dorms' },
+];
+
 interface HotelDetailsDialogProps {
   open: boolean;
   hotelId: number | null;
@@ -81,6 +90,7 @@ interface RoomType {
   available_rooms?: number;
   allow_extra_beds?: boolean;
   max_extra_beds?: number;
+  extra_bed_price?: number;
   translations?: Record<LanguageCode, { room_name: string; short_description: string }>;
   media?: Array<{ media_id?: number; media_url: string; alt_text?: string; position?: number; is_primary?: boolean; file?: File }>;
 }
@@ -336,8 +346,8 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                 ja: '',
                 es: '',
                 fr: '',
-              };
-            });
+            };
+          });
 
             highlightTransData.forEach((trans: any) => {
               const langCodeRaw = String(trans.language_code || '');
@@ -360,9 +370,9 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
       }
 
       handleCloseHighlightDialog();
-    } catch (error) {
+      } catch (error) {
       console.error('Error confirming highlight selection:', error);
-    }
+      }
   };
 
   // Load all available amenities for selection dialog
@@ -704,6 +714,7 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                   available_rooms: room.available_rooms ?? 0,
                   allow_extra_beds: room.allow_extra_beds ?? false,
                   max_extra_beds: room.max_extra_beds ?? 0,
+                  extra_bed_price: room.extra_bed_price ?? 0,
                   translations: roomTranslations,
                   media: room.media ? room.media.map((m: any) => ({
                     media_id: m.media_id,
@@ -873,10 +884,10 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                 // Load highlight translations
                 const highlightIds = highlightsToShow.map((h: any) => h.highlight_id);
                 if (highlightIds.length > 0) {
-                  try {
+                try {
                     const { data: highlightTransData, error: highlightTransError } = await supabase
                       .from('heritage_hotelhighlighttranslation')
-                      .select('*')
+                    .select('*')
                       .in('highlight_id', highlightIds);
 
                     if (!highlightTransError && highlightTransData) {
@@ -889,28 +900,28 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                           ja: '',
                           es: '',
                           fr: '',
-                        };
-                      });
+                      };
+                    });
 
                       highlightTransData.forEach((trans: any) => {
-                        const langCodeRaw = String(trans.language_code || '');
-                        const langCode = langCodeRaw.toLowerCase() as LanguageCode;
+                      const langCodeRaw = String(trans.language_code || '');
+                      const langCode = langCodeRaw.toLowerCase() as LanguageCode;
                         if (langCode && LANGUAGES.some(l => l.code === langCode) && trans.highlight_id) {
                           if (!highlightTrans[trans.highlight_id]) {
                             highlightTrans[trans.highlight_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
-                          }
+                        }
                           if (trans.highlight_name) {
                             highlightTrans[trans.highlight_id][langCode] = String(trans.highlight_name || '').trim();
-                          }
                         }
-                      });
+                      }
+                    });
 
                       setHighlightTranslations(highlightTrans);
-                    }
-                  } catch (err) {
-                    console.error('Error loading highlight translations:', err);
                   }
+                } catch (err) {
+                    console.error('Error loading highlight translations:', err);
                 }
+              }
               }
             } catch (err) {
               console.error('Error loading highlights:', err);
@@ -1144,6 +1155,7 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
           available_rooms: room.available_rooms ?? 0,
           allow_extra_beds: room.allow_extra_beds ?? false,
           max_extra_beds: room.max_extra_beds ?? 0,
+          extra_bed_price: room.extra_bed_price ?? 0,
         };
 
         let finalRoomId = room.room_type_id;
@@ -1325,17 +1337,17 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
           const { data: currentMappings } = await supabase
             .from('heritage_hotelhighlightmapping')
             .select('highlight_id')
-            .eq('hotel_id', hotelId);
+        .eq('hotel_id', hotelId);
 
           const currentHighlightIds = (currentMappings || []).map((m: any) => m.highlight_id);
           const newHighlightIds = highlights.map(h => h.highlight_id);
-
+      
           // Delete removed mappings
           const highlightsToRemove = currentHighlightIds.filter((id: number) => !newHighlightIds.includes(id));
           if (highlightsToRemove.length > 0) {
-            await supabase
+        await supabase
               .from('heritage_hotelhighlightmapping')
-              .delete()
+          .delete()
               .eq('hotel_id', hotelId)
               .in('highlight_id', highlightsToRemove);
           }
@@ -1344,17 +1356,17 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
           const highlightsToAdd = newHighlightIds.filter((id: number) => !currentHighlightIds.includes(id));
           if (highlightsToAdd.length > 0) {
             const mappingRows = highlightsToAdd.map((highlightId: number) => ({
-              hotel_id: hotelId,
+          hotel_id: hotelId,
               highlight_id: highlightId,
             }));
-            await supabase
+          await supabase
               .from('heritage_hotelhighlightmapping')
               .insert(mappingRows);
           }
         } catch (err) {
           console.error('Error saving hotel highlight mappings:', err);
+          }
         }
-      }
 
       // Save highlight translations
       for (const highlight of highlights) {
@@ -1789,6 +1801,7 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                         available_rooms: 0,
                         allow_extra_beds: false,
                         max_extra_beds: 0,
+                        extra_bed_price: 0,
                         media: [],
                       };
                       setRoomTypes([...roomTypes, newRoom]);
@@ -1853,6 +1866,33 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                         </Stack>
 
                         <Grid container spacing={2}>
+                          <Grid item xs={12} md={6}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Room Category
+                            </Typography>
+                            {editMode ? (
+                              <FormControl fullWidth size="small">
+                                <Select
+                                  value={room.room_category || 'room'}
+                                  onChange={(e) => {
+                                    const newRooms = [...roomTypes];
+                                    newRooms[roomIndex] = { ...newRooms[roomIndex], room_category: e.target.value };
+                                    setRoomTypes(newRooms);
+                                  }}
+                                >
+                                  {ROOM_CATEGORIES.map((category) => (
+                                    <MenuItem key={category.value} value={category.value}>
+                                      {category.label}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            ) : (
+                              <Typography variant="body2">
+                                {ROOM_CATEGORIES.find(cat => cat.value === room.room_category)?.label || room.room_category}
+                              </Typography>
+                            )}
+                          </Grid>
                           <Grid item xs={12} md={6}>
                             <Typography variant="body2" color="text.secondary" gutterBottom>
                               Room Name ({LANGUAGES.find(l => l.code === currentLanguageTab)?.label})
@@ -2112,30 +2152,65 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                             )}
                           </Grid>
                           {room.allow_extra_beds && (
-                            <Grid item xs={6} md={3}>
-                              {editMode ? (
-                                <TextField
-                                  fullWidth
-                                  size="small"
-                                  label="Max Extra Beds"
-                                  type="number"
-                                  inputProps={{ min: 0 }}
-                                  value={room.max_extra_beds ?? 0}
-                                  onChange={(e) => {
-                                    const newRooms = [...roomTypes];
-                                    newRooms[roomIndex] = { ...newRooms[roomIndex], max_extra_beds: parseInt(e.target.value) || 0 };
-                                    setRoomTypes(newRooms);
-                                  }}
-                                />
-                              ) : (
-                                <>
-                                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                                    Max Extra Beds
-                                  </Typography>
-                                  <Typography variant="body2">{room.max_extra_beds ?? 0}</Typography>
-                                </>
-                              )}
-                            </Grid>
+                            <>
+                              <Grid item xs={6} md={3}>
+                                {editMode ? (
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Max Extra Beds"
+                                    type="number"
+                                    inputProps={{ min: 0 }}
+                                    value={room.max_extra_beds ?? 0}
+                                    onChange={(e) => {
+                                      const newRooms = [...roomTypes];
+                                      newRooms[roomIndex] = { ...newRooms[roomIndex], max_extra_beds: parseInt(e.target.value) || 0 };
+                                      setRoomTypes(newRooms);
+                                    }}
+                                  />
+                                ) : (
+                                  <>
+                                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                                      Max Extra Beds
+                                    </Typography>
+                                    <Typography variant="body2">{room.max_extra_beds ?? 0}</Typography>
+                                  </>
+                                )}
+                              </Grid>
+                              <Grid item xs={6} md={3}>
+                                {editMode ? (
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Extra Bed Price"
+                                    type="number"
+                                    inputProps={{ min: 0, step: 0.01 }}
+                                    value={room.extra_bed_price ?? 0}
+                                    onChange={(e) => {
+                                      const newRooms = [...roomTypes];
+                                      newRooms[roomIndex] = { ...newRooms[roomIndex], extra_bed_price: parseFloat(e.target.value) || 0 };
+                                      setRoomTypes(newRooms);
+                                    }}
+                                    InputProps={{
+                                      endAdornment: (
+                                        <InputAdornment position="end">
+                                          <Typography variant="caption" color="text.secondary">
+                                            {room.currency}
+                                          </Typography>
+                                        </InputAdornment>
+                                      ),
+                                    }}
+                                  />
+                                ) : (
+                                  <>
+                                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                                      Extra Bed Price
+                                    </Typography>
+                                    <Typography variant="body2">{room.extra_bed_price ?? 0} {room.currency}</Typography>
+                                  </>
+                                )}
+                              </Grid>
+                            </>
                           )}
 
                           {/* Room Media */}
@@ -2515,40 +2590,40 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                                 InputProps={{
                                   endAdornment: editMode ? (
                                     <InputAdornment position="end">
-                                      <IconButton
-                                        size="small"
-                                        color="error"
-                                        onClick={() => {
-                                          setConfirmDialog({
-                                            open: true,
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  setConfirmDialog({
+                                    open: true,
                                             message: `Are you sure you want to remove "${highlight.highlight_name}" from this hotel?`,
-                                            onConfirm: () => {
-                                              setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                    onConfirm: () => {
+                                      setConfirmDialog({ open: false, message: '', onConfirm: null });
                                               const newHighlights = highlights.filter(h => h.highlight_id !== highlight.highlight_id);
                                               setHighlights(newHighlights);
                                               // Remove translations for this highlight
                                               const newTranslations = { ...highlightTranslations };
                                               delete newTranslations[highlight.highlight_id];
                                               setHighlightTranslations(newTranslations);
-                                            },
-                                          });
-                                        }}
+                                    },
+                                  });
+                                }}
                                         edge="end"
-                                      >
+                              >
                                         <DeleteIcon fontSize="small" />
-                                      </IconButton>
+                              </IconButton>
                                     </InputAdornment>
                                   ) : undefined,
-                                }}
-                              />
-                            ) : (
+                                  }}
+                                />
+                              ) : (
                               <Typography variant="body2" sx={{ flex: 1 }}>
                                 {highlightName}
-                              </Typography>
-                            )}
+                                </Typography>
+                              )}
                           </Stack>
                         </Card>
-                      </Grid>
+                            </Grid>
                     );
                   })}
                 </Grid>
@@ -2560,10 +2635,10 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               <Divider sx={{ my: 2 }} />
               <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                 House Rules
-              </Typography>
-              {editMode ? (
-                <TextField
-                  fullWidth
+                              </Typography>
+                              {editMode ? (
+                                <TextField
+                                  fullWidth
                   multiline
                   minRows={3}
                   maxRows={6}
@@ -2571,12 +2646,12 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                   onChange={(e) => setPropertyRules(e.target.value)}
                   placeholder="Enter house rules (e.g., No children, No loud music after 10 PM, etc.)"
                   sx={{ mt: 1 }}
-                />
-              ) : (
+                                />
+                              ) : (
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>
                   {propertyRules || '—'}
-                </Typography>
-              )}
+                                </Typography>
+                              )}
             </Box>
 
             {/* Quick Rules Section */}
@@ -2584,8 +2659,8 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               <Divider sx={{ my: 2 }} />
               <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                 Quick Rules
-              </Typography>
-              {editMode ? (
+                              </Typography>
+                              {editMode ? (
                 <Stack spacing={1} sx={{ mt: 1 }}>
                   {QUICK_RULES_OPTIONS.map((rule) => (
                     <FormControlLabel
@@ -2593,14 +2668,14 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                       control={
                         <Checkbox
                           checked={quickRules.includes(rule)}
-                          onChange={(e) => {
+                                  onChange={(e) => {
                             if (e.target.checked) {
                               setQuickRules([...quickRules, rule]);
-                            } else {
+                                    } else {
                               setQuickRules(quickRules.filter(r => r !== rule));
-                            }
-                          }}
-                        />
+                                    }
+                                  }}
+                                />
                       }
                       label={rule}
                     />
@@ -2613,7 +2688,7 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                       <Box key={rule} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Checkbox checked={true} disabled size="small" />
                         <Typography variant="body2">{rule}</Typography>
-                      </Box>
+                                </Box>
                     ))
                   ) : (
                     <Typography variant="body2" color="text.secondary">
