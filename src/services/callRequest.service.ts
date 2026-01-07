@@ -25,44 +25,92 @@ export interface CallRequestFilters {
   searchTerm?: string;
   startDate?: Date | null;
   endDate?: Date | null;
+  page?: number;
+  limit?: number;
+}
+
+export interface CallRequestResponse {
+  data: CallSupportRequest[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export class CallRequestService {
   /**
-   * Get all call support requests with filters
+   * Get all call support requests with filters and pagination
    */
-  static async getAllCallRequests(filters?: CallRequestFilters): Promise<CallSupportRequest[]> {
+  static async getAllCallRequests(filters?: CallRequestFilters): Promise<CallRequestResponse> {
     try {
+      const page = filters?.page || 1;
+      const limit = filters?.limit || 10;
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+
+      // Build count query for total
+      let countQuery = supabase
+        .from('heritage_callsupportrequest')
+        .select('*', { count: 'exact', head: true });
+
+      // Build data query
       let query = supabase
         .from('heritage_callsupportrequest')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
       if (filters?.status) {
         query = query.eq('request_status', filters.status);
+        countQuery = countQuery.eq('request_status', filters.status);
       }
 
       if (filters?.startDate) {
-        query = query.gte('created_at', filters.startDate.toISOString());
+        const startDateStr = filters.startDate.toISOString();
+        query = query.gte('created_at', startDateStr);
+        countQuery = countQuery.gte('created_at', startDateStr);
       }
 
       if (filters?.endDate) {
-        query = query.lte('created_at', filters.endDate.toISOString());
+        const endDateStr = filters.endDate.toISOString();
+        query = query.lte('created_at', endDateStr);
+        countQuery = countQuery.lte('created_at', endDateStr);
       }
 
       if (filters?.searchTerm) {
+        const searchPattern = `%${filters.searchTerm}%`;
         query = query.or(
-          `phone_number.ilike.%${filters.searchTerm}%,full_phone_number.ilike.%${filters.searchTerm}%,user_name.ilike.%${filters.searchTerm}%,user_email.ilike.%${filters.searchTerm}%`
+          `phone_number.ilike.${searchPattern},full_phone_number.ilike.${searchPattern},user_name.ilike.${searchPattern},user_email.ilike.${searchPattern}`
+        );
+        countQuery = countQuery.or(
+          `phone_number.ilike.${searchPattern},full_phone_number.ilike.${searchPattern},user_name.ilike.${searchPattern},user_email.ilike.${searchPattern}`
         );
       }
 
-      const { data, error } = await query;
+      // Execute both queries
+      const [dataResult, countResult] = await Promise.all([
+        query,
+        countQuery,
+      ]);
 
-      if (error) {
-        throw new Error(error.message);
+      if (dataResult.error) {
+        throw new Error(dataResult.error.message);
       }
 
-      return data || [];
+      if (countResult.error) {
+        throw new Error(countResult.error.message);
+      }
+
+      const total = countResult.count || 0;
+      const totalPages = Math.ceil(total / limit);
+
+      return {
+        data: dataResult.data || [],
+        total,
+        page,
+        limit,
+        totalPages,
+      };
     } catch (error: any) {
       console.error('Error fetching call requests:', error);
       throw new Error(error.message || 'Failed to fetch call requests');

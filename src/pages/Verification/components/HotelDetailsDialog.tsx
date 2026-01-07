@@ -2153,30 +2153,30 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                           </Grid>
                           {room.allow_extra_beds && (
                             <>
-                              <Grid item xs={6} md={3}>
-                                {editMode ? (
-                                  <TextField
-                                    fullWidth
-                                    size="small"
-                                    label="Max Extra Beds"
-                                    type="number"
-                                    inputProps={{ min: 0 }}
-                                    value={room.max_extra_beds ?? 0}
-                                    onChange={(e) => {
-                                      const newRooms = [...roomTypes];
-                                      newRooms[roomIndex] = { ...newRooms[roomIndex], max_extra_beds: parseInt(e.target.value) || 0 };
-                                      setRoomTypes(newRooms);
-                                    }}
-                                  />
-                                ) : (
-                                  <>
-                                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                                      Max Extra Beds
-                                    </Typography>
-                                    <Typography variant="body2">{room.max_extra_beds ?? 0}</Typography>
-                                  </>
-                                )}
-                              </Grid>
+                            <Grid item xs={6} md={3}>
+                              {editMode ? (
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  label="Max Extra Beds"
+                                  type="number"
+                                  inputProps={{ min: 0 }}
+                                  value={room.max_extra_beds ?? 0}
+                                  onChange={(e) => {
+                                    const newRooms = [...roomTypes];
+                                    newRooms[roomIndex] = { ...newRooms[roomIndex], max_extra_beds: parseInt(e.target.value) || 0 };
+                                    setRoomTypes(newRooms);
+                                  }}
+                                />
+                              ) : (
+                                <>
+                                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                                    Max Extra Beds
+                                  </Typography>
+                                  <Typography variant="body2">{room.max_extra_beds ?? 0}</Typography>
+                                </>
+                              )}
+                            </Grid>
                               <Grid item xs={6} md={3}>
                                 {editMode ? (
                                   <TextField
