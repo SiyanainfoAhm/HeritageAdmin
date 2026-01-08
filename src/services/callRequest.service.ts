@@ -25,6 +25,7 @@ export interface CallRequestFilters {
   searchTerm?: string;
   startDate?: Date | null;
   endDate?: Date | null;
+  userTypeId?: number;
   page?: number;
   limit?: number;
 }
@@ -48,6 +49,32 @@ export class CallRequestService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
+      // If filtering by user type, first get all user IDs with that user type
+      let userIds: number[] | undefined;
+      if (filters?.userTypeId) {
+        const { data: usersData, error: usersError } = await supabase
+          .from('heritage_user')
+          .select('user_id')
+          .eq('user_type_id', filters.userTypeId);
+
+        if (usersError) {
+          throw new Error(`Failed to fetch users by type: ${usersError.message}`);
+        }
+
+        userIds = (usersData || []).map((user) => user.user_id);
+
+        // If no users found with this type, return empty result
+        if (userIds.length === 0) {
+          return {
+            data: [],
+            total: 0,
+            page,
+            limit,
+            totalPages: 0,
+          };
+        }
+      }
+
       // Build count query for total
       let countQuery = supabase
         .from('heritage_callsupportrequest')
@@ -59,6 +86,12 @@ export class CallRequestService {
         .select('*')
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      // Filter by user IDs if user type filter is applied
+      if (userIds && userIds.length > 0) {
+        query = query.in('user_id', userIds);
+        countQuery = countQuery.in('user_id', userIds);
+      }
 
       if (filters?.status) {
         query = query.eq('request_status', filters.status);
