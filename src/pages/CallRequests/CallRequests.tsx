@@ -36,6 +36,7 @@ import {
 } from '@mui/icons-material';
 import TablePagination from '@mui/material/TablePagination';
 import { CallRequestService, CallSupportRequest, CallRequestFilters } from '@/services/callRequest.service';
+import { UserService } from '@/services/user.service';
 import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
 import { format } from 'date-fns';
 import { getDefaultDateRange } from '@/utils/dateRange';
@@ -51,6 +52,7 @@ const CallRequests = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [userTypes, setUserTypes] = useState<Array<{ user_type_id: number; type_name: string }>>([]);
 
   // Pagination states
   const [page, setPage] = useState(0);
@@ -65,6 +67,7 @@ const CallRequests = () => {
       startDate,
       endDate,
       searchTerm: '',
+      userTypeId: undefined,
       page: 1,
       limit: 10,
     };
@@ -83,7 +86,26 @@ const CallRequests = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, [filters.status, filters.searchTerm, filters.startDate, filters.endDate, page, rowsPerPage]);
+  }, [filters.status, filters.searchTerm, filters.startDate, filters.endDate, filters.userTypeId, page, rowsPerPage]);
+
+  useEffect(() => {
+    fetchUserTypes();
+  }, []);
+
+  const fetchUserTypes = async () => {
+    try {
+      const types = await UserService.getUserTypes();
+      // Filter out Administrator and retailer user types
+      const filteredTypes = types.filter(
+        (type) =>
+          type.type_name.toLowerCase() !== 'administrator' &&
+          type.type_name.toLowerCase() !== 'retailer'
+      );
+      setUserTypes(filteredTypes);
+    } catch (err) {
+      console.error('Error fetching user types:', err);
+    }
+  };
 
   const fetchRequests = async () => {
     setLoading(true);
@@ -97,6 +119,7 @@ const CallRequests = () => {
         searchTerm: filters.searchTerm,
         startDate: filters.startDate,
         endDate: filters.endDate,
+        userTypeId: filters.userTypeId,
         page: page + 1, // page is 0-indexed in MUI, but 1-indexed in API
         limit: rowsPerPage,
       });
@@ -109,14 +132,22 @@ const CallRequests = () => {
     }
   };
 
-  const handleCall = (phoneNumber: string, requestId: number) => {
-    // Open phone dialer
-    window.location.href = `tel:${phoneNumber}`;
-    
-    // Update call information in database
-    CallRequestService.updateCallInformation(requestId).catch((err) => {
-      console.error('Failed to update call information:', err);
-    });
+  const handleMarkAsCalled = async (requestId: number) => {
+    setUpdateLoading(true);
+    try {
+      const result = await CallRequestService.updateCallInformation(requestId);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to mark as called');
+      }
+
+      setSuccess('Request marked as called successfully');
+      fetchRequests();
+    } catch (err: any) {
+      setError(err.message || 'Failed to mark as called');
+    } finally {
+      setUpdateLoading(false);
+    }
   };
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, request: CallSupportRequest) => {
@@ -265,6 +296,27 @@ const CallRequests = () => {
               ))}
             </Select>
           </FormControl>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>User Type</InputLabel>
+            <Select
+              value={filters.userTypeId || ''}
+              label="User Type"
+              onChange={(e) => {
+                setFilters({
+                  ...filters,
+                  userTypeId: e.target.value ? Number(e.target.value) : undefined,
+                });
+                setPage(0); // Reset to first page when filter changes
+              }}
+            >
+              <MenuItem value="">All Types</MenuItem>
+              {userTypes.map((type) => (
+                <MenuItem key={type.user_type_id} value={type.user_type_id}>
+                  {type.type_name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <TextField
             label="Start Date"
             type="date"
@@ -337,17 +389,7 @@ const CallRequests = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2">{request.full_phone_number || request.phone_number}</Typography>
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => handleCall(request.full_phone_number || request.phone_number, request.request_id)}
-                          title="Call"
-                        >
-                          <PhoneIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
+                      <Typography variant="body2">{request.full_phone_number || request.phone_number}</Typography>
                     </TableCell>
                     <TableCell>{request.preferred_language || 'N/A'}</TableCell>
                     <TableCell>
@@ -417,6 +459,18 @@ const CallRequests = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
+        {selectedRequest && !selectedRequest.called_at && (
+          <MenuItem
+            onClick={() => {
+              handleMarkAsCalled(selectedRequest.request_id);
+              handleMenuClose();
+            }}
+            disabled={updateLoading}
+          >
+            <PhoneIcon sx={{ mr: 1, fontSize: 20 }} />
+            Mark as Called
+          </MenuItem>
+        )}
         {selectedRequest && selectedRequest.request_status !== 'working' && (
           <MenuItem onClick={() => handleStatusChange(selectedRequest, 'working')}>
             <WorkIcon sx={{ mr: 1, fontSize: 20 }} />
@@ -496,4 +550,3 @@ const CallRequests = () => {
 };
 
 export default CallRequests;
-
