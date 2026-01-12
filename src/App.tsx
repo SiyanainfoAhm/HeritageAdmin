@@ -18,6 +18,7 @@ import Verification from './pages/Verification/Verification';
 import Marketing from './pages/Marketing/Marketing';
 import NotificationTemplate from './pages/Manage/NotificationTemplate';
 import CallRequests from './pages/CallRequests/CallRequests';
+import Chat from './pages/Chat/Chat';
 
 const theme = createTheme({
   palette: {
@@ -58,6 +59,7 @@ function App() {
               <Route path="marketing" element={<Marketing />} />
               <Route path="bookings" element={<Bookings />} />
               <Route path="call-requests" element={<CallRequests />} />
+              <Route path="chat" element={<Chat />} />
               <Route path="masters/heritage-sites/new" element={<AddHeritageSite />} />
               <Route path="masters/heritage-sites/:siteId/edit" element={<AddHeritageSite />} />
               <Route path="notification-templates" element={<NotificationTemplate />} />
