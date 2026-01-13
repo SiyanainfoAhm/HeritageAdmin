@@ -10,6 +10,7 @@ import {
   ListItemIcon,
   ListItemText,
   Collapse,
+  Badge,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import AssessmentIcon from '@mui/icons-material/Assessment';
@@ -27,6 +28,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import PhoneIcon from '@mui/icons-material/Phone';
 import ChatIcon from '@mui/icons-material/Chat';
 import { useAuth } from '@/context/AuthContext';
+import { ChatService } from '@/services/chat.service';
 
 const drawerWidth = 260;
 
@@ -80,6 +82,7 @@ const DashboardLayout = () => {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [chatCount, setChatCount] = useState<number>(0);
 
   const isPathActive = (path: string) => location.pathname === path;
 
@@ -116,6 +119,25 @@ const DashboardLayout = () => {
       return updated;
     });
   }, [location.pathname]);
+
+  // Fetch unread messages count
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const count = await ChatService.getUnreadMessagesCount();
+        setChatCount(count);
+      } catch (error) {
+        console.error('Error fetching unread messages count:', error);
+      }
+    };
+
+    fetchUnreadCount();
+
+    // Refresh count every 5 seconds
+    const interval = setInterval(fetchUnreadCount, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -231,7 +253,13 @@ const DashboardLayout = () => {
                     color: iconColor,
                   }}
                 >
-                  <IconComponent />
+                  {item.text === 'Chat' ? (
+                    <Badge badgeContent={chatCount} color="error" max={99} invisible={chatCount === 0}>
+                      <IconComponent />
+                    </Badge>
+                  ) : (
+                    <IconComponent />
+                  )}
                 </ListItemIcon>
                 <ListItemText
                   primary={item.text}

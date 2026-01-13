@@ -13,10 +13,17 @@ import {
   Badge,
   CircularProgress,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  InputAdornment,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
-import AttachFileIcon from '@mui/icons-material/AttachFile';
+import AddIcon from '@mui/icons-material/Add';
+import SearchIcon from '@mui/icons-material/Search';
 import { ChatService, ChatConversation, ChatMessage } from '@/services/chat.service';
+import { UserService } from '@/services/user.service';
+import { User } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
 
@@ -26,20 +33,31 @@ const Chat = () => {
   const [selectedConversation, setSelectedConversation] = useState<ChatConversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start with true for initial load
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userSearchTerm, setUserSearchTerm] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isInitialLoad = useRef(true);
 
   // Fetch conversations on mount
   useEffect(() => {
-    fetchConversations();
+    fetchConversations(true); // Show loading on initial load
   }, []);
 
-  // Subscribe to conversation updates
+  // Subscribe to conversation updates + polling fallback
   useEffect(() => {
+    console.log('Setting up conversation subscription');
+    
+    let pollInterval: NodeJS.Timeout | null = null;
+    let lastFetchTime = Date.now();
+    
     const unsubscribe = ChatService.subscribeToConversations((updatedConversation) => {
+      console.log('Conversation updated:', updatedConversation);
       setConversations((prev) => {
         const index = prev.findIndex(
           (c) => c.conversation_id === updatedConversation.conversation_id
@@ -62,12 +80,34 @@ const Chat = () => {
           });
         }
       });
+      
+      // If this is the currently selected conversation, update it and refresh messages
+      if (selectedConversation?.conversation_id === updatedConversation.conversation_id) {
+        console.log('Refreshing messages for selected conversation');
+        setSelectedConversation(updatedConversation); // Update selected conversation with latest data (including unread count)
+        fetchMessages(updatedConversation.conversation_id);
+      }
     });
 
+    // Polling fallback: refresh conversations every 3 seconds
+    pollInterval = setInterval(() => {
+      const now = Date.now();
+      // Only poll if it's been more than 2 seconds since last fetch
+      if (now - lastFetchTime > 2000) {
+        console.log('Polling: Refreshing conversations');
+        fetchConversations(false); // Don't show loading spinner on refresh
+        lastFetchTime = now;
+      }
+    }, 3000);
+
     return () => {
+      console.log('Cleaning up conversation subscription');
       unsubscribe();
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     };
-  }, []);
+  }, [selectedConversation?.conversation_id]);
 
   // Fetch messages when conversation is selected
   useEffect(() => {
@@ -77,59 +117,119 @@ const Chat = () => {
       if (user?.user_id) {
         ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
           .then(() => {
-            // Refresh conversations to update unread count
-            fetchConversations();
+            // Refresh conversations to update unread count (without showing loading)
+            fetchConversations(false);
           })
           .catch((err) => console.error('Failed to mark messages as read:', err));
       }
+    } else {
+      // Clear messages when no conversation is selected
+      setMessages([]);
     }
-  }, [selectedConversation, user]);
+  }, [selectedConversation?.conversation_id, user?.user_id]);
 
-  // Subscribe to new messages in selected conversation
+  // Subscribe to new messages in selected conversation + polling fallback
   useEffect(() => {
     if (!selectedConversation) return;
 
+    console.log('Setting up message subscription for conversation:', selectedConversation.conversation_id);
+    
+    let pollInterval: NodeJS.Timeout | null = null;
+    let lastMessageId: number | null = null;
+    
     const unsubscribe = ChatService.subscribeToMessages(
       selectedConversation.conversation_id,
       (newMessage) => {
+        console.log('New message received in subscription:', newMessage);
         setMessages((prev) => {
           // Check if message already exists
           if (prev.some((m) => m.message_id === newMessage.message_id)) {
+            console.log('Message already exists, skipping');
             return prev;
           }
+          console.log('Adding new message to list');
+          lastMessageId = newMessage.message_id;
           return [...prev, newMessage];
         });
         // Mark as read if admin is viewing
         if (user?.user_id && newMessage.sender_type === 'user') {
-          ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id).catch(
-            (err) => console.error('Failed to mark messages as read:', err)
-          );
+          ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
+            .then(() => {
+              // Refresh conversations to update unread count (without showing loading)
+              fetchConversations(false);
+            })
+            .catch((err) => console.error('Failed to mark messages as read:', err));
+        } else {
+          // Refresh conversations to update last_message_at (without showing loading)
+          fetchConversations(false);
         }
       }
     );
 
+    // Polling fallback: refresh messages every 2 seconds
+    pollInterval = setInterval(async () => {
+      try {
+        const currentMessages = await ChatService.getConversationMessages(
+          selectedConversation.conversation_id,
+          100,
+          0
+        );
+        // Check if there are new messages by comparing the latest message ID
+        const latestMessageId = currentMessages.length > 0 
+          ? Math.max(...currentMessages.map(m => m.message_id))
+          : 0;
+        
+        if (lastMessageId === null || latestMessageId > lastMessageId) {
+          console.log('Polling: New messages detected, refreshing');
+          setMessages(currentMessages);
+          lastMessageId = latestMessageId;
+          // Refresh conversations to update last_message_at (without showing loading)
+          fetchConversations(false);
+        }
+      } catch (err) {
+        console.error('Error polling messages:', err);
+      }
+    }, 2000);
+
     return () => {
+      console.log('Cleaning up message subscription');
       unsubscribe();
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     };
-  }, [selectedConversation, user]);
+  }, [selectedConversation?.conversation_id, user?.user_id]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  const fetchConversations = async () => {
-    setLoading(true);
+  const fetchConversations = async (showLoading = false) => {
+    // Only show loading spinner on initial load or when explicitly requested
+    if (showLoading || isInitialLoad.current) {
+      setLoading(true);
+    }
     setError('');
     try {
       const data = await ChatService.getAllConversations();
       console.log('Fetched conversations:', data);
       setConversations(data);
+      // Update selected conversation if it exists to get latest unread count
+      if (selectedConversation) {
+        const updatedConv = data.find(c => c.conversation_id === selectedConversation.conversation_id);
+        if (updatedConv) {
+          setSelectedConversation(updatedConv);
+        }
+      }
     } catch (err: any) {
       console.error('Error fetching conversations:', err);
       setError(err.message || 'Failed to fetch conversations');
     } finally {
-      setLoading(false);
+      if (showLoading || isInitialLoad.current) {
+        setLoading(false);
+        isInitialLoad.current = false;
+      }
     }
   };
 
@@ -149,14 +249,21 @@ const Chat = () => {
 
     setSending(true);
     try {
-      await ChatService.sendMessage(
+      const newMessage = await ChatService.sendMessage(
         selectedConversation.conversation_id,
         user.user_id,
         messageText.trim()
       );
       setMessageText('');
-      // Refresh conversations to update last_message_at
-      fetchConversations();
+      // Add the message immediately to the UI
+      setMessages((prev) => {
+        if (prev.some((m) => m.message_id === newMessage.message_id)) {
+          return prev;
+        }
+        return [...prev, newMessage];
+      });
+      // Refresh conversations to update last_message_at (without showing loading)
+      fetchConversations(false);
     } catch (err: any) {
       setError(err.message || 'Failed to send message');
     } finally {
@@ -196,6 +303,62 @@ const Chat = () => {
     return formatDisplayDate(timestamp);
   };
 
+  const handleOpenNewChatDialog = async () => {
+    setNewChatDialogOpen(true);
+    setUserSearchTerm('');
+    await fetchUsers();
+  };
+
+  const fetchUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const allUsers = await UserService.getAllUsers();
+      // Filter out the current admin user
+      const filteredUsers = allUsers.filter((u) => u.user_id !== user?.user_id);
+      setUsers(filteredUsers);
+    } catch (err: any) {
+      console.error('Error fetching users:', err);
+      setError(err.message || 'Failed to fetch users');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleSelectUser = async (selectedUser: User) => {
+    if (!user?.user_id) return;
+
+    try {
+      setNewChatDialogOpen(false);
+      // Create or get conversation with the selected user
+      const conversation = await ChatService.createOrGetConversation(
+        selectedUser.user_id,
+        'executive'
+      );
+      
+      // Refresh conversations list
+      await fetchConversations(false);
+      
+      // Select the new/existing conversation
+      setSelectedConversation(conversation);
+      
+      // Fetch messages for the conversation
+      await fetchMessages(conversation.conversation_id);
+    } catch (err: any) {
+      console.error('Error creating conversation:', err);
+      setError(err.message || 'Failed to create conversation');
+    }
+  };
+
+  // Filter users based on search term
+  const filteredUsers = users.filter((u) => {
+    const searchLower = userSearchTerm.toLowerCase();
+    return (
+      u.full_name.toLowerCase().includes(searchLower) ||
+      u.email.toLowerCase().includes(searchLower) ||
+      (u.phone && u.phone.includes(searchLower))
+    );
+  });
+
   return (
     <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)', minHeight: '600px', backgroundColor: '#f5f5f5' }}>
       {/* Conversations List */}
@@ -208,10 +371,24 @@ const Chat = () => {
           borderRadius: 0,
         }}
       >
-        <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>
+        <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="h6" fontWeight="bold">
             Messages
           </Typography>
+          <IconButton
+            size="small"
+            onClick={handleOpenNewChatDialog}
+            sx={{
+              bgcolor: '#f08060',
+              color: '#ffffff',
+              '&:hover': {
+                bgcolor: '#d96b4a',
+              },
+            }}
+            title="New Chat"
+          >
+            <AddIcon />
+          </IconButton>
         </Box>
         <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
           {loading ? (
@@ -255,10 +432,11 @@ const Chat = () => {
                       <Badge
                         badgeContent={unreadCount}
                         color="error"
-                        invisible={unreadCount === 0}
+                        invisible={unreadCount === 0 || isSelected}
                         sx={{ mr: 1.5 }}
                       >
                         <Avatar
+                          src={conversation.user_avatar_url}
                           sx={{
                             bgcolor: '#f08060',
                             width: 48,
@@ -321,7 +499,10 @@ const Chat = () => {
                 gap: 2,
               }}
             >
-              <Avatar sx={{ bgcolor: '#f08060', width: 40, height: 40 }}>
+              <Avatar 
+                src={selectedConversation.user_avatar_url}
+                sx={{ bgcolor: '#f08060', width: 40, height: 40 }}
+              >
                 {getInitials(selectedConversation.user_name || 'U')}
               </Avatar>
               <Box sx={{ flex: 1 }}>
@@ -416,9 +597,6 @@ const Chat = () => {
                 alignItems: 'flex-end',
               }}
             >
-              <IconButton size="small" color="primary">
-                <AttachFileIcon />
-              </IconButton>
               <TextField
                 fullWidth
                 multiline
@@ -463,6 +641,119 @@ const Chat = () => {
           {error}
         </Alert>
       )}
+
+      {/* New Chat Dialog */}
+      <Dialog
+        open={newChatDialogOpen}
+        onClose={() => setNewChatDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            maxHeight: '80vh',
+          },
+        }}
+      >
+        <DialogTitle>
+          <Typography variant="h6" fontWeight="bold">
+            New Chat
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Select a user to start a conversation
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            placeholder="Search by name, email, or phone..."
+            value={userSearchTerm}
+            onChange={(e) => setUserSearchTerm(e.target.value)}
+            sx={{ mb: 2 }}
+            size="small"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
+            {usersLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : filteredUsers.length === 0 ? (
+              <Box sx={{ p: 3, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  {userSearchTerm ? 'No users found' : 'No users available'}
+                </Typography>
+              </Box>
+            ) : (
+              <List sx={{ p: 0 }}>
+                {filteredUsers.map((userItem) => {
+                  const hasExistingConversation = conversations.some(
+                    (c) => c.user_id === userItem.user_id
+                  );
+                  return (
+                    <ListItem
+                      key={userItem.user_id}
+                      disablePadding
+                      sx={{ mb: 0.5 }}
+                    >
+                      <ListItemButton
+                        onClick={() => handleSelectUser(userItem)}
+                        sx={{
+                          borderRadius: 2,
+                          py: 1.5,
+                          px: 2,
+                          '&:hover': {
+                            backgroundColor: '#f5f5f5',
+                          },
+                        }}
+                      >
+                        <Avatar
+                          src={userItem.avatar_url}
+                          sx={{
+                            bgcolor: '#f08060',
+                            width: 48,
+                            height: 48,
+                            fontSize: '0.875rem',
+                            mr: 1.5,
+                          }}
+                        >
+                          {getInitials(userItem.full_name || 'U')}
+                        </Avatar>
+                        <ListItemText
+                          primary={
+                            <Typography variant="subtitle2" fontWeight={500}>
+                              {userItem.full_name || 'Unknown User'}
+                            </Typography>
+                          }
+                          secondary={
+                            <Typography variant="body2" color="text.secondary">
+                              {userItem.email}
+                              {hasExistingConversation && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{ ml: 1, color: '#f08060' }}
+                                >
+                                  • Existing chat
+                                </Typography>
+                              )}
+                            </Typography>
+                          }
+                        />
+                      </ListItemButton>
+                    </ListItem>
+                  );
+                })}
+              </List>
+            )}
+          </Box>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 };
