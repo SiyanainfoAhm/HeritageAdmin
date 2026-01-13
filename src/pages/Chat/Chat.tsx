@@ -33,7 +33,7 @@ const Chat = () => {
   const [selectedConversation, setSelectedConversation] = useState<ChatConversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState('');
-  const [loading, setLoading] = useState(true); // Start with true for initial load
+  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
@@ -42,27 +42,51 @@ const Chat = () => {
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const isInitialLoad = useRef(true);
+  
+  // Track message IDs to prevent duplicates
+  const messageIdsRef = useRef<Set<number>>(new Set());
+  // Track subscription cleanup functions
+  const messageSubscriptionRef = useRef<(() => void) | null>(null);
+  const conversationSubscriptionRef = useRef<(() => void) | null>(null);
 
-  // Fetch conversations on mount
+  // Fetch conversations ONCE on mount
   useEffect(() => {
-    fetchConversations(true); // Show loading on initial load
+    const fetchInitialConversations = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await ChatService.getAllConversations();
+        console.log('Fetched conversations on mount:', data);
+        setConversations(data);
+        // Initialize message IDs set from existing conversations
+        data.forEach(conv => {
+          if (conv.last_message_at) {
+            // We'll populate this when messages are loaded
+          }
+        });
+      } catch (err: any) {
+        console.error('Error fetching conversations:', err);
+        setError(err.message || 'Failed to fetch conversations');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchInitialConversations();
   }, []);
 
-  // Subscribe to conversation updates + polling fallback
+  // Subscribe to conversation updates (UPDATE events on conversations table)
   useEffect(() => {
     console.log('Setting up conversation subscription');
     
-    let pollInterval: NodeJS.Timeout | null = null;
-    let lastFetchTime = Date.now();
-    
     const unsubscribe = ChatService.subscribeToConversations((updatedConversation) => {
-      console.log('Conversation updated:', updatedConversation);
+      console.log('Conversation updated via realtime:', updatedConversation);
       setConversations((prev) => {
         const index = prev.findIndex(
           (c) => c.conversation_id === updatedConversation.conversation_id
         );
         if (index >= 0) {
+          // Update existing conversation
           const updated = [...prev];
           updated[index] = updatedConversation;
           // Re-sort by last_message_at
@@ -81,122 +105,145 @@ const Chat = () => {
         }
       });
       
-      // If this is the currently selected conversation, update it and refresh messages
+      // If this is the currently selected conversation, update it
       if (selectedConversation?.conversation_id === updatedConversation.conversation_id) {
-        console.log('Refreshing messages for selected conversation');
-        setSelectedConversation(updatedConversation); // Update selected conversation with latest data (including unread count)
-        fetchMessages(updatedConversation.conversation_id);
+        console.log('Updating selected conversation');
+        setSelectedConversation(updatedConversation);
       }
     });
 
-    // Polling fallback: refresh conversations every 3 seconds
-    pollInterval = setInterval(() => {
-      const now = Date.now();
-      // Only poll if it's been more than 2 seconds since last fetch
-      if (now - lastFetchTime > 2000) {
-        console.log('Polling: Refreshing conversations');
-        fetchConversations(false); // Don't show loading spinner on refresh
-        lastFetchTime = now;
-      }
-    }, 3000);
+    conversationSubscriptionRef.current = unsubscribe;
 
     return () => {
       console.log('Cleaning up conversation subscription');
-      unsubscribe();
-      if (pollInterval) {
-        clearInterval(pollInterval);
-      }
+      if (unsubscribe) unsubscribe();
+      conversationSubscriptionRef.current = null;
     };
   }, [selectedConversation?.conversation_id]);
 
-  // Fetch messages when conversation is selected
+  // Fetch messages ONCE when conversation is selected
   useEffect(() => {
-    if (selectedConversation) {
-      fetchMessages(selectedConversation.conversation_id);
-      // Mark messages as read
-      if (user?.user_id) {
-        ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
-          .then(() => {
-            // Refresh conversations to update unread count (without showing loading)
-            fetchConversations(false);
-          })
-          .catch((err) => console.error('Failed to mark messages as read:', err));
-      }
-    } else {
-      // Clear messages when no conversation is selected
+    if (!selectedConversation) {
       setMessages([]);
+      messageIdsRef.current.clear();
+      return;
     }
+
+    const fetchInitialMessages = async () => {
+      try {
+        const data = await ChatService.getConversationMessages(selectedConversation.conversation_id, 100, 0);
+        console.log('Fetched messages for conversation:', data);
+        setMessages(data);
+        // Populate message IDs set
+        messageIdsRef.current = new Set(data.map(m => m.message_id));
+        
+        // Mark messages as read
+        if (user?.user_id) {
+          ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
+            .catch((err) => console.error('Failed to mark messages as read:', err));
+        }
+      } catch (err: any) {
+        console.error('Error fetching messages:', err);
+        setError(err.message || 'Failed to fetch messages');
+      }
+    };
+
+    fetchInitialMessages();
   }, [selectedConversation?.conversation_id, user?.user_id]);
 
-  // Subscribe to new messages in selected conversation + polling fallback
+  // Subscribe to messages for selected conversation (INSERT and UPDATE events)
   useEffect(() => {
-    if (!selectedConversation) return;
+    if (!selectedConversation) {
+      // Clean up message subscription if no conversation selected
+      if (messageSubscriptionRef.current) {
+        messageSubscriptionRef.current();
+        messageSubscriptionRef.current = null;
+      }
+      return;
+    }
 
     console.log('Setting up message subscription for conversation:', selectedConversation.conversation_id);
     
-    let pollInterval: NodeJS.Timeout | null = null;
-    let lastMessageId: number | null = null;
+    // Clean up previous subscription before creating new one
+    if (messageSubscriptionRef.current) {
+      messageSubscriptionRef.current();
+      messageSubscriptionRef.current = null;
+    }
     
     const unsubscribe = ChatService.subscribeToMessages(
       selectedConversation.conversation_id,
-      (newMessage) => {
-        console.log('New message received in subscription:', newMessage);
-        setMessages((prev) => {
-          // Check if message already exists
-          if (prev.some((m) => m.message_id === newMessage.message_id)) {
-            console.log('Message already exists, skipping');
-            return prev;
+      {
+        onInsert: (newMessage: ChatMessage) => {
+          console.log('New message INSERT received via realtime:', newMessage);
+          
+          // Deduplication: Check if message already exists
+          if (messageIdsRef.current.has(newMessage.message_id)) {
+            console.log('Message already exists, skipping:', newMessage.message_id);
+            return;
           }
-          console.log('Adding new message to list');
-          lastMessageId = newMessage.message_id;
-          return [...prev, newMessage];
-        });
-        // Mark as read if admin is viewing
-        if (user?.user_id && newMessage.sender_type === 'user') {
-          ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
-            .then(() => {
-              // Refresh conversations to update unread count (without showing loading)
-              fetchConversations(false);
-            })
-            .catch((err) => console.error('Failed to mark messages as read:', err));
-        } else {
-          // Refresh conversations to update last_message_at (without showing loading)
-          fetchConversations(false);
-        }
+
+          // Add to message IDs set
+          messageIdsRef.current.add(newMessage.message_id);
+
+          // Add message to UI
+          setMessages((prev) => {
+            // Double-check for duplicates in state
+            if (prev.some((m) => m.message_id === newMessage.message_id)) {
+              return prev;
+            }
+            return [...prev, newMessage];
+          });
+
+          // Update conversation in list (last_message_text, last_message_at)
+          setConversations((prev) => {
+            return prev.map((conv) => {
+              if (conv.conversation_id === selectedConversation.conversation_id) {
+                return {
+                  ...conv,
+                  last_message_text: newMessage.message_text,
+                  last_message_at: newMessage.created_at,
+                  // Update unread count if message is from user
+                  unread_count_executive: newMessage.sender_type === 'user' 
+                    ? (conv.unread_count_executive || 0) + 1 
+                    : conv.unread_count_executive,
+                };
+              }
+              return conv;
+            }).sort((a, b) => {
+              const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+              const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+              return bTime - aTime;
+            });
+          });
+
+          // Mark as read if admin is viewing and message is from user
+          if (user?.user_id && newMessage.sender_type === 'user') {
+            ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
+              .catch((err) => console.error('Failed to mark messages as read:', err));
+          }
+        },
+        onUpdate: (updatedMessage: ChatMessage) => {
+          console.log('Message UPDATE received via realtime:', updatedMessage);
+          
+          // Update message in state (e.g., is_read status)
+          setMessages((prev) => {
+            return prev.map((msg) => {
+              if (msg.message_id === updatedMessage.message_id) {
+                return { ...msg, ...updatedMessage };
+              }
+              return msg;
+            });
+          });
+        },
       }
     );
 
-    // Polling fallback: refresh messages every 2 seconds
-    pollInterval = setInterval(async () => {
-      try {
-        const currentMessages = await ChatService.getConversationMessages(
-          selectedConversation.conversation_id,
-          100,
-          0
-        );
-        // Check if there are new messages by comparing the latest message ID
-        const latestMessageId = currentMessages.length > 0 
-          ? Math.max(...currentMessages.map(m => m.message_id))
-          : 0;
-        
-        if (lastMessageId === null || latestMessageId > lastMessageId) {
-          console.log('Polling: New messages detected, refreshing');
-          setMessages(currentMessages);
-          lastMessageId = latestMessageId;
-          // Refresh conversations to update last_message_at (without showing loading)
-          fetchConversations(false);
-        }
-      } catch (err) {
-        console.error('Error polling messages:', err);
-      }
-    }, 2000);
+    messageSubscriptionRef.current = unsubscribe;
 
     return () => {
       console.log('Cleaning up message subscription');
-      unsubscribe();
-      if (pollInterval) {
-        clearInterval(pollInterval);
-      }
+      if (unsubscribe) unsubscribe();
+      messageSubscriptionRef.current = null;
     };
   }, [selectedConversation?.conversation_id, user?.user_id]);
 
@@ -205,66 +252,74 @@ const Chat = () => {
     scrollToBottom();
   }, [messages]);
 
-  const fetchConversations = async (showLoading = false) => {
-    // Only show loading spinner on initial load or when explicitly requested
-    if (showLoading || isInitialLoad.current) {
-      setLoading(true);
-    }
-    setError('');
-    try {
-      const data = await ChatService.getAllConversations();
-      console.log('Fetched conversations:', data);
-      setConversations(data);
-      // Update selected conversation if it exists to get latest unread count
-      if (selectedConversation) {
-        const updatedConv = data.find(c => c.conversation_id === selectedConversation.conversation_id);
-        if (updatedConv) {
-          setSelectedConversation(updatedConv);
-        }
-      }
-    } catch (err: any) {
-      console.error('Error fetching conversations:', err);
-      setError(err.message || 'Failed to fetch conversations');
-    } finally {
-      if (showLoading || isInitialLoad.current) {
-        setLoading(false);
-        isInitialLoad.current = false;
-      }
-    }
-  };
-
-  const fetchMessages = async (conversationId: number) => {
-    try {
-      const data = await ChatService.getConversationMessages(conversationId, 100, 0);
-      console.log('Fetched messages:', data);
-      setMessages(data);
-    } catch (err: any) {
-      console.error('Error fetching messages:', err);
-      setError(err.message || 'Failed to fetch messages');
-    }
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedConversation || !user?.user_id) return;
 
+    const messageTextToSend = messageText.trim();
+    setMessageText('');
     setSending(true);
+
+    // Optimistic UI: Add temporary message with pending flag
+    const tempId = Date.now(); // Temporary ID for optimistic update
+    const optimisticMessage: ChatMessage = {
+      message_id: tempId,
+      conversation_id: selectedConversation.conversation_id,
+      sender_id: user.user_id,
+      sender_type: 'executive',
+      sender_name: user.full_name || user.email || 'Admin',
+      message_text: messageTextToSend,
+      message_type: 'text',
+      is_read: false,
+      created_at: new Date().toISOString(),
+    };
+
+    // Add optimistic message to UI
+    setMessages((prev) => [...prev, optimisticMessage]);
+
     try {
+      // Send message - realtime will deliver the actual message
       const newMessage = await ChatService.sendMessage(
         selectedConversation.conversation_id,
         user.user_id,
-        messageText.trim()
+        messageTextToSend
       );
-      setMessageText('');
-      // Add the message immediately to the UI
+
+      // Replace optimistic message with real message
       setMessages((prev) => {
-        if (prev.some((m) => m.message_id === newMessage.message_id)) {
-          return prev;
+        // Remove optimistic message
+        const filtered = prev.filter((m) => m.message_id !== tempId);
+        // Add real message if not already present (realtime might have added it)
+        if (!filtered.some((m) => m.message_id === newMessage.message_id)) {
+          messageIdsRef.current.add(newMessage.message_id);
+          return [...filtered, newMessage];
         }
-        return [...prev, newMessage];
+        return filtered;
       });
-      // Refresh conversations to update last_message_at (without showing loading)
-      fetchConversations(false);
+
+      // Update conversation in list
+      setConversations((prev) => {
+        return prev.map((conv) => {
+          if (conv.conversation_id === selectedConversation.conversation_id) {
+            return {
+              ...conv,
+              last_message_text: newMessage.message_text,
+              last_message_at: newMessage.created_at,
+            };
+          }
+          return conv;
+        }).sort((a, b) => {
+          const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+          const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+          return bTime - aTime;
+        });
+      });
     } catch (err: any) {
+      // Remove optimistic message on error
+      setMessages((prev) => prev.filter((m) => m.message_id !== tempId));
       setError(err.message || 'Failed to send message');
     } finally {
       setSending(false);
@@ -276,10 +331,6 @@ const Chat = () => {
       e.preventDefault();
       handleSendMessage();
     }
-  };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const getInitials = (name: string) => {
@@ -335,14 +386,17 @@ const Chat = () => {
         'executive'
       );
       
-      // Refresh conversations list
-      await fetchConversations(false);
+      // Add to conversations list if not already present
+      setConversations((prev) => {
+        const exists = prev.some(c => c.conversation_id === conversation.conversation_id);
+        if (exists) {
+          return prev;
+        }
+        return [conversation, ...prev];
+      });
       
       // Select the new/existing conversation
       setSelectedConversation(conversation);
-      
-      // Fetch messages for the conversation
-      await fetchMessages(conversation.conversation_id);
     } catch (err: any) {
       console.error('Error creating conversation:', err);
       setError(err.message || 'Failed to create conversation');
@@ -759,4 +813,3 @@ const Chat = () => {
 };
 
 export default Chat;
-
