@@ -86,9 +86,16 @@ const Chat = () => {
           (c) => c.conversation_id === updatedConversation.conversation_id
         );
         if (index >= 0) {
-          // Update existing conversation
+          // Update existing conversation - merge with existing data to preserve user info
           const updated = [...prev];
-          updated[index] = updatedConversation;
+          updated[index] = {
+            ...updated[index],
+            ...updatedConversation,
+            // Preserve user data if not in update
+            user_name: updatedConversation.user_name || updated[index].user_name,
+            user_email: updatedConversation.user_email || updated[index].user_email,
+            user_avatar_url: updatedConversation.user_avatar_url || updated[index].user_avatar_url,
+          };
           // Re-sort by last_message_at
           return updated.sort((a, b) => {
             const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
@@ -96,8 +103,8 @@ const Chat = () => {
             return bTime - aTime;
           });
         } else {
-          // New conversation
-          return [updatedConversation, ...prev].sort((a, b) => {
+          // New conversation (has full data from getConversation)
+          return [updatedConversation as ChatConversation, ...prev].sort((a, b) => {
             const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
             const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
             return bTime - aTime;
@@ -108,7 +115,17 @@ const Chat = () => {
       // If this is the currently selected conversation, update it
       if (selectedConversation?.conversation_id === updatedConversation.conversation_id) {
         console.log('Updating selected conversation');
-        setSelectedConversation(updatedConversation);
+        setSelectedConversation((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            ...updatedConversation,
+            // Preserve user data if not in update
+            user_name: updatedConversation.user_name || prev.user_name,
+            user_email: updatedConversation.user_email || prev.user_email,
+            user_avatar_url: updatedConversation.user_avatar_url || prev.user_avatar_url,
+          } as ChatConversation;
+        });
       }
     });
 
@@ -119,7 +136,7 @@ const Chat = () => {
       if (unsubscribe) unsubscribe();
       conversationSubscriptionRef.current = null;
     };
-  }, [selectedConversation?.conversation_id]);
+  }, []); // No dependencies - subscription should only be set up once
 
   // Fetch messages ONCE when conversation is selected
   useEffect(() => {

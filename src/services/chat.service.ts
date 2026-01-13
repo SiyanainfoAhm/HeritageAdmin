@@ -239,11 +239,11 @@ export class ChatService {
    */
   static async markMessagesAsRead(
     conversationId: number,
-    userId: number
+    _userId: number // Reserved for future validation
   ): Promise<number> {
     try {
       // Mark all user messages as read (admin is executive, so mark user messages)
-      const { data, error, count } = await supabase
+      const { data, error } = await supabase
         .from('heritage_chat_messages')
         .update({
           is_read: true,
@@ -287,7 +287,11 @@ export class ChatService {
       }
 
       const conversation = data[0];
-      return await this.getConversation(conversation.conversation_id);
+      const fullConversation = await this.getConversation(conversation.conversation_id);
+      if (!fullConversation) {
+        throw new Error('Failed to fetch created conversation');
+      }
+      return fullConversation;
     } catch (error: any) {
       console.error('Error creating/getting conversation:', error);
       throw new Error(error.message || 'Failed to create or get conversation');
@@ -362,8 +366,11 @@ export class ChatService {
 
   /**
    * Subscribe to conversation updates (UPDATE events on conversations table)
+   * Returns partial conversation data from realtime payload (no API calls)
    */
-  static subscribeToConversations(callback: (conversation: ChatConversation) => void) {
+  static subscribeToConversations(
+    callback: (conversation: Partial<ChatConversation> & { conversation_id: number }) => void
+  ) {
     const channelName = 'conversations';
     
     // Remove existing channel if it exists
@@ -381,15 +388,26 @@ export class ChatService {
           schema: 'public',
           table: 'heritage_chat_conversations',
         },
-        async (payload) => {
+        (payload) => {
           console.log('Conversation UPDATE received:', payload.new);
           if (payload.new) {
-            const conversation = await this.getConversation(
-              (payload.new as any).conversation_id
-            );
-            if (conversation) {
-              callback(conversation);
-            }
+            // Use payload data directly - no API call
+            const updatedData = payload.new as any;
+            callback({
+              conversation_id: updatedData.conversation_id,
+              user_id: updatedData.user_id,
+              executive_id: updatedData.executive_id,
+              conversation_type: updatedData.conversation_type,
+              status: updatedData.status,
+              priority: updatedData.priority,
+              last_message_at: updatedData.last_message_at,
+              last_message_text: updatedData.last_message_text,
+              unread_count_user: updatedData.unread_count_user,
+              unread_count_executive: updatedData.unread_count_executive,
+              created_at: updatedData.created_at,
+              updated_at: updatedData.updated_at,
+              closed_at: updatedData.closed_at,
+            });
           }
         }
       )
@@ -403,6 +421,7 @@ export class ChatService {
         async (payload) => {
           console.log('New conversation INSERT received:', payload.new);
           if (payload.new) {
+            // For new conversations, fetch full data with user info
             const conversation = await this.getConversation(
               (payload.new as any).conversation_id
             );

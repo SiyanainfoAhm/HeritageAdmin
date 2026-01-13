@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -28,7 +28,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import PhoneIcon from '@mui/icons-material/Phone';
 import ChatIcon from '@mui/icons-material/Chat';
 import { useAuth } from '@/context/AuthContext';
-import { ChatService } from '@/services/chat.service';
+import { ChatService, ChatConversation } from '@/services/chat.service';
 
 const drawerWidth = 260;
 
@@ -83,6 +83,9 @@ const DashboardLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [chatCount, setChatCount] = useState<number>(0);
+  // Maintain conversations state for real-time updates to calculate unread count
+  const [_conversations, setConversations] = useState<ChatConversation[]>([]);
+  const conversationSubscriptionRef = useRef<(() => void) | null>(null);
 
   const isPathActive = (path: string) => location.pathname === path;
 
@@ -120,23 +123,77 @@ const DashboardLayout = () => {
     });
   }, [location.pathname]);
 
-  // Fetch unread messages count
+  // Fetch initial conversations and set up real-time subscription
   useEffect(() => {
-    const fetchUnreadCount = async () => {
+    const fetchInitialConversations = async () => {
       try {
-        const count = await ChatService.getUnreadMessagesCount();
-        setChatCount(count);
+        const data = await ChatService.getAllConversations();
+        setConversations(data);
+        // Calculate initial unread count
+        const totalUnread = data.reduce(
+          (sum, conv) => sum + (conv.unread_count_executive || 0),
+          0
+        );
+        setChatCount(totalUnread);
       } catch (error) {
-        console.error('Error fetching unread messages count:', error);
+        console.error('Error fetching conversations:', error);
       }
     };
 
-    fetchUnreadCount();
+    fetchInitialConversations();
 
-    // Refresh count every 5 seconds
-    const interval = setInterval(fetchUnreadCount, 5000);
+    // Subscribe to real-time conversation updates
+    const unsubscribe = ChatService.subscribeToConversations((updatedConversation) => {
+      console.log('Conversation updated via realtime in DashboardLayout:', updatedConversation);
+      
+      setConversations((prev) => {
+        const index = prev.findIndex(
+          (c) => c.conversation_id === updatedConversation.conversation_id
+        );
+        
+        let updated: ChatConversation[];
+        if (index >= 0) {
+          // Update existing conversation
+          updated = [...prev];
+          updated[index] = {
+            ...updated[index],
+            ...updatedConversation,
+            // Preserve user data if not in update
+            user_name: updatedConversation.user_name || updated[index].user_name,
+            user_email: updatedConversation.user_email || updated[index].user_email,
+            user_avatar_url: updatedConversation.user_avatar_url || updated[index].user_avatar_url,
+          };
+        } else {
+          // New conversation (has full data from getConversation)
+          updated = [updatedConversation as ChatConversation, ...prev];
+        }
+        
+        // Re-sort by last_message_at
+        updated.sort((a, b) => {
+          const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+          const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+          return bTime - aTime;
+        });
+        
+        // Calculate unread count from updated conversations
+        const totalUnread = updated.reduce(
+          (sum, conv) => sum + (conv.unread_count_executive || 0),
+          0
+        );
+        setChatCount(totalUnread);
+        
+        return updated;
+      });
+    });
 
-    return () => clearInterval(interval);
+    conversationSubscriptionRef.current = unsubscribe;
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+        conversationSubscriptionRef.current = null;
+      }
+    };
   }, []);
 
   const handleLogout = async () => {
