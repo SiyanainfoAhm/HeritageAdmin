@@ -17,6 +17,7 @@ export interface ChatConversation {
   // Joined user data
   user_name?: string;
   user_email?: string;
+  user_avatar_url?: string;
 }
 
 export interface ChatMessage {
@@ -35,6 +36,44 @@ export interface ChatMessage {
 
 export class ChatService {
   /**
+   * Get total count of active conversations
+   */
+  static async getConversationsCount(): Promise<number> {
+    try {
+      const { count, error } = await supabase
+        .from('heritage_chat_conversations')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return count || 0;
+    } catch (error: any) {
+      console.error('Error fetching conversations count:', error);
+      throw new Error(error.message || 'Failed to fetch conversations count');
+    }
+  }
+
+  /**
+   * Get total unread messages count for executive/admin
+   */
+  static async getUnreadMessagesCount(): Promise<number> {
+    try {
+      const conversations = await this.getAllConversations();
+      const totalUnread = conversations.reduce(
+        (sum, conv) => sum + (conv.unread_count_executive || 0),
+        0
+      );
+      return totalUnread;
+    } catch (error: any) {
+      console.error('Error fetching unread messages count:', error);
+      throw new Error(error.message || 'Failed to fetch unread messages count');
+    }
+  }
+
+  /**
    * Get all conversations for admin (ordered by last_message_at)
    */
   static async getAllConversations(): Promise<ChatConversation[]> {
@@ -43,7 +82,12 @@ export class ChatService {
         .from('heritage_chat_conversations')
         .select(`
           *,
-          user:heritage_user!heritage_chat_conversations_user_id_fkey(user_id, full_name, email)
+          user:heritage_user!heritage_chat_conversations_user_id_fkey(
+            user_id, 
+            full_name, 
+            email,
+            heritage_user_profile(avatar_url)
+          )
         `)
         .eq('status', 'active')
         .order('last_message_at', { ascending: false, nullsFirst: false });
@@ -52,11 +96,18 @@ export class ChatService {
         throw new Error(error.message);
       }
 
-      return (data || []).map((conv: any) => ({
-        ...conv,
-        user_name: conv.user?.full_name || 'Unknown User',
-        user_email: conv.user?.email || '',
-      }));
+      return (data || []).map((conv: any) => {
+        const profile = Array.isArray(conv.user?.heritage_user_profile)
+          ? conv.user?.heritage_user_profile[0]
+          : conv.user?.heritage_user_profile;
+        
+        return {
+          ...conv,
+          user_name: conv.user?.full_name || 'Unknown User',
+          user_email: conv.user?.email || '',
+          user_avatar_url: profile?.avatar_url || undefined,
+        };
+      });
     } catch (error: any) {
       console.error('Error fetching conversations:', error);
       throw new Error(error.message || 'Failed to fetch conversations');
@@ -72,7 +123,12 @@ export class ChatService {
         .from('heritage_chat_conversations')
         .select(`
           *,
-          user:heritage_user!heritage_chat_conversations_user_id_fkey(user_id, full_name, email)
+          user:heritage_user!heritage_chat_conversations_user_id_fkey(
+            user_id, 
+            full_name, 
+            email,
+            heritage_user_profile(avatar_url)
+          )
         `)
         .eq('conversation_id', conversationId)
         .single();
@@ -83,10 +139,15 @@ export class ChatService {
 
       if (!data) return null;
 
+      const profile = Array.isArray(data.user?.heritage_user_profile)
+        ? data.user?.heritage_user_profile[0]
+        : data.user?.heritage_user_profile;
+
       return {
         ...data,
         user_name: data.user?.full_name || 'Unknown User',
         user_email: data.user?.email || '',
+        user_avatar_url: profile?.avatar_url || undefined,
       };
     } catch (error: any) {
       console.error('Error fetching conversation:', error);
@@ -240,8 +301,16 @@ export class ChatService {
     conversationId: number,
     callback: (message: ChatMessage) => void
   ) {
+    const channelName = `conversation:${conversationId}`;
+    
+    // Remove existing channel if it exists
+    const existingChannel = supabase.getChannels().find(ch => ch.topic === channelName);
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
     const channel = supabase
-      .channel(`conversation:${conversationId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -250,13 +319,28 @@ export class ChatService {
           table: 'heritage_chat_messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        (payload) => {
-          callback(payload.new as ChatMessage);
+        async (payload) => {
+          console.log('New message received:', payload.new);
+          // Fetch the full message to ensure we have all fields
+          const { data: messageData } = await supabase
+            .from('heritage_chat_messages')
+            .select('*')
+            .eq('message_id', (payload.new as any).message_id)
+            .single();
+          
+          if (messageData) {
+            callback(messageData as ChatMessage);
+          } else {
+            callback(payload.new as ChatMessage);
+          }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`Subscription status for conversation ${conversationId}:`, status);
+      });
 
     return () => {
+      console.log(`Unsubscribing from conversation ${conversationId}`);
       supabase.removeChannel(channel);
     };
   }
@@ -265,6 +349,12 @@ export class ChatService {
    * Subscribe to conversation updates
    */
   static subscribeToConversations(callback: (conversation: ChatConversation) => void) {
+    // Remove existing channel if it exists
+    const existingChannel = supabase.getChannels().find(ch => ch.topic === 'conversations');
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
     const channel = supabase
       .channel('conversations')
       .on(
@@ -275,6 +365,7 @@ export class ChatService {
           table: 'heritage_chat_conversations',
         },
         async (payload) => {
+          console.log('Conversation update received:', payload);
           if (payload.new) {
             const conversation = await this.getConversation(
               (payload.new as any).conversation_id
@@ -282,12 +373,37 @@ export class ChatService {
             if (conversation) {
               callback(conversation);
             }
+          } else if (payload.old) {
+            // Handle DELETE events if needed
+            callback(payload.old as ChatConversation);
           }
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'heritage_chat_messages',
+        },
+        async (payload) => {
+          // When a new message is inserted, refresh the conversation
+          console.log('New message detected, refreshing conversation:', payload.new);
+          if (payload.new) {
+            const conversationId = (payload.new as any).conversation_id;
+            const conversation = await this.getConversation(conversationId);
+            if (conversation) {
+              callback(conversation);
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Conversations subscription status:', status);
+      });
 
     return () => {
+      console.log('Unsubscribing from conversations');
       supabase.removeChannel(channel);
     };
   }

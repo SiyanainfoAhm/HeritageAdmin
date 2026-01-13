@@ -43,7 +43,8 @@ export class UserService {
             user_type_id,
             type_key,
             translations:heritage_usertypetranslation!fk_user_type_translation(type_name, language_code)
-          )`
+          ),
+          heritage_user_profile(avatar_url)`
         )
         .order('created_at', { ascending: false });
 
@@ -79,11 +80,15 @@ export class UserService {
         const userTypeName =
           translation?.type_name || user.user_type?.type_key || `Type ${user.user_type_id}`;
 
-        const { user_type, ...rest } = user;
+        const { user_type, heritage_user_profile, ...rest } = user;
+        const profile = Array.isArray(heritage_user_profile) 
+          ? heritage_user_profile[0] 
+          : heritage_user_profile;
 
         return {
           ...rest,
           user_type_name: userTypeName,
+          avatar_url: profile?.avatar_url || undefined,
         };
       });
     } catch (error) {

@@ -10,6 +10,7 @@ export interface User {
   language_code: string;
   created_at: string;
   updated_at?: string;
+  avatar_url?: string;
 }
 
 export interface UserType {
