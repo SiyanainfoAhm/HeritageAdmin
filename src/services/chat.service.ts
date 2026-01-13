@@ -295,13 +295,76 @@ export class ChatService {
   }
 
   /**
-   * Subscribe to new messages in a conversation
+   * Subscribe to messages in a conversation (INSERT and UPDATE events)
    */
   static subscribeToMessages(
     conversationId: number,
-    callback: (message: ChatMessage) => void
+    callbacks: {
+      onInsert?: (message: ChatMessage) => void;
+      onUpdate?: (message: ChatMessage) => void;
+    }
   ) {
     const channelName = `conversation:${conversationId}`;
+    
+    // Remove existing channel if it exists
+    const existingChannel = supabase.getChannels().find(ch => ch.topic === channelName);
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
+    const channel = supabase.channel(channelName);
+
+    // Subscribe to INSERT events
+    if (callbacks.onInsert) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'heritage_chat_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          console.log('New message INSERT received:', payload.new);
+          const message = payload.new as ChatMessage;
+          callbacks.onInsert!(message);
+        }
+      );
+    }
+
+    // Subscribe to UPDATE events (for is_read changes)
+    if (callbacks.onUpdate) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'heritage_chat_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          console.log('Message UPDATE received:', payload.new);
+          const message = payload.new as ChatMessage;
+          callbacks.onUpdate!(message);
+        }
+      );
+    }
+
+    channel.subscribe((status) => {
+      console.log(`Subscription status for conversation ${conversationId}:`, status);
+    });
+
+    return () => {
+      console.log(`Unsubscribing from conversation ${conversationId}`);
+      supabase.removeChannel(channel);
+    };
+  }
+
+  /**
+   * Subscribe to conversation updates (UPDATE events on conversations table)
+   */
+  static subscribeToConversations(callback: (conversation: ChatConversation) => void) {
+    const channelName = 'conversations';
     
     // Remove existing channel if it exists
     const existingChannel = supabase.getChannels().find(ch => ch.topic === channelName);
@@ -314,58 +377,12 @@ export class ChatService {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'heritage_chat_messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        async (payload) => {
-          console.log('New message received:', payload.new);
-          // Fetch the full message to ensure we have all fields
-          const { data: messageData } = await supabase
-            .from('heritage_chat_messages')
-            .select('*')
-            .eq('message_id', (payload.new as any).message_id)
-            .single();
-          
-          if (messageData) {
-            callback(messageData as ChatMessage);
-          } else {
-            callback(payload.new as ChatMessage);
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log(`Subscription status for conversation ${conversationId}:`, status);
-      });
-
-    return () => {
-      console.log(`Unsubscribing from conversation ${conversationId}`);
-      supabase.removeChannel(channel);
-    };
-  }
-
-  /**
-   * Subscribe to conversation updates
-   */
-  static subscribeToConversations(callback: (conversation: ChatConversation) => void) {
-    // Remove existing channel if it exists
-    const existingChannel = supabase.getChannels().find(ch => ch.topic === 'conversations');
-    if (existingChannel) {
-      supabase.removeChannel(existingChannel);
-    }
-
-    const channel = supabase
-      .channel('conversations')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
+          event: 'UPDATE',
           schema: 'public',
           table: 'heritage_chat_conversations',
         },
         async (payload) => {
-          console.log('Conversation update received:', payload);
+          console.log('Conversation UPDATE received:', payload.new);
           if (payload.new) {
             const conversation = await this.getConversation(
               (payload.new as any).conversation_id
@@ -373,9 +390,6 @@ export class ChatService {
             if (conversation) {
               callback(conversation);
             }
-          } else if (payload.old) {
-            // Handle DELETE events if needed
-            callback(payload.old as ChatConversation);
           }
         }
       )
@@ -384,14 +398,14 @@ export class ChatService {
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'heritage_chat_messages',
+          table: 'heritage_chat_conversations',
         },
         async (payload) => {
-          // When a new message is inserted, refresh the conversation
-          console.log('New message detected, refreshing conversation:', payload.new);
+          console.log('New conversation INSERT received:', payload.new);
           if (payload.new) {
-            const conversationId = (payload.new as any).conversation_id;
-            const conversation = await this.getConversation(conversationId);
+            const conversation = await this.getConversation(
+              (payload.new as any).conversation_id
+            );
             if (conversation) {
               callback(conversation);
             }
