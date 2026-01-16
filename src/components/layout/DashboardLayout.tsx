@@ -28,7 +28,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import PhoneIcon from '@mui/icons-material/Phone';
 import ChatIcon from '@mui/icons-material/Chat';
 import { useAuth } from '@/context/AuthContext';
-import { ChatService, ChatConversation } from '@/services/chat.service';
+import { ChatService, ChatMessage } from '@/services/chat.service';
 
 const drawerWidth = 260;
 
@@ -82,10 +82,8 @@ const DashboardLayout = () => {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [chatCount, setChatCount] = useState<number>(0);
-  // Maintain conversations state for real-time updates to calculate unread count
-  const [_conversations, setConversations] = useState<ChatConversation[]>([]);
-  const conversationSubscriptionRef = useRef<(() => void) | null>(null);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const messageSubscriptionRef = useRef<(() => void) | null>(null);
 
   const isPathActive = (path: string) => location.pathname === path;
 
@@ -123,75 +121,56 @@ const DashboardLayout = () => {
     });
   }, [location.pathname]);
 
-  // Fetch initial conversations and set up real-time subscription
+  // Fetch initial unread count and set up real-time subscription
   useEffect(() => {
-    const fetchInitialConversations = async () => {
+    // Fetch initial unread count once
+    const fetchInitialUnreadCount = async () => {
       try {
-        const data = await ChatService.getAllConversations();
-        setConversations(data);
-        // Calculate initial unread count
-        const totalUnread = data.reduce(
-          (sum, conv) => sum + (conv.unread_count_executive || 0),
-          0
-        );
-        setChatCount(totalUnread);
+        const count = await ChatService.getUnreadMessagesCount();
+        console.log('Initial unread messages count:', count);
+        setUnreadCount(count);
       } catch (error) {
-        console.error('Error fetching conversations:', error);
+        console.error('Error fetching initial unread count:', error);
       }
     };
 
-    fetchInitialConversations();
+    fetchInitialUnreadCount();
 
-    // Subscribe to real-time conversation updates
-    const unsubscribe = ChatService.subscribeToConversations((updatedConversation) => {
-      console.log('Conversation updated via realtime in DashboardLayout:', updatedConversation);
-      
-      setConversations((prev) => {
-        const index = prev.findIndex(
-          (c) => c.conversation_id === updatedConversation.conversation_id
-        );
-        
-        let updated: ChatConversation[];
-        if (index >= 0) {
-          // Update existing conversation
-          updated = [...prev];
-          updated[index] = {
-            ...updated[index],
-            ...updatedConversation,
-            // Preserve user data if not in update
-            user_name: updatedConversation.user_name || updated[index].user_name,
-            user_email: updatedConversation.user_email || updated[index].user_email,
-            user_avatar_url: updatedConversation.user_avatar_url || updated[index].user_avatar_url,
-          };
-        } else {
-          // New conversation (has full data from getConversation)
-          updated = [updatedConversation as ChatConversation, ...prev];
+    // Subscribe to real-time message updates
+    const unsubscribe = ChatService.subscribeToUnreadMessagesCount({
+      onInsert: (newMessage: ChatMessage) => {
+        console.log('New unread message INSERT received:', newMessage);
+        // Increment count when new unread message arrives from user
+        if (newMessage.sender_type === 'user' && !newMessage.is_read) {
+          setUnreadCount((prev) => {
+            const newCount = prev + 1;
+            console.log('Incrementing unread count:', prev, '->', newCount);
+            return newCount;
+          });
         }
-        
-        // Re-sort by last_message_at
-        updated.sort((a, b) => {
-          const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
-          const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
-          return bTime - aTime;
-        });
-        
-        // Calculate unread count from updated conversations
-        const totalUnread = updated.reduce(
-          (sum, conv) => sum + (conv.unread_count_executive || 0),
-          0
-        );
-        setChatCount(totalUnread);
-        
-        return updated;
-      });
+      },
+      onUpdate: (updatedMessage: ChatMessage) => {
+        console.log('Message UPDATE received for unread count:', updatedMessage);
+        // Decrement count when message is marked as read (was unread, now read)
+        // We check if it's now read - if it was already read, we don't need to decrement
+        // The subscription callback will be called for any update, so we only decrement
+        // when transitioning from unread to read
+        if (updatedMessage.sender_type === 'user' && updatedMessage.is_read) {
+          setUnreadCount((prev) => {
+            const newCount = Math.max(0, prev - 1); // Prevent negative counts
+            console.log('Decrementing unread count (message marked as read):', prev, '->', newCount);
+            return newCount;
+          });
+        }
+      },
     });
 
-    conversationSubscriptionRef.current = unsubscribe;
+    messageSubscriptionRef.current = unsubscribe;
 
     return () => {
       if (unsubscribe) {
         unsubscribe();
-        conversationSubscriptionRef.current = null;
+        messageSubscriptionRef.current = null;
       }
     };
   }, []);
@@ -237,7 +216,6 @@ const DashboardLayout = () => {
               fontSize: '0.875rem',
             }}
           >
-            H
           </Typography>
         </Box>
         <Typography
@@ -311,7 +289,7 @@ const DashboardLayout = () => {
                   }}
                 >
                   {item.text === 'Chat' ? (
-                    <Badge badgeContent={chatCount} color="error" max={99} invisible={chatCount === 0}>
+                    <Badge badgeContent={unreadCount} color="error" max={99} invisible={unreadCount === 0}>
                       <IconComponent />
                     </Badge>
                   ) : (
