@@ -58,15 +58,22 @@ export class ChatService {
 
   /**
    * Get total unread messages count for executive/admin
+   * Counts messages directly from messages table where sender_type = 'user' and is_read = false
    */
   static async getUnreadMessagesCount(): Promise<number> {
     try {
-      const conversations = await this.getAllConversations();
-      const totalUnread = conversations.reduce(
-        (sum, conv) => sum + (conv.unread_count_executive || 0),
-        0
-      );
-      return totalUnread;
+      const { count, error } = await supabase
+        .from('heritage_chat_messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('sender_type', 'user')
+        .eq('is_read', false)
+        .eq('is_deleted', false);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return count || 0;
     } catch (error: any) {
       console.error('Error fetching unread messages count:', error);
       throw new Error(error.message || 'Failed to fetch unread messages count');
@@ -258,7 +265,26 @@ export class ChatService {
         throw new Error(error.message);
       }
 
-      return data?.length || 0;
+      const markedCount = data?.length || 0;
+
+      // Update conversation's unread_count_executive to 0 when messages are marked as read
+      // This will trigger a real-time update that updates the badge count
+      if (markedCount > 0) {
+        const { error: convError } = await supabase
+          .from('heritage_chat_conversations')
+          .update({
+            unread_count_executive: 0,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('conversation_id', conversationId);
+
+        if (convError) {
+          console.error('Error updating conversation unread count:', convError);
+          // Don't throw - message marking succeeded, conversation update is secondary
+        }
+      }
+
+      return markedCount;
     } catch (error: any) {
       console.error('Error marking messages as read:', error);
       throw new Error(error.message || 'Failed to mark messages as read');
@@ -316,7 +342,12 @@ export class ChatService {
       supabase.removeChannel(existingChannel);
     }
 
-    const channel = supabase.channel(channelName);
+    const channel = supabase.channel(channelName, {
+      config: {
+        broadcast: { self: true },
+        presence: { key: '' },
+      },
+    });
 
     // Subscribe to INSERT events
     if (callbacks.onInsert) {
@@ -330,8 +361,10 @@ export class ChatService {
         },
         async (payload) => {
           console.log('New message INSERT received:', payload.new);
-          const message = payload.new as ChatMessage;
-          callbacks.onInsert!(message);
+          if (payload.new) {
+            const message = payload.new as ChatMessage;
+            callbacks.onInsert!(message);
+          }
         }
       );
     }
@@ -348,14 +381,21 @@ export class ChatService {
         },
         async (payload) => {
           console.log('Message UPDATE received:', payload.new);
-          const message = payload.new as ChatMessage;
-          callbacks.onUpdate!(message);
+          if (payload.new) {
+            const message = payload.new as ChatMessage;
+            callbacks.onUpdate!(message);
+          }
         }
       );
     }
 
     channel.subscribe((status) => {
       console.log(`Subscription status for conversation ${conversationId}:`, status);
+      if (status === 'SUBSCRIBED') {
+        console.log(`Successfully subscribed to messages for conversation ${conversationId}`);
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error(`Error subscribing to conversation ${conversationId}`);
+      }
     });
 
     return () => {
@@ -380,16 +420,23 @@ export class ChatService {
     }
 
     const channel = supabase
-      .channel(channelName)
+      .channel(channelName, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: '' },
+        },
+      })
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'heritage_chat_conversations',
+          filter: 'status=eq.active', // Only listen to active conversations
         },
         (payload) => {
           console.log('Conversation UPDATE received:', payload.new);
+          console.log('Unread count executive:', payload.new?.unread_count_executive);
           if (payload.new) {
             // Use payload data directly - no API call
             const updatedData = payload.new as any;
@@ -403,7 +450,7 @@ export class ChatService {
               last_message_at: updatedData.last_message_at,
               last_message_text: updatedData.last_message_text,
               unread_count_user: updatedData.unread_count_user,
-              unread_count_executive: updatedData.unread_count_executive,
+              unread_count_executive: updatedData.unread_count_executive ?? 0, // Ensure it's a number
               created_at: updatedData.created_at,
               updated_at: updatedData.updated_at,
               closed_at: updatedData.closed_at,
@@ -433,10 +480,110 @@ export class ChatService {
       )
       .subscribe((status) => {
         console.log('Conversations subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to conversations');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Error subscribing to conversations');
+        }
       });
 
     return () => {
       console.log('Unsubscribing from conversations');
+      supabase.removeChannel(channel);
+    };
+  }
+
+  /**
+   * Subscribe to unread messages count updates for admin/executive
+   * Listens to INSERT and UPDATE events on messages table
+   * Only counts messages from users (sender_type = 'user') that are unread
+   */
+  static subscribeToUnreadMessagesCount(
+    callbacks: {
+      onInsert?: (message: ChatMessage) => void; // Called when new unread message arrives
+      onUpdate?: (message: ChatMessage) => void; // Called when message is marked as read
+    }
+  ) {
+    const channelName = 'unread-messages-count';
+    
+    // Remove existing channel if it exists
+    const existingChannel = supabase.getChannels().find(ch => ch.topic === channelName);
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
+    const channel = supabase.channel(channelName, {
+      config: {
+        broadcast: { self: true },
+        presence: { key: '' },
+      },
+    });
+
+    // Subscribe to INSERT events for new messages from users
+    if (callbacks.onInsert) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'heritage_chat_messages',
+          filter: 'sender_type=eq.user',
+        },
+        async (payload) => {
+          console.log('New message INSERT received for unread count:', payload.new);
+          if (payload.new) {
+            const message = payload.new as ChatMessage & { is_deleted?: boolean };
+            // Only count if message is unread and not deleted
+            if (!message.is_read && !(message.is_deleted === true)) {
+              callbacks.onInsert!(message);
+            }
+          }
+        }
+      );
+    }
+
+    // Subscribe to UPDATE events when messages are marked as read
+    if (callbacks.onUpdate) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'heritage_chat_messages',
+          filter: 'sender_type=eq.user',
+        },
+        async (payload) => {
+          console.log('Message UPDATE received for unread count:', payload.new, 'old:', payload.old);
+          if (payload.new) {
+            const message = payload.new as ChatMessage;
+            const oldMessage = payload.old as ChatMessage | undefined;
+            // Only trigger if message is from user
+            // Check if message was unread and is now read (transition from unread to read)
+            if (message.sender_type === 'user') {
+              const wasUnread = oldMessage ? !oldMessage.is_read : true; // Assume was unread if we don't have old value
+              const isNowRead = message.is_read;
+              
+              // Only call callback if message transitioned from unread to read
+              if (wasUnread && isNowRead) {
+                callbacks.onUpdate!(message);
+              }
+            }
+          }
+        }
+      );
+    }
+
+    channel.subscribe((status) => {
+      console.log('Unread messages count subscription status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('Successfully subscribed to unread messages count');
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error('Error subscribing to unread messages count');
+      }
+    });
+
+    return () => {
+      console.log('Unsubscribing from unread messages count');
       supabase.removeChannel(channel);
     };
   }

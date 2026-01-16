@@ -156,6 +156,31 @@ const Chat = () => {
         
         // Mark messages as read
         if (user?.user_id) {
+          // Optimistically update conversation unread count to 0
+          setConversations((prev) => {
+            return prev.map((conv) => {
+              if (conv.conversation_id === selectedConversation.conversation_id) {
+                return {
+                  ...conv,
+                  unread_count_executive: 0,
+                };
+              }
+              return conv;
+            });
+          });
+          
+          // Update selected conversation state
+          setSelectedConversation((prev) => {
+            if (!prev || prev.conversation_id !== selectedConversation.conversation_id) {
+              return prev;
+            }
+            return {
+              ...prev,
+              unread_count_executive: 0,
+            };
+          });
+
+          // Mark messages as read in database (this will trigger real-time update)
           ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
             .catch((err) => console.error('Failed to mark messages as read:', err));
         }
@@ -193,6 +218,12 @@ const Chat = () => {
         onInsert: (newMessage: ChatMessage) => {
           console.log('New message INSERT received via realtime:', newMessage);
           
+          // Validate message has required fields
+          if (!newMessage || !newMessage.message_id || !newMessage.conversation_id) {
+            console.error('Invalid message received:', newMessage);
+            return;
+          }
+
           // Deduplication: Check if message already exists
           if (messageIdsRef.current.has(newMessage.message_id)) {
             console.log('Message already exists, skipping:', newMessage.message_id);
@@ -202,27 +233,36 @@ const Chat = () => {
           // Add to message IDs set
           messageIdsRef.current.add(newMessage.message_id);
 
-          // Add message to UI
+          // Add message to UI - ensure it's sorted by created_at
           setMessages((prev) => {
             // Double-check for duplicates in state
             if (prev.some((m) => m.message_id === newMessage.message_id)) {
               return prev;
             }
-            return [...prev, newMessage];
+            const updated = [...prev, newMessage];
+            // Sort by created_at to ensure proper order
+            return updated.sort((a, b) => {
+              const aTime = new Date(a.created_at).getTime();
+              const bTime = new Date(b.created_at).getTime();
+              return aTime - bTime;
+            });
           });
 
           // Update conversation in list (last_message_text, last_message_at)
           setConversations((prev) => {
             return prev.map((conv) => {
               if (conv.conversation_id === selectedConversation.conversation_id) {
+                // If we're viewing this conversation, don't increment unread count
+                // The message will be marked as read immediately
+                const isViewing = selectedConversation?.conversation_id === conv.conversation_id;
                 return {
                   ...conv,
                   last_message_text: newMessage.message_text,
                   last_message_at: newMessage.created_at,
-                  // Update unread count if message is from user
-                  unread_count_executive: newMessage.sender_type === 'user' 
+                  // Only update unread count if message is from user AND we're not viewing the conversation
+                  unread_count_executive: newMessage.sender_type === 'user' && !isViewing
                     ? (conv.unread_count_executive || 0) + 1 
-                    : conv.unread_count_executive,
+                    : (isViewing ? 0 : conv.unread_count_executive),
                 };
               }
               return conv;
@@ -234,7 +274,19 @@ const Chat = () => {
           });
 
           // Mark as read if admin is viewing and message is from user
-          if (user?.user_id && newMessage.sender_type === 'user') {
+          if (user?.user_id && newMessage.sender_type === 'user' && selectedConversation) {
+            // Update selected conversation state to reflect unread count is 0
+            setSelectedConversation((prev) => {
+              if (!prev || prev.conversation_id !== selectedConversation.conversation_id) {
+                return prev;
+              }
+              return {
+                ...prev,
+                unread_count_executive: 0,
+              };
+            });
+
+            // Mark messages as read in database (this will trigger real-time update)
             ChatService.markMessagesAsRead(selectedConversation.conversation_id, user.user_id)
               .catch((err) => console.error('Failed to mark messages as read:', err));
           }
