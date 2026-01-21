@@ -32,6 +32,8 @@ import {
   Cancel as CancelIcon,
   ArrowUpward as ArrowUpwardIcon,
   ArrowDownward as ArrowDownwardIcon,
+  VerifiedUser as VerifiedUserIcon,
+  PersonOff as PersonOffIcon,
 } from '@mui/icons-material';
 import { UserService, UserFilters } from '@/services/user.service';
 import { User, UserType } from '@/types';
@@ -42,6 +44,46 @@ import { format } from 'date-fns';
 import { getDefaultDateRange } from '@/utils/dateRange';
 import FormattedDateInput from '@/components/common/FormattedDateInput';
 import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
+
+// Helper function to get user verification status
+const getUserVerificationStatus = (
+  isVerified: boolean | undefined | null,
+  userTypeVerified: boolean | undefined | null
+): { label: string; color: 'success' | 'default' } => {
+  // user_type_verified = true → Verified (Approved)
+  // user_type_verified = false → Unverified (Pending)
+  // Use user_type_verified as the primary status indicator
+  // Handle boolean conversion to ensure proper comparison (handle any type that might come from API)
+  const userTypeVerifiedValue = userTypeVerified as any;
+  const isVerifiedValue = isVerified as any;
+  
+  // Convert to boolean, handling various input types
+  let userTypeVerifiedBool = false;
+  if (userTypeVerifiedValue !== undefined && userTypeVerifiedValue !== null) {
+    userTypeVerifiedBool = userTypeVerifiedValue === true || 
+                           userTypeVerifiedValue === 'true' || 
+                           userTypeVerifiedValue === 1 ||
+                           userTypeVerifiedValue === '1';
+  }
+  
+  let isVerifiedBool = false;
+  if (isVerifiedValue !== undefined && isVerifiedValue !== null) {
+    isVerifiedBool = isVerifiedValue === true || 
+                     isVerifiedValue === 'true' || 
+                     isVerifiedValue === 1 ||
+                     isVerifiedValue === '1';
+  }
+  
+  // Primary: use user_type_verified if it exists, fallback to is_verified
+  const verified = (userTypeVerifiedValue !== undefined && userTypeVerifiedValue !== null) 
+    ? userTypeVerifiedBool 
+    : isVerifiedBool;
+  
+  if (verified) {
+    return { label: 'Verified', color: 'success' };
+  }
+  return { label: 'Unverified', color: 'default' };
+};
 
 const Users = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -118,12 +160,49 @@ const Users = () => {
     setMenuAnchor(null);
   };
 
+  // Handle activate/deactivate (using is_verified) - also toggles verification
+  const handleToggleActivation = async (user: User) => {
+    setActionLoading(true);
+    try {
+      const newIsVerified = !user.is_verified;
+      
+      // Update both is_verified and user_type_verified together
+      const result = await UserService.updateUser(user.user_id, {
+        is_verified: newIsVerified,
+        user_type_verified: newIsVerified,
+      });
+      
+      if (result.success) {
+        setSuccess(`User ${newIsVerified ? 'activated and verified' : 'deactivated and unverified'} successfully`);
+        fetchUsers();
+      } else {
+        setError(result.error || 'Failed to update user activation');
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred');
+    } finally {
+      setActionLoading(false);
+      setMenuAnchor(null);
+    }
+  };
+
+  // Handle verify/unverify (using user_type_verified)
   const handleToggleVerification = async (user: User) => {
     setActionLoading(true);
     try {
-      const result = await UserService.toggleUserVerification(user.user_id, !user.is_verified);
+      // Get current user_type_verified status
+      const userTypeVerified = (user as any).user_type_verified;
+      const currentStatus = userTypeVerified !== undefined && userTypeVerified !== null 
+        ? (userTypeVerified === true || userTypeVerified === 'true' || userTypeVerified === 1 || userTypeVerified === '1')
+        : false;
+      
+      const newStatus = !currentStatus;
+      const result = await UserService.updateUser(user.user_id, {
+        user_type_verified: newStatus,
+      });
+      
       if (result.success) {
-        setSuccess(`User ${!user.is_verified ? 'activated' : 'deactivated'} successfully`);
+        setSuccess(`User ${newStatus ? 'verified' : 'unverified'} successfully`);
         fetchUsers();
       } else {
         setError(result.error || 'Failed to update user verification');
@@ -196,8 +275,9 @@ const Users = () => {
           bValue = b.user_type_name?.toLowerCase() || '';
           break;
         case 'is_verified':
-          aValue = a.is_verified ? 1 : 0;
-          bValue = b.is_verified ? 1 : 0;
+          // Use user_type_verified for status sorting, fallback to is_verified
+          aValue = (a as any).user_type_verified === true || ((a as any).user_type_verified === undefined && a.is_verified) ? 1 : 0;
+          bValue = (b as any).user_type_verified === true || ((b as any).user_type_verified === undefined && b.is_verified) ? 1 : 0;
           break;
         case 'created_at':
           aValue = new Date(a.created_at).getTime();
@@ -422,7 +502,17 @@ const Users = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                sortedUsers.map((user) => (
+                sortedUsers.map((user) => {
+                  // Use user_type_verified as primary status, fallback to is_verified
+                  // Ensure we're getting the correct values
+                  const userTypeVerified = (user as any).user_type_verified;
+                  const isVerified = user.is_verified;
+                  
+                  const verificationStatus = getUserVerificationStatus(
+                    isVerified,
+                    userTypeVerified
+                  );
+                  return (
                   <TableRow key={user.user_id} hover>
                     <TableCell>{user.user_id}</TableCell>
                     <TableCell>
@@ -439,8 +529,8 @@ const Users = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={user.is_verified ? 'Verified' : 'Unverified'}
-                        color={user.is_verified ? 'success' : 'default'}
+                        label={verificationStatus.label}
+                        color={verificationStatus.color}
                         size="small"
                       />
                     </TableCell>
@@ -469,7 +559,8 @@ const Users = () => {
                       </IconButton>
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -485,6 +576,25 @@ const Users = () => {
               Edit User
             </MenuItem>
             <MenuItem onClick={() => handleToggleVerification(menuUser)} disabled={actionLoading}>
+              {(() => {
+                const userTypeVerified = (menuUser as any).user_type_verified;
+                const isVerified = userTypeVerified !== undefined && userTypeVerified !== null 
+                  ? (userTypeVerified === true || userTypeVerified === 'true' || userTypeVerified === 1 || userTypeVerified === '1')
+                  : false;
+                return isVerified ? (
+                  <>
+                    <PersonOffIcon fontSize="small" sx={{ mr: 1 }} />
+                    Unverify
+                  </>
+                ) : (
+                  <>
+                    <VerifiedUserIcon fontSize="small" sx={{ mr: 1 }} />
+                    Verify
+                  </>
+                );
+              })()}
+            </MenuItem>
+            <MenuItem onClick={() => handleToggleActivation(menuUser)} disabled={actionLoading}>
               {menuUser.is_verified ? (
                 <>
                   <CancelIcon fontSize="small" sx={{ mr: 1 }} />
