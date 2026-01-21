@@ -105,6 +105,18 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
     }
   };
 
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const validatePhone = (phone: string): boolean => {
+    if (!phone || !phone.trim()) return true; // Phone is optional
+    // Allow digits, spaces, hyphens, parentheses, and plus sign
+    const phoneRegex = /^[\+]?[(]?[0-9]{1,4}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,9}$/;
+    return phoneRegex.test(phone.trim());
+  };
+
   const handleSubmit = async () => {
     if (!user) return;
 
@@ -115,8 +127,19 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
       setError('Full name is required');
       return;
     }
+    
     if (!formData.email?.trim()) {
       setError('Email is required');
+      return;
+    }
+    
+    if (!validateEmail(formData.email.trim())) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    
+    if (formData.phone && formData.phone.trim() && !validatePhone(formData.phone)) {
+      setError('Please enter a valid phone number');
       return;
     }
 
@@ -169,6 +192,8 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
           margin="normal"
           required
           disabled={loadingUser || saving}
+          error={formData.email ? !validateEmail(formData.email.trim()) : false}
+          helperText={formData.email && !validateEmail(formData.email.trim()) ? 'Please enter a valid email address' : ''}
         />
         <TextField
           fullWidth
@@ -177,6 +202,8 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
           onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
           margin="normal"
           disabled={loadingUser || saving}
+          error={formData.phone && formData.phone.trim() ? !validatePhone(formData.phone) : false}
+          helperText={formData.phone && formData.phone.trim() && !validatePhone(formData.phone) ? 'Please enter a valid phone number' : ''}
         />
         <FormControl fullWidth margin="normal">
           <InputLabel>User Type</InputLabel>
