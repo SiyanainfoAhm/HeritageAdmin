@@ -7,6 +7,7 @@ export interface User {
   user_type_id: number;
   user_type_name?: string;
   is_verified: boolean;
+  user_type_verified?: boolean;
   language_code: string;
   created_at: string;
   updated_at?: string;

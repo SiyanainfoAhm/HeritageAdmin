@@ -24,6 +24,7 @@ import {
   Select,
   FormControl,
   InputLabel,
+  Alert,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
@@ -37,6 +38,7 @@ import * as Icons from '@mui/icons-material';
 import { supabase } from '@/config/supabase';
 import { StorageService } from '@/services/storage.service';
 import { TranslationService } from '@/services/translation.service';
+import { MasterDataService } from '@/services/masterData.service';
 import FormattedTimeInput from '@/components/common/FormattedTimeInput';
 
 type LanguageCode = 'en' | 'hi' | 'gu' | 'ja' | 'es' | 'fr';
@@ -106,6 +108,14 @@ interface MealTypeMapping {
   end_time?: string | null;
 }
 
+interface Facility {
+  master_id: number;
+  code: string;
+  display_name: string;
+  display_order?: number;
+  is_active?: boolean;
+}
+
 const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -147,6 +157,27 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [allAvailableTags, setAllAvailableTags] = useState<FoodTag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
+  
+  // Facilities
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [facilityTranslations, setFacilityTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
+  const [selectedFacilityIds, setSelectedFacilityIds] = useState<Set<number>>(new Set());
+  
+  // Facility creation dialog
+  const [facilityDialogOpen, setFacilityDialogOpen] = useState(false);
+  const [newFacilityCode, setNewFacilityCode] = useState('');
+  const [newFacilityTranslations, setNewFacilityTranslations] = useState<Record<LanguageCode, string>>({
+    en: '',
+    hi: '',
+    gu: '',
+    ja: '',
+    es: '',
+    fr: '',
+  });
+  const [creatingFacility, setCreatingFacility] = useState(false);
+  const [facilityError, setFacilityError] = useState('');
+  const [facilityTranslating, setFacilityTranslating] = useState(false);
+  const facilityTranslationTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch food details
   const fetchFoodDetails = async (id: number) => {
@@ -337,6 +368,13 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
               establish_year: food.establish_year || null,
             });
 
+            // Load facility_ids from food data (stored as JSONB array)
+            if (food.facility_ids && Array.isArray(food.facility_ids)) {
+              setSelectedFacilityIds(new Set(food.facility_ids));
+            } else {
+              setSelectedFacilityIds(new Set());
+            }
+
             // Load translations
             const loadedTranslations: Record<string, Record<LanguageCode, string>> = {};
             FOOD_TRANSLATABLE_FIELDS.forEach(field => {
@@ -400,7 +438,8 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
             }
 
             // Load food hours - ensure all 7 days are present
-            // Note: Database uses day_of_week 0 for Sunday, but UI uses 7
+            // Note: Database stores day_of_week as 0 = Monday, ..., 6 = Sunday
+            // UI uses 1 = Monday, ..., 7 = Sunday
             const hoursMap = new Map<number, FoodHour>();
             
             // First, initialize all 7 days with default closed status (is_open = false)
@@ -417,8 +456,9 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
             // Then, override with data from database
             if (data.hours && Array.isArray(data.hours)) {
               data.hours.forEach((h: any) => {
-                // Map day_of_week: 0 (Sunday in DB) -> 7 (Sunday in UI), others stay the same
-                const dayOfWeek = h.day_of_week === 0 ? 7 : h.day_of_week;
+                // Map DB day_of_week (0 = Monday, ..., 6 = Sunday) to UI (1 = Monday, ..., 7 = Sunday)
+                const dbDay = Number(h.day_of_week ?? 0);
+                const dayOfWeek = dbDay === 6 ? 7 : dbDay + 1; // 6 -> 7 (Sunday), 0 -> 1 (Monday), ..., 5 -> 6 (Saturday)
                 hoursMap.set(dayOfWeek, {
                   hours_id: h.hours_id,
                   day_of_week: dayOfWeek,
@@ -563,6 +603,9 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
                 setMealTypeMappings(mappings);
               }
             }
+
+            // Load facilities
+            await loadFacilities();
           }
         })
         .catch((error) => {
@@ -597,6 +640,81 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
       }
     } catch (error) {
       console.error('Error loading available tags:', error);
+    }
+  };
+
+  // Load all facilities from masterdata
+  const loadFacilities = async () => {
+    try {
+      // Load facilities from heritage_masterdata where category='facility'
+      const { data: facilityData, error: facilityError } = await supabase
+        .from('heritage_masterdata')
+        .select('master_id, category, code, display_order, is_active')
+        .eq('category', 'facility')
+        .order('display_order', { ascending: true });
+
+      if (facilityError) {
+        console.error('Error loading facilities:', facilityError);
+        return;
+      }
+
+      if (!facilityData || facilityData.length === 0) {
+        setFacilities([]);
+        setFacilityTranslations({});
+        return;
+      }
+
+      const facilityIds = facilityData.map((f: any) => f.master_id);
+      
+      // Load translations for all languages
+      const facilityTrans: Record<number, Record<LanguageCode, string>> = {};
+      
+      // Initialize with English display names from code
+      facilityData.forEach((facility: any) => {
+        facilityTrans[facility.master_id] = {
+          en: facility.code || '',
+          hi: '',
+          gu: '',
+          ja: '',
+          es: '',
+          fr: '',
+        };
+      });
+
+      // Load translations from heritage_masterdatatranslation
+      for (const lang of LANGUAGES) {
+        const langCode = lang.code.toUpperCase();
+        const { data: translations, error: transError } = await supabase
+          .from('heritage_masterdatatranslation')
+          .select('master_id, display_name')
+          .in('master_id', facilityIds)
+          .eq('language_code', langCode);
+
+        if (!transError && translations) {
+          translations.forEach((trans: any) => {
+            if (!facilityTrans[trans.master_id]) {
+              facilityTrans[trans.master_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+            }
+            if (trans.display_name) {
+              facilityTrans[trans.master_id][lang.code] = String(trans.display_name || '').trim();
+            }
+          });
+        }
+      }
+
+      // Set facilities with English display names
+      const facilitiesList = facilityData.map((f: any) => ({
+        master_id: f.master_id,
+        code: f.code || '',
+        display_name: facilityTrans[f.master_id]?.en || f.code || '',
+        display_order: f.display_order || 0,
+        is_active: f.is_active !== false,
+      }));
+
+      setFacilities(facilitiesList);
+      setFacilityTranslations(facilityTrans);
+    } catch (error) {
+      console.error('Error loading facilities:', error);
     }
   };
 
@@ -678,6 +796,161 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
     }
   };
 
+  // Handle opening facility creation dialog
+  const handleOpenFacilityDialog = () => {
+    setNewFacilityCode('');
+    setNewFacilityTranslations({
+      en: '',
+      hi: '',
+      gu: '',
+      ja: '',
+      es: '',
+      fr: '',
+    });
+    setFacilityDialogOpen(true);
+  };
+
+  // Handle closing facility creation dialog
+  const handleCloseFacilityDialog = () => {
+    setFacilityDialogOpen(false);
+    setNewFacilityCode('');
+    setNewFacilityTranslations({
+      en: '',
+      hi: '',
+      gu: '',
+      ja: '',
+      es: '',
+      fr: '',
+    });
+    setFacilityError('');
+    setFacilityTranslating(false);
+    if (facilityTranslationTimerRef.current) {
+      clearTimeout(facilityTranslationTimerRef.current);
+      facilityTranslationTimerRef.current = null;
+    }
+  };
+
+  // Auto-translate facility display name from English to other languages (debounced)
+  const autoTranslateFacilityFromEnglish = (englishText: string) => {
+    const text = (englishText || '').trim();
+    if (!text) return;
+
+    if (facilityTranslationTimerRef.current) {
+      clearTimeout(facilityTranslationTimerRef.current);
+    }
+
+    facilityTranslationTimerRef.current = setTimeout(async () => {
+      setFacilityTranslating(true);
+      try {
+        const targetLanguages: LanguageCode[] = LANGUAGES.filter(l => l.code !== 'en').map(l => l.code);
+        const results = await Promise.all(
+          targetLanguages.map(async (lang) => {
+            try {
+              const res = await TranslationService.translate(text, lang, 'en');
+              const translatedRaw = res?.success && res?.translations ? res.translations[lang] : '';
+              const translated = Array.isArray(translatedRaw) ? String(translatedRaw[0] || '') : String(translatedRaw || '');
+              return { lang, text: translated };
+            } catch (err) {
+              console.error(`Facility translation error for ${lang}:`, err);
+              return { lang, text: '' };
+            }
+          })
+        );
+
+        // Only fill languages that are currently empty (don't overwrite manual edits)
+        setNewFacilityTranslations(prev => {
+          const next = { ...prev, en: englishText };
+          results.forEach(({ lang, text }) => {
+            if (!next[lang] || !next[lang].trim()) {
+              next[lang] = text;
+            }
+          });
+          return next;
+        });
+      } finally {
+        setFacilityTranslating(false);
+      }
+    }, 900);
+  };
+
+  // Handle creating new facility
+  const handleCreateFacility = async () => {
+    // Validation
+    if (!newFacilityCode || !newFacilityCode.trim()) {
+      setFacilityError('Facility code is required');
+      return;
+    }
+
+    // At least English translation is required
+    if (!newFacilityTranslations.en || !newFacilityTranslations.en.trim()) {
+      setFacilityError('English display name is required');
+      return;
+    }
+
+    setCreatingFacility(true);
+    setFacilityError('');
+
+    try {
+      // Get the next display_order (max + 1 or 0 if no facilities)
+      const maxDisplayOrder = facilities.length > 0
+        ? Math.max(...facilities.map(f => f.display_order || 0))
+        : -1;
+      const nextDisplayOrder = maxDisplayOrder + 1;
+
+      // Create master data (created_by will be null for admin)
+      const result = await MasterDataService.createMasterData(
+        'facility',
+        newFacilityCode.trim().toUpperCase(),
+        nextDisplayOrder,
+        undefined, // metadata
+        null // created_by = null for admin
+      );
+
+      if (!result.success) {
+        throw new Error(result.error?.message || 'Failed to create facility');
+      }
+
+      const newMasterId = result.data?.master_id;
+      if (!newMasterId) {
+        throw new Error('Failed to get new facility ID');
+      }
+
+      // Create translations for all languages
+      const translationPromises = LANGUAGES.map(async (lang) => {
+        const displayName = newFacilityTranslations[lang.code]?.trim();
+        if (displayName) {
+          return await MasterDataService.upsertTranslation(
+            newMasterId,
+            lang.code.toUpperCase(),
+            displayName
+          );
+        }
+        return { success: true };
+      });
+
+      const translationResults = await Promise.all(translationPromises);
+      const failedTranslations = translationResults.filter(r => !r.success);
+      
+      if (failedTranslations.length > 0) {
+        console.error('Some translations failed:', failedTranslations);
+        // Continue anyway, at least English should be created
+      }
+
+      // Refresh facilities list
+      await loadFacilities();
+
+      // Auto-select the newly created facility
+      setSelectedFacilityIds(prev => new Set([...prev, newMasterId]));
+
+      handleCloseFacilityDialog();
+    } catch (error: any) {
+      console.error('Error creating facility:', error);
+      setFacilityError(error.message || 'Failed to create facility');
+    } finally {
+      setCreatingFacility(false);
+    }
+  };
+
   // Save food changes
   const handleSaveFoodChanges = async () => {
     if (!foodId) return;
@@ -707,6 +980,7 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
           status: editedFoodDetails.status,
           is_active: editedFoodDetails.is_active,
           establish_year: editedFoodDetails.establish_year,
+          facility_ids: Array.from(selectedFacilityIds),
         })
         .eq('food_id', foodId);
 
@@ -912,8 +1186,9 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
         }
 
         for (const hour of foodHours) {
-          // Map day_of_week: 7 (Sunday in UI) -> 0 (Sunday in DB), others stay the same
-          const dayOfWeek = hour.day_of_week === 7 ? 0 : hour.day_of_week;
+          // Map UI day_of_week (1 = Monday, ..., 7 = Sunday) back to DB (0 = Monday, ..., 6 = Sunday)
+          const uiDay = hour.day_of_week;
+          const dayOfWeek = uiDay === 7 ? 6 : uiDay - 1; // 7 -> 6 (Sunday), 1 -> 0 (Monday), ..., 6 -> 5 (Saturday)
           const hourData: any = {
             food_id: foodId,
             day_of_week: dayOfWeek,
@@ -1810,6 +2085,95 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
               )}
             </Box>
 
+            {/* Facilities Section */}
+            <Box>
+              <Divider sx={{ my: 2 }} />
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Facilities ({selectedFacilityIds.size})
+                </Typography>
+                {editMode && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={handleOpenFacilityDialog}
+                  >
+                    Add Facility
+                  </Button>
+                )}
+              </Stack>
+              {facilities.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                  No facilities available
+                </Typography>
+              ) : (
+                <Grid container spacing={2}>
+                  {facilities.map((facility) => {
+                    const isSelected = selectedFacilityIds.has(facility.master_id);
+                    const facilityName = currentLanguageTab === 'en'
+                      ? facility.display_name
+                      : facilityTranslations[facility.master_id]?.[currentLanguageTab] || facility.display_name;
+
+                    return (
+                      <Grid item xs={12} sm={6} md={4} key={facility.master_id}>
+                        <Card
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            border: isSelected ? 2 : 1,
+                            borderColor: isSelected ? 'primary.main' : 'divider',
+                            bgcolor: isSelected ? 'action.selected' : 'background.paper',
+                            cursor: editMode ? 'pointer' : 'default',
+                            '&:hover': editMode ? {
+                              bgcolor: 'action.hover',
+                            } : {},
+                          }}
+                          onClick={() => {
+                            if (editMode) {
+                              setSelectedFacilityIds(prev => {
+                                const newSet = new Set(prev);
+                                if (newSet.has(facility.master_id)) {
+                                  newSet.delete(facility.master_id);
+                                } else {
+                                  newSet.add(facility.master_id);
+                                }
+                                return newSet;
+                              });
+                            }
+                          }}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            {editMode && (
+                              <Checkbox
+                                checked={isSelected}
+                                onChange={() => {
+                                  setSelectedFacilityIds(prev => {
+                                    const newSet = new Set(prev);
+                                    if (newSet.has(facility.master_id)) {
+                                      newSet.delete(facility.master_id);
+                                    } else {
+                                      newSet.add(facility.master_id);
+                                    }
+                                    return newSet;
+                                  });
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                size="small"
+                              />
+                            )}
+                            <Typography variant="body2" sx={{ flex: 1 }}>
+                              {facilityName}
+                            </Typography>
+                          </Stack>
+                        </Card>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              )}
+            </Box>
+
             {/* Meal Types Section */}
             <Box>
               <Divider sx={{ my: 2 }} />
@@ -2088,6 +2452,87 @@ const FoodDetailsDialog: React.FC<FoodDetailsDialogProps> = ({ open, foodId, onC
             disabled={selectedTagIds.size === 0}
           >
             Add Selected ({selectedTagIds.size})
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Facility Creation Dialog */}
+      <Dialog open={facilityDialogOpen} onClose={handleCloseFacilityDialog} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">Add New Facility</Typography>
+          <IconButton onClick={handleCloseFacilityDialog} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {facilityError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setFacilityError('')}>
+              {facilityError}
+            </Alert>
+          )}
+          <Stack spacing={3}>
+            <TextField
+              fullWidth
+              label="Facility Code"
+              value={newFacilityCode}
+              onChange={(e) => setNewFacilityCode(e.target.value.toUpperCase())}
+              placeholder="e.g., WIFI, PARKING"
+              helperText="Enter a unique code for the facility (will be converted to uppercase)"
+              required
+            />
+
+            <Box>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                Display Names (Translations)
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                Enter display names for each language. English is required.
+              </Typography>
+              <Grid container spacing={2}>
+                {LANGUAGES.map((lang) => (
+                  <Grid item xs={12} sm={6} key={lang.code}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label={`${lang.label} ${lang.code === 'en' ? '*' : ''}`}
+                      value={newFacilityTranslations[lang.code] || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setNewFacilityTranslations(prev => ({
+                          ...prev,
+                          [lang.code]: value,
+                        }));
+                        if (lang.code === 'en') {
+                          autoTranslateFacilityFromEnglish(value);
+                        }
+                      }}
+                      InputProps={{
+                        endAdornment: lang.code === 'en' && facilityTranslating ? (
+                          <InputAdornment position="end">
+                            <CircularProgress size={16} />
+                          </InputAdornment>
+                        ) : undefined,
+                      }}
+                      required={lang.code === 'en'}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseFacilityDialog} disabled={creatingFacility}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreateFacility}
+            variant="contained"
+            color="primary"
+            disabled={creatingFacility || !newFacilityCode.trim() || !newFacilityTranslations.en.trim()}
+            startIcon={creatingFacility ? <CircularProgress size={16} /> : <AddIcon />}
+          >
+            {creatingFacility ? 'Creating...' : 'Create Facility'}
           </Button>
         </DialogActions>
       </Dialog>

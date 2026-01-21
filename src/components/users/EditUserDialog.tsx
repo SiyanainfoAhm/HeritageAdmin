@@ -32,29 +32,69 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
     email: '',
     phone: '',
     is_verified: false,
+    user_type_verified: false,
     language_code: 'EN',
     user_type_id: 1,
   });
   const [userTypes, setUserTypes] = useState<UserType[]>([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loadingUser, setLoadingUser] = useState(false);
 
   useEffect(() => {
-    if (open) {
+    if (open && user) {
       fetchUserTypes();
+      fetchUserData();
+      setError('');
+    }
+  }, [open, user?.user_id]);
+
+  const fetchUserData = async () => {
+    if (!user?.user_id) return;
+    
+    setLoadingUser(true);
+    try {
+      const userDetails = await UserService.getUserDetails(user.user_id);
+      if (userDetails) {
+        // Use user_type_verified as primary, fallback to is_verified
+        const userTypeVerified = (userDetails as any).user_type_verified;
+        const verifiedStatus = userTypeVerified !== undefined && userTypeVerified !== null 
+          ? userTypeVerified === true 
+          : userDetails.is_verified;
+        
+        setFormData({
+          full_name: userDetails.full_name,
+          email: userDetails.email,
+          phone: userDetails.phone || '',
+          is_verified: userDetails.is_verified,
+          user_type_verified: verifiedStatus,
+          language_code: userDetails.language_code || 'EN',
+          user_type_id: userDetails.user_type_id,
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching user data:', err);
+      // Fallback to user prop if fetch fails
       if (user) {
+        const userTypeVerified = (user as any).user_type_verified;
+        const verifiedStatus = userTypeVerified !== undefined && userTypeVerified !== null 
+          ? userTypeVerified === true 
+          : user.is_verified;
+        
         setFormData({
           full_name: user.full_name,
           email: user.email,
           phone: user.phone || '',
           is_verified: user.is_verified,
+          user_type_verified: verifiedStatus,
           language_code: user.language_code || 'EN',
           user_type_id: user.user_type_id,
         });
       }
-      setError('');
+    } finally {
+      setLoadingUser(false);
     }
-  }, [open, user]);
+  };
 
   const fetchUserTypes = async () => {
     try {
@@ -100,6 +140,11 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Edit User</DialogTitle>
       <DialogContent>
+        {loadingUser && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Loading user data...
+          </Alert>
+        )}
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
@@ -113,6 +158,7 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
           onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
           margin="normal"
           required
+          disabled={loadingUser || saving}
         />
         <TextField
           fullWidth
@@ -122,6 +168,7 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
           onChange={(e) => setFormData({ ...formData, email: e.target.value })}
           margin="normal"
           required
+          disabled={loadingUser || saving}
         />
         <TextField
           fullWidth
@@ -129,6 +176,7 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
           value={formData.phone || ''}
           onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
           margin="normal"
+          disabled={loadingUser || saving}
         />
         <FormControl fullWidth margin="normal">
           <InputLabel>User Type</InputLabel>
@@ -136,6 +184,7 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
             value={formData.user_type_id || 1}
             label="User Type"
             onChange={(e) => setFormData({ ...formData, user_type_id: e.target.value as number })}
+            disabled={loadingUser || saving}
           >
             {userTypes.map((type) => (
               <MenuItem key={type.user_type_id} value={type.user_type_id}>
@@ -150,6 +199,7 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
             value={formData.language_code || 'EN'}
             label="Language"
             onChange={(e) => setFormData({ ...formData, language_code: e.target.value })}
+            disabled={loadingUser || saving}
           >
             <MenuItem value="EN">English</MenuItem>
             <MenuItem value="HI">Hindi</MenuItem>
@@ -162,8 +212,9 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({ open, onClose, onSave, 
         <FormControlLabel
           control={
             <Switch
-              checked={formData.is_verified || false}
-              onChange={(e) => setFormData({ ...formData, is_verified: e.target.checked })}
+              checked={formData.user_type_verified || false}
+              onChange={(e) => setFormData({ ...formData, user_type_verified: e.target.checked })}
+              disabled={loadingUser || saving}
             />
           }
           label="Verified"

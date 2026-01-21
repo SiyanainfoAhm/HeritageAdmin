@@ -515,7 +515,12 @@ const Verification = () => {
         } else {
           // For other table data, status values are lowercase: 'draft' or 'published'
           const statusValue = statusFilter.toLowerCase();
-          query = query.eq('status', statusValue);
+          // For food table, when filtering for 'draft', also include 'pending' status
+          if (tableName === 'heritage_food' && statusValue === 'draft') {
+            query = query.in('status', ['draft', 'pending']);
+          } else {
+            query = query.eq('status', statusValue);
+          }
         }
       }
 
@@ -557,7 +562,12 @@ const Verification = () => {
               fallbackQuery.eq('is_active', isActive);
             } else {
               const statusValue = statusFilter.toLowerCase();
-              fallbackQuery.eq('status', statusValue);
+              // For food table, when filtering for 'draft', also include 'pending' status
+              if (tableName === 'heritage_food' && statusValue === 'draft') {
+                fallbackQuery.in('status', ['draft', 'pending']);
+              } else {
+                fallbackQuery.eq('status', statusValue);
+              }
             }
           }
           const { data: fallbackData, error: fallbackError } = await fallbackQuery.order(orderColumn, { ascending: false });

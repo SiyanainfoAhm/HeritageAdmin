@@ -362,8 +362,8 @@ export class ChatService {
         async (payload) => {
           console.log('New message INSERT received:', payload.new);
           if (payload.new) {
-            const message = payload.new as ChatMessage;
-            callbacks.onInsert!(message);
+          const message = payload.new as ChatMessage;
+          callbacks.onInsert!(message);
           }
         }
       );
@@ -382,8 +382,8 @@ export class ChatService {
         async (payload) => {
           console.log('Message UPDATE received:', payload.new);
           if (payload.new) {
-            const message = payload.new as ChatMessage;
-            callbacks.onUpdate!(message);
+          const message = payload.new as ChatMessage;
+          callbacks.onUpdate!(message);
           }
         }
       );

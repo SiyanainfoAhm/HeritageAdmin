@@ -25,6 +25,7 @@ export interface UserUpdateData {
   email?: string;
   phone?: string;
   is_verified?: boolean;
+  user_type_verified?: boolean;
   language_code?: string;
   user_type_id?: number;
 }
@@ -52,7 +53,8 @@ export class UserService {
         query = query.eq('user_type_id', filters.userTypeId);
       }
       if (filters?.isVerified !== undefined) {
-        query = query.eq('is_verified', filters.isVerified);
+        // Filter by user_type_verified instead of is_verified for status
+        query = query.eq('user_type_verified', filters.isVerified);
       }
       if (filters?.startDate) {
         query = query.gte('created_at', filters.startDate.toISOString());
@@ -87,6 +89,10 @@ export class UserService {
 
         return {
           ...rest,
+          // Explicitly ensure is_verified is properly mapped as boolean (only true if explicitly true)
+          is_verified: rest.is_verified === true,
+          // Include user_type_verified for status display - preserve the value as-is
+          user_type_verified: rest.user_type_verified,
           user_type_name: userTypeName,
           avatar_url: profile?.avatar_url || undefined,
         };
@@ -137,6 +143,7 @@ export class UserService {
         user_type_id: userData.user_type_id,
         user_type_name: userTypeName,
         is_verified: userData.is_verified,
+        user_type_verified: userData.user_type_verified,
         language_code: userData.language_code,
         created_at: userData.created_at,
         updated_at: userData.updated_at,
@@ -302,11 +309,22 @@ export class UserService {
    */
   static async updateUser(userId: number, updates: UserUpdateData): Promise<{ success: boolean; error?: string }> {
     try {
+      // Prepare update data
+      const updateData: any = { ...updates };
+      
+      // If user_type_verified is being set to true, also set verified_on
+      if (updates.user_type_verified === true) {
+        // Set verified_on to current date in YYYY-MM-DD format
+        const today = new Date();
+        updateData.verified_on = today.toISOString().split('T')[0];
+      } else if (updates.user_type_verified === false) {
+        // If setting to false, clear verified_on
+        updateData.verified_on = null;
+      }
+      
       const { error } = await supabase
         .from('heritage_user')
-        .update({
-          ...updates,
-        })
+        .update(updateData)
         .eq('user_id', userId);
 
       if (error) {

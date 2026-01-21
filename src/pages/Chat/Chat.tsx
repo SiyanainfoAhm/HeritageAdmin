@@ -223,7 +223,7 @@ const Chat = () => {
             console.error('Invalid message received:', newMessage);
             return;
           }
-
+          
           // Deduplication: Check if message already exists
           if (messageIdsRef.current.has(newMessage.message_id)) {
             console.log('Message already exists, skipping:', newMessage.message_id);
