@@ -32,8 +32,6 @@ import {
   Cancel as CancelIcon,
   ArrowUpward as ArrowUpwardIcon,
   ArrowDownward as ArrowDownwardIcon,
-  VerifiedUser as VerifiedUserIcon,
-  PersonOff as PersonOffIcon,
 } from '@mui/icons-material';
 import { UserService, UserFilters } from '@/services/user.service';
 import { User, UserType } from '@/types';
@@ -177,35 +175,6 @@ const Users = () => {
         fetchUsers();
       } else {
         setError(result.error || 'Failed to update user activation');
-      }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
-    } finally {
-      setActionLoading(false);
-      setMenuAnchor(null);
-    }
-  };
-
-  // Handle verify/unverify (using user_type_verified)
-  const handleToggleVerification = async (user: User) => {
-    setActionLoading(true);
-    try {
-      // Get current user_type_verified status
-      const userTypeVerified = (user as any).user_type_verified;
-      const currentStatus = userTypeVerified !== undefined && userTypeVerified !== null 
-        ? (userTypeVerified === true || userTypeVerified === 'true' || userTypeVerified === 1 || userTypeVerified === '1')
-        : false;
-      
-      const newStatus = !currentStatus;
-      const result = await UserService.updateUser(user.user_id, {
-        user_type_verified: newStatus,
-      });
-      
-      if (result.success) {
-        setSuccess(`User ${newStatus ? 'verified' : 'unverified'} successfully`);
-        fetchUsers();
-      } else {
-        setError(result.error || 'Failed to update user verification');
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred');
@@ -574,25 +543,6 @@ const Users = () => {
             <MenuItem onClick={() => handleEdit(menuUser)}>
               <EditIcon fontSize="small" sx={{ mr: 1 }} />
               Edit User
-            </MenuItem>
-            <MenuItem onClick={() => handleToggleVerification(menuUser)} disabled={actionLoading}>
-              {(() => {
-                const userTypeVerified = (menuUser as any).user_type_verified;
-                const isVerified = userTypeVerified !== undefined && userTypeVerified !== null 
-                  ? (userTypeVerified === true || userTypeVerified === 'true' || userTypeVerified === 1 || userTypeVerified === '1')
-                  : false;
-                return isVerified ? (
-                  <>
-                    <PersonOffIcon fontSize="small" sx={{ mr: 1 }} />
-                    Unverify
-                  </>
-                ) : (
-                  <>
-                    <VerifiedUserIcon fontSize="small" sx={{ mr: 1 }} />
-                    Verify
-                  </>
-                );
-              })()}
             </MenuItem>
             <MenuItem onClick={() => handleToggleActivation(menuUser)} disabled={actionLoading}>
               {menuUser.is_verified ? (
