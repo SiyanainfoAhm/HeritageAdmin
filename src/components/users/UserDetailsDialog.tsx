@@ -14,12 +14,6 @@ import {
   Alert,
   Tabs,
   Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Avatar,
 } from '@mui/material';
 import { UserDetails } from '@/services/user.service';
@@ -41,17 +35,24 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({ open, onClose, us
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const [error, setError] = useState('');
+  const [bookingsError, setBookingsError] = useState('');
 
   useEffect(() => {
     if (open && userId) {
       fetchUserDetails();
-      fetchUserBookings();
     } else {
       setUserDetails(null);
       setUserBookings([]);
       setError('');
+      setBookingsError('');
     }
   }, [open, userId]);
+
+  useEffect(() => {
+    if (open && userId && userDetails) {
+      fetchUserBookings();
+    }
+  }, [open, userId, userDetails]);
 
   const fetchUserDetails = async () => {
     if (!userId) return;
@@ -74,28 +75,17 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({ open, onClose, us
   const fetchUserBookings = async () => {
     if (!userId) return;
     setBookingsLoading(true);
+    setBookingsError('');
     try {
-      const bookings = await UserService.getUserBookings(userId);
+      const userTypeName = userDetails?.user_type_name || '';
+      const bookings = await UserService.getUserBookings(userId, userTypeName);
       setUserBookings(bookings);
     } catch (err: any) {
+      const errorMessage = err.message || 'Failed to fetch user bookings';
+      setBookingsError(errorMessage);
       console.error('Error fetching user bookings:', err);
     } finally {
       setBookingsLoading(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'confirmed':
-      case 'paid':
-        return 'success';
-      case 'pending':
-        return 'warning';
-      case 'cancelled':
-      case 'failed':
-        return 'error';
-      default:
-        return 'default';
     }
   };
 
@@ -106,8 +96,85 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({ open, onClose, us
       event: 'Event',
       food: 'Food',
       guide: 'Guide',
+      product: 'Artisan Artwork Purchase',
     };
     return names[module] || module;
+  };
+
+  // Get relevant booking types based on user type
+  const getRelevantBookingTypes = (): string[] => {
+    if (!userDetails) return ['food', 'tour', 'hotel', 'event', 'product'];
+    
+    const userTypeName = (userDetails.user_type_name || '').toLowerCase();
+    
+    // Check for hotel-related user types
+    if (userTypeName.includes('hotel') || userTypeName.includes('accommodation')) {
+      return ['hotel'];
+    }
+    
+    // Check for food vendor user types
+    if (userTypeName.includes('food') || userTypeName.includes('beverage') || userTypeName.includes('vendor')) {
+      return ['food'];
+    }
+    
+    // Check for event organizer user types
+    if (userTypeName.includes('event') || userTypeName.includes('organizer')) {
+      return ['event'];
+    }
+    
+    // Check for tour operator user types
+    if (userTypeName.includes('tour') || userTypeName.includes('operator')) {
+      return ['tour'];
+    }
+    
+    // Check for guide user types
+    if (userTypeName.includes('guide') || userTypeName.includes('local')) {
+      return ['guide'];
+    }
+    
+    // Check for artisan user types
+    if (userTypeName.includes('artisan') || userTypeName.includes('artist')) {
+      return ['product'];
+    }
+    
+    // Default: show all booking types
+    return ['food', 'tour', 'hotel', 'event', 'guide', 'product'];
+  };
+
+  // Calculate booking counts grouped by entity name
+  const getBookingCountsByEntity = () => {
+    const relevantTypes = getRelevantBookingTypes();
+    const entityCounts: Array<{ type: string; name: string; count: number }> = [];
+    const entityMap = new Map<string, number>();
+
+    // Group bookings by entity name
+    userBookings.forEach((booking) => {
+      const type = booking.module_type;
+      if (relevantTypes.includes(type)) {
+        const entityName = (booking as any).entity_name || formatModuleName(type);
+        const key = `${type}:${entityName}`;
+        entityMap.set(key, (entityMap.get(key) || 0) + 1);
+      }
+    });
+
+    // Convert map to array
+    entityMap.forEach((count, key) => {
+      const [type, name] = key.split(':');
+      entityCounts.push({ type, name, count });
+    });
+
+    // Sort by count descending, then by name
+    entityCounts.sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name);
+    });
+
+    return entityCounts;
+  };
+
+  // Calculate total booking count
+  const getTotalBookingCount = () => {
+    return userBookings.length;
   };
 
   return (
@@ -234,63 +301,70 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({ open, onClose, us
             {activeTab === 1 && (
               <Box>
                 <Typography variant="h6" gutterBottom>
-                  User Bookings ({userBookings.length})
+                  User Bookings Summary
                 </Typography>
                 {bookingsLoading ? (
                   <Box display="flex" justifyContent="center" p={4}>
                     <CircularProgress />
                   </Box>
-                ) : userBookings.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">
-                    No bookings found for this user.
-                  </Typography>
+                ) : bookingsError ? (
+                  <Alert severity="error" sx={{ mt: 2 }}>
+                    {bookingsError}
+                  </Alert>
                 ) : (
-                  <TableContainer>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Reference</TableCell>
-                          <TableCell>Module</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Payment</TableCell>
-                          <TableCell>Amount</TableCell>
-                          <TableCell>Date</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {userBookings.map((booking) => (
-                          <TableRow key={`${booking.module_type}-${booking.booking_id}`}>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight="medium">
-                                {booking.booking_reference}
+                  <Box>
+                    {userBookings.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                        No bookings found for this user.
+                      </Typography>
+                    ) : (
+                      <Grid container spacing={2} sx={{ mt: 1 }}>
+                        {getBookingCountsByEntity().map((entity, index) => (
+                          <Grid item xs={12} sm={6} md={4} key={`${entity.type}-${entity.name}-${index}`}>
+                            <Box
+                              sx={{
+                                p: 2,
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                borderRadius: 2,
+                                textAlign: 'center',
+                              }}
+                            >
+                              <Typography variant="h4" color="primary" fontWeight="bold">
+                                {entity.count}
                               </Typography>
-                            </TableCell>
-                            <TableCell>{formatModuleName(booking.module_type)}</TableCell>
-                            <TableCell>
-                              <Chip
-                                label={booking.status}
-                                color={getStatusColor(booking.status) as any}
-                                size="small"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                label={booking.payment_status}
-                                color={getStatusColor(booking.payment_status) as any}
-                                size="small"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              {booking.currency} {booking.total_amount.toLocaleString()}
-                            </TableCell>
-                            <TableCell>
-                              {format(new Date(booking.created_at), 'MMM dd, yyyy')}
-                            </TableCell>
-                          </TableRow>
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {entity.name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                {formatModuleName(entity.type)}
+                              </Typography>
+                            </Box>
+                          </Grid>
                         ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                        <Grid item xs={12}>
+                          <Box
+                            sx={{
+                              p: 2,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              borderRadius: 2,
+                              textAlign: 'center',
+                              bgcolor: 'primary.light',
+                              color: 'primary.contrastText',
+                            }}
+                          >
+                            <Typography variant="h4" fontWeight="bold">
+                              {getTotalBookingCount()}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mt: 1 }}>
+                              Total Bookings
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      </Grid>
+                    )}
+                  </Box>
                 )}
               </Box>
             )}
