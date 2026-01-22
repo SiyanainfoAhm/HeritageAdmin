@@ -161,116 +161,391 @@ export class UserService {
 
   /**
    * Get user bookings
+   * @param userId - The user ID
+   * @param userTypeName - Optional user type name to filter bookings from business owner perspective
    */
-  static async getUserBookings(userId: number): Promise<Booking[]> {
+  static async getUserBookings(userId: number, userTypeName?: string): Promise<Booking[]> {
     try {
       const bookings: Booking[] = [];
+      const userType = (userTypeName || '').toLowerCase();
+      const isHotelOwner = userType.includes('hotel') || userType.includes('accommodation');
+      const isFoodVendor = userType.includes('food') || userType.includes('beverage') || userType.includes('vendor');
+      const isEventOrganizer = userType.includes('event') || userType.includes('organizer');
+      const isTourOperator = userType.includes('tour') || userType.includes('operator');
+      const isGuide = userType.includes('guide') || userType.includes('local');
+      const isArtisan = userType.includes('artisan') || userType.includes('artist');
 
-      // Hotel bookings
-      const { data: hotelBookings } = await supabase
-        .from('heritage_hotelbooking')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+      // Hotel bookings - from owner's perspective if hotel owner, otherwise customer perspective
+      if (isHotelOwner) {
+        // Get hotels owned by this user, then get bookings for those hotels
+        const { data: userHotels } = await supabase
+          .from('heritage_hotel')
+          .select('hotel_id')
+          .eq('created_by', userId);
 
-      hotelBookings?.forEach((b: any) => {
-        bookings.push({
-          booking_id: b.booking_id,
-          booking_reference: b.booking_reference || `HTL-${b.booking_id}`,
-          module_type: 'hotel',
-          status: b.booking_status || 'pending',
-          payment_status: b.payment_status || 'pending',
-          total_amount: b.total_amount || 0,
-          currency: b.currency || 'INR',
-          created_at: b.created_at,
-          customer_name: b.guest_full_name,
-          customer_email: b.guest_email,
-          customer_phone: b.guest_phone,
-          user_id: b.user_id,
-          ...b,
+        if (userHotels && userHotels.length > 0) {
+          const hotelIds = userHotels.map((h) => h.hotel_id);
+          const { data: hotelBookings } = await supabase
+            .from('heritage_hotelbooking')
+            .select('*, hotel:heritage_hotel!hotel_id(hotel_id)')
+            .in('hotel_id', hotelIds)
+            .order('created_at', { ascending: false });
+
+          // Fetch English translations for hotels
+          const { data: hotelTranslations } = await supabase
+            .from('heritage_hoteltranslation')
+            .select('hotel_id, hotel_name')
+            .in('hotel_id', hotelIds)
+            .eq('language_code', 'EN');
+
+          const hotelNameMap = new Map<number, string>();
+          hotelTranslations?.forEach((t: any) => {
+            hotelNameMap.set(t.hotel_id, t.hotel_name);
+          });
+
+          hotelBookings?.forEach((b: any) => {
+            const hotel = Array.isArray(b.hotel) ? b.hotel[0] : b.hotel;
+            const hotelId = hotel?.hotel_id || b.hotel_id;
+            bookings.push({
+              booking_id: b.booking_id,
+              booking_reference: b.booking_reference || `HTL-${b.booking_id}`,
+              module_type: 'hotel',
+              status: b.booking_status || 'pending',
+              payment_status: b.payment_status || 'pending',
+              total_amount: b.total_amount || 0,
+              currency: b.currency || 'INR',
+              created_at: b.created_at,
+              customer_name: b.guest_full_name,
+              customer_email: b.guest_email,
+              customer_phone: b.guest_phone,
+              user_id: b.user_id,
+              entity_name: hotelNameMap.get(hotelId) || 'Unknown Hotel',
+              ...b,
+            });
+          });
+        }
+      } else {
+        // Customer perspective
+        const { data: hotelBookings } = await supabase
+          .from('heritage_hotelbooking')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+        hotelBookings?.forEach((b: any) => {
+          bookings.push({
+            booking_id: b.booking_id,
+            booking_reference: b.booking_reference || `HTL-${b.booking_id}`,
+            module_type: 'hotel',
+            status: b.booking_status || 'pending',
+            payment_status: b.payment_status || 'pending',
+            total_amount: b.total_amount || 0,
+            currency: b.currency || 'INR',
+            created_at: b.created_at,
+            customer_name: b.guest_full_name,
+            customer_email: b.guest_email,
+            customer_phone: b.guest_phone,
+            user_id: b.user_id,
+            ...b,
+          });
         });
-      });
+      }
 
-      // Tour bookings
-      const { data: tourBookings } = await supabase
-        .from('heritage_tour_booking')
-        .select('*')
-        .eq('created_by', userId)
-        .order('created_at', { ascending: false });
+      // Tour bookings - from operator's perspective if tour operator, otherwise customer perspective
+      if (isTourOperator) {
+        // Get tours operated by this user, then get bookings for those tours
+        const { data: userTours } = await supabase
+          .from('heritage_tour')
+          .select('tour_id')
+          .eq('user_id', userId);
 
-      tourBookings?.forEach((b: any) => {
-        bookings.push({
-          booking_id: b.booking_id,
-          booking_reference: b.booking_code || `TOUR-${b.booking_id}`,
-          module_type: 'tour',
-          status: b.status || 'pending',
-          payment_status: b.payment_status || 'pending',
-          total_amount: b.total_amount || 0,
-          currency: b.currency || 'INR',
-          created_at: b.created_at,
-          customer_name: b.contact_full_name,
-          customer_email: b.contact_email,
-          customer_phone: b.contact_phone,
-          user_id: b.created_by,
-          ...b,
+        if (userTours && userTours.length > 0) {
+          const tourIds = userTours.map((t) => t.tour_id);
+          const { data: tourBookings } = await supabase
+            .from('heritage_tour_booking')
+            .select('*, tour:heritage_tour!tour_id(tour_id)')
+            .in('tour_id', tourIds)
+            .order('created_at', { ascending: false });
+
+          // Fetch English translations for tours
+          const { data: tourTranslations } = await supabase
+            .from('heritage_tourtranslation')
+            .select('tour_id, tour_name')
+            .in('tour_id', tourIds)
+            .eq('language_code', 'EN');
+
+          const tourNameMap = new Map<number, string>();
+          tourTranslations?.forEach((t: any) => {
+            tourNameMap.set(t.tour_id, t.tour_name);
+          });
+
+          tourBookings?.forEach((b: any) => {
+            const tour = Array.isArray(b.tour) ? b.tour[0] : b.tour;
+            const tourId = tour?.tour_id || b.tour_id;
+            bookings.push({
+              booking_id: b.booking_id,
+              booking_reference: b.booking_code || `TOUR-${b.booking_id}`,
+              module_type: 'tour',
+              status: b.status || 'pending',
+              payment_status: b.payment_status || 'pending',
+              total_amount: b.total_amount || 0,
+              currency: b.currency || 'INR',
+              created_at: b.created_at,
+              customer_name: b.contact_full_name,
+              customer_email: b.contact_email,
+              customer_phone: b.contact_phone,
+              user_id: b.created_by,
+              entity_name: tourNameMap.get(tourId) || 'Unknown Tour',
+              ...b,
+            });
+          });
+        }
+      } else {
+        // Customer perspective
+        const { data: tourBookings } = await supabase
+          .from('heritage_tour_booking')
+          .select('*')
+          .eq('created_by', userId)
+          .order('created_at', { ascending: false });
+
+        tourBookings?.forEach((b: any) => {
+          bookings.push({
+            booking_id: b.booking_id,
+            booking_reference: b.booking_code || `TOUR-${b.booking_id}`,
+            module_type: 'tour',
+            status: b.status || 'pending',
+            payment_status: b.payment_status || 'pending',
+            total_amount: b.total_amount || 0,
+            currency: b.currency || 'INR',
+            created_at: b.created_at,
+            customer_name: b.contact_full_name,
+            customer_email: b.contact_email,
+            customer_phone: b.contact_phone,
+            user_id: b.created_by,
+            ...b,
+          });
         });
-      });
+      }
 
-      // Event bookings
-      const { data: eventBookings } = await supabase
-        .from('heritage_eventbooking')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+      // Event bookings - from organizer's perspective if event organizer, otherwise customer perspective
+      if (isEventOrganizer) {
+        // Get events organized by this user, then get bookings for those events
+        const { data: userEvents } = await supabase
+          .from('heritage_event')
+          .select('event_id')
+          .eq('user_id', userId);
 
-      eventBookings?.forEach((b: any) => {
-        bookings.push({
-          booking_id: b.booking_id,
-          booking_reference: b.booking_reference || `EVT-${b.booking_id}`,
-          module_type: 'event',
-          status: b.booking_status || 'pending',
-          payment_status: b.payment_status || 'pending',
-          total_amount: b.total_amount || 0,
-          currency: b.currency || 'INR',
-          created_at: b.created_at,
-          customer_name: b.attendee_name,
-          customer_email: b.attendee_email,
-          user_id: b.user_id,
-          ...b,
+        if (userEvents && userEvents.length > 0) {
+          const eventIds = userEvents.map((e) => e.event_id);
+          const { data: eventBookings } = await supabase
+            .from('heritage_eventbooking')
+            .select('*')
+            .in('event_id', eventIds)
+            .order('created_at', { ascending: false });
+
+          // Fetch English translations for events
+          const { data: eventTranslations } = await supabase
+            .from('heritage_eventtranslation')
+            .select('event_id, event_name')
+            .in('event_id', eventIds)
+            .eq('language_code', 'EN');
+
+          // Fetch event_name from heritage_event table as fallback
+          const { data: eventData } = await supabase
+            .from('heritage_event')
+            .select('event_id, event_name')
+            .in('event_id', eventIds);
+
+          const eventNameMap = new Map<number, string>();
+          
+          // First, populate from translations
+          eventTranslations?.forEach((t: any) => {
+            if (t.event_name) {
+              eventNameMap.set(t.event_id, t.event_name);
+            }
+          });
+
+          // Then, fill in missing ones from heritage_event table
+          eventData?.forEach((e: any) => {
+            if (!eventNameMap.has(e.event_id) && e.event_name) {
+              eventNameMap.set(e.event_id, e.event_name);
+            }
+          });
+
+          eventBookings?.forEach((b: any) => {
+            const eventId = b.event_id;
+            bookings.push({
+              booking_id: b.booking_id,
+              booking_reference: b.booking_reference || `EVT-${b.booking_id}`,
+              module_type: 'event',
+              status: b.booking_status || 'pending',
+              payment_status: b.payment_status || 'pending',
+              total_amount: b.total_amount || 0,
+              currency: b.currency || 'INR',
+              created_at: b.created_at,
+              customer_name: b.attendee_name,
+              customer_email: b.attendee_email,
+              user_id: b.user_id,
+              entity_name: eventNameMap.get(eventId) || 'Unknown Event',
+              ...b,
+            });
+          });
+        }
+      } else {
+        // Customer perspective
+        const { data: eventBookings } = await supabase
+          .from('heritage_eventbooking')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+        if (eventBookings && eventBookings.length > 0) {
+          // Get unique event IDs from bookings
+          const eventIds = [...new Set(eventBookings.map((b: any) => b.event_id).filter(Boolean))];
+
+          // Fetch English translations for events
+          const { data: eventTranslations } = await supabase
+            .from('heritage_eventtranslation')
+            .select('event_id, event_name')
+            .in('event_id', eventIds)
+            .eq('language_code', 'EN');
+
+          // Fetch event_name from heritage_event table as fallback
+          const { data: eventData } = await supabase
+            .from('heritage_event')
+            .select('event_id, event_name')
+            .in('event_id', eventIds);
+
+          const eventNameMap = new Map<number, string>();
+          
+          // First, populate from translations
+          eventTranslations?.forEach((t: any) => {
+            if (t.event_name) {
+              eventNameMap.set(t.event_id, t.event_name);
+            }
+          });
+
+          // Then, fill in missing ones from heritage_event table
+          eventData?.forEach((e: any) => {
+            if (!eventNameMap.has(e.event_id) && e.event_name) {
+              eventNameMap.set(e.event_id, e.event_name);
+            }
+          });
+
+          eventBookings?.forEach((b: any) => {
+            const eventId = b.event_id;
+            bookings.push({
+              booking_id: b.booking_id,
+              booking_reference: b.booking_reference || `EVT-${b.booking_id}`,
+              module_type: 'event',
+              status: b.booking_status || 'pending',
+              payment_status: b.payment_status || 'pending',
+              total_amount: b.total_amount || 0,
+              currency: b.currency || 'INR',
+              created_at: b.created_at,
+              customer_name: b.attendee_name,
+              customer_email: b.attendee_email,
+              user_id: b.user_id,
+              entity_name: eventNameMap.get(eventId) || 'Unknown Event',
+              ...b,
+            });
+          });
+        }
+      }
+
+      // Food bookings - from vendor's perspective if food vendor, otherwise customer perspective
+      if (isFoodVendor) {
+        // Get restaurants owned by this user, then get bookings for those restaurants
+        const { data: userRestaurants } = await supabase
+          .from('heritage_food')
+          .select('food_id')
+          .eq('created_by', userId);
+
+        if (userRestaurants && userRestaurants.length > 0) {
+          const restaurantIds = userRestaurants.map((r) => r.food_id);
+          const { data: foodBookings } = await supabase
+            .from('heritage_fv_foodbooking')
+            .select('*, restaurant:heritage_food!restaurant_id(food_id)')
+            .in('restaurant_id', restaurantIds)
+            .order('created_at', { ascending: false });
+
+          // Fetch English translations for food/restaurants
+          const { data: foodTranslations } = await supabase
+            .from('heritage_foodtranslation')
+            .select('food_id, food_name')
+            .in('food_id', restaurantIds)
+            .eq('language_code', 'EN');
+
+          const foodNameMap = new Map<number, string>();
+          foodTranslations?.forEach((t: any) => {
+            foodNameMap.set(t.food_id, t.food_name);
+          });
+
+          foodBookings?.forEach((b: any) => {
+            const restaurant = Array.isArray(b.restaurant) ? b.restaurant[0] : b.restaurant;
+            const foodId = restaurant?.food_id || b.restaurant_id;
+            bookings.push({
+              booking_id: b.booking_id,
+              booking_reference: b.booking_reference || `FOOD-${b.booking_id}`,
+              module_type: 'food',
+              status: b.booking_status || 'pending',
+              payment_status: b.payment_status || 'pending',
+              total_amount: b.total_amount || 0,
+              currency: b.currency || 'INR',
+              created_at: b.created_at,
+              customer_name: b.customer_name,
+              customer_email: b.customer_email,
+              customer_phone: b.customer_phone,
+              user_id: b.user_id,
+              entity_name: foodNameMap.get(foodId) || 'Unknown Restaurant',
+              ...b,
+            });
+          });
+        }
+      } else {
+        // Customer perspective
+        const { data: foodBookings } = await supabase
+          .from('heritage_fv_foodbooking')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+        foodBookings?.forEach((b: any) => {
+          bookings.push({
+            booking_id: b.booking_id,
+            booking_reference: b.booking_reference || `FOOD-${b.booking_id}`,
+            module_type: 'food',
+            status: b.booking_status || 'pending',
+            payment_status: b.payment_status || 'pending',
+            total_amount: b.total_amount || 0,
+            currency: b.currency || 'INR',
+            created_at: b.created_at,
+            customer_name: b.customer_name,
+            customer_email: b.customer_email,
+            customer_phone: b.customer_phone,
+            user_id: b.user_id,
+            ...b,
+          });
         });
-      });
+      }
 
-      // Food bookings
-      const { data: foodBookings } = await supabase
-        .from('heritage_fv_foodbooking')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      foodBookings?.forEach((b: any) => {
-        bookings.push({
-          booking_id: b.booking_id,
-          booking_reference: b.booking_reference || `FOOD-${b.booking_id}`,
-          module_type: 'food',
-          status: b.booking_status || 'pending',
-          payment_status: b.payment_status || 'pending',
-          total_amount: b.total_amount || 0,
-          currency: b.currency || 'INR',
-          created_at: b.created_at,
-          customer_name: b.customer_name,
-          customer_email: b.customer_email,
-          customer_phone: b.customer_phone,
-          user_id: b.user_id,
-          ...b,
-        });
-      });
-
-      // Guide bookings
-      const { data: guideBookings } = await supabase
-        .from('heritage_guide_booking')
-        .select('*')
-        .eq('tourist_user_id', userId)
-        .order('created_at', { ascending: false });
+      // Guide bookings - from guide's perspective if guide, otherwise customer perspective
+      let guideBookings;
+      if (isGuide) {
+        const { data } = await supabase
+          .from('heritage_guide_booking')
+          .select('*')
+          .eq('guide_user_id', userId)
+          .order('created_at', { ascending: false });
+        guideBookings = data;
+      } else {
+        const { data } = await supabase
+          .from('heritage_guide_booking')
+          .select('*')
+          .eq('tourist_user_id', userId)
+          .order('created_at', { ascending: false });
+        guideBookings = data;
+      }
 
       guideBookings?.forEach((b: any) => {
         bookings.push({
@@ -285,10 +560,119 @@ export class UserService {
           customer_name: b.customer_name,
           customer_email: b.customer_email,
           customer_phone: b.customer_phone,
-          user_id: b.tourist_user_id,
+          user_id: isGuide ? b.guide_user_id : b.tourist_user_id,
           ...b,
         });
       });
+
+      // Product/Artisan Artwork purchases - from artisan's perspective if artisan, otherwise buyer perspective
+      if (isArtisan) {
+        try {
+          // Get artworks created by this artisan, then get purchases for those artworks
+          const { data: artisanData } = await supabase
+            .from('heritage_artisan')
+            .select('artisan_id')
+            .eq('user_id', userId)
+            .single();
+
+          if (artisanData) {
+            const { data: userArtworks } = await supabase
+              .from('heritage_artwork')
+              .select('artwork_id')
+              .eq('artisan_id', artisanData.artisan_id);
+
+            if (userArtworks && userArtworks.length > 0) {
+              const artworkIds = userArtworks.map((a) => a.artwork_id);
+              const { data: artworkPurchases } = await supabase
+                .from('heritage_artworkpurchase')
+                .select('*')
+                .in('artwork_id', artworkIds)
+                .order('created_at', { ascending: false });
+
+              // Fetch English translations for artworks
+              const { data: artworkTranslations } = await supabase
+                .from('heritage_artworktranslation')
+                .select('artwork_id, artwork_name')
+                .in('artwork_id', artworkIds)
+                .eq('language_code', 'EN');
+
+              const artworkNameMap = new Map<number, string>();
+              artworkTranslations?.forEach((t: any) => {
+                artworkNameMap.set(t.artwork_id, t.artwork_name);
+              });
+
+              artworkPurchases?.forEach((b: any) => {
+                const artworkId = b.artwork_id;
+                bookings.push({
+                  booking_id: b.purchase_id || 0,
+                  booking_reference: b.purchase_reference || `ART-${b.purchase_id || 0}`,
+                  module_type: 'product',
+                  status: b.status || 'completed',
+                  payment_status: b.payment_status || 'paid',
+                  total_amount: b.total_amount || b.price || 0,
+                  currency: b.currency || 'INR',
+                  created_at: b.created_at || b.purchase_date,
+                  customer_name: b.buyer_name,
+                  customer_email: b.buyer_email,
+                  user_id: b.buyer_id,
+                  entity_name: artworkNameMap.get(artworkId) || 'Unknown Artwork',
+                  ...b,
+                });
+              });
+            }
+          }
+        } catch (productError) {
+          console.warn('Artwork purchases table not found or error:', productError);
+        }
+      } else {
+        // Buyer perspective
+        try {
+          const { data: artworkPurchases } = await supabase
+            .from('heritage_artworkpurchase')
+            .select('*')
+            .eq('buyer_id', userId)
+            .order('created_at', { ascending: false });
+
+          if (artworkPurchases && artworkPurchases.length > 0) {
+            // Get unique artwork IDs from purchases
+            const artworkIds = [...new Set(artworkPurchases.map((p: any) => p.artwork_id).filter(Boolean))];
+
+            // Fetch English translations for artworks
+            const { data: artworkTranslations } = await supabase
+              .from('heritage_artworktranslation')
+              .select('artwork_id, artwork_name')
+              .in('artwork_id', artworkIds)
+              .eq('language_code', 'EN');
+
+            const artworkNameMap = new Map<number, string>();
+            artworkTranslations?.forEach((t: any) => {
+              artworkNameMap.set(t.artwork_id, t.artwork_name);
+            });
+
+            artworkPurchases?.forEach((b: any) => {
+              const artworkId = b.artwork_id;
+              bookings.push({
+                booking_id: b.purchase_id || 0,
+                booking_reference: b.purchase_reference || `ART-${b.purchase_id || 0}`,
+                module_type: 'product',
+                status: b.status || 'completed',
+                payment_status: b.payment_status || 'paid',
+                total_amount: b.total_amount || b.price || 0,
+                currency: b.currency || 'INR',
+                created_at: b.created_at || b.purchase_date,
+                customer_name: b.buyer_name,
+                customer_email: b.buyer_email,
+                user_id: b.buyer_id,
+                entity_name: artworkNameMap.get(artworkId) || 'Unknown Artwork',
+                ...b,
+              });
+            });
+          }
+        } catch (productError) {
+          // Table might not exist, silently continue
+          console.warn('Artwork purchases table not found or error:', productError);
+        }
+      }
 
       // Sort by created_at descending
       bookings.sort((a, b) => {
