@@ -226,29 +226,29 @@ export class UserService {
         }
       } else {
         // Customer perspective
-        const { data: hotelBookings } = await supabase
-          .from('heritage_hotelbooking')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
+      const { data: hotelBookings } = await supabase
+        .from('heritage_hotelbooking')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
 
-        hotelBookings?.forEach((b: any) => {
-          bookings.push({
-            booking_id: b.booking_id,
-            booking_reference: b.booking_reference || `HTL-${b.booking_id}`,
-            module_type: 'hotel',
-            status: b.booking_status || 'pending',
-            payment_status: b.payment_status || 'pending',
-            total_amount: b.total_amount || 0,
-            currency: b.currency || 'INR',
-            created_at: b.created_at,
-            customer_name: b.guest_full_name,
-            customer_email: b.guest_email,
-            customer_phone: b.guest_phone,
-            user_id: b.user_id,
-            ...b,
-          });
+      hotelBookings?.forEach((b: any) => {
+        bookings.push({
+          booking_id: b.booking_id,
+          booking_reference: b.booking_reference || `HTL-${b.booking_id}`,
+          module_type: 'hotel',
+          status: b.booking_status || 'pending',
+          payment_status: b.payment_status || 'pending',
+          total_amount: b.total_amount || 0,
+          currency: b.currency || 'INR',
+          created_at: b.created_at,
+          customer_name: b.guest_full_name,
+          customer_email: b.guest_email,
+          customer_phone: b.guest_phone,
+          user_id: b.user_id,
+          ...b,
         });
+      });
       }
 
       // Tour bookings - from operator's perspective if tour operator, otherwise customer perspective
@@ -302,29 +302,29 @@ export class UserService {
         }
       } else {
         // Customer perspective
-        const { data: tourBookings } = await supabase
-          .from('heritage_tour_booking')
-          .select('*')
-          .eq('created_by', userId)
-          .order('created_at', { ascending: false });
+      const { data: tourBookings } = await supabase
+        .from('heritage_tour_booking')
+        .select('*')
+        .eq('created_by', userId)
+        .order('created_at', { ascending: false });
 
-        tourBookings?.forEach((b: any) => {
-          bookings.push({
-            booking_id: b.booking_id,
-            booking_reference: b.booking_code || `TOUR-${b.booking_id}`,
-            module_type: 'tour',
-            status: b.status || 'pending',
-            payment_status: b.payment_status || 'pending',
-            total_amount: b.total_amount || 0,
-            currency: b.currency || 'INR',
-            created_at: b.created_at,
-            customer_name: b.contact_full_name,
-            customer_email: b.contact_email,
-            customer_phone: b.contact_phone,
-            user_id: b.created_by,
-            ...b,
-          });
+      tourBookings?.forEach((b: any) => {
+        bookings.push({
+          booking_id: b.booking_id,
+          booking_reference: b.booking_code || `TOUR-${b.booking_id}`,
+          module_type: 'tour',
+          status: b.status || 'pending',
+          payment_status: b.payment_status || 'pending',
+          total_amount: b.total_amount || 0,
+          currency: b.currency || 'INR',
+          created_at: b.created_at,
+          customer_name: b.contact_full_name,
+          customer_email: b.contact_email,
+          customer_phone: b.contact_phone,
+          user_id: b.created_by,
+          ...b,
         });
+      });
       }
 
       // Event bookings - from organizer's perspective if event organizer, otherwise customer perspective
@@ -393,11 +393,11 @@ export class UserService {
         }
       } else {
         // Customer perspective
-        const { data: eventBookings } = await supabase
-          .from('heritage_eventbooking')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
+      const { data: eventBookings } = await supabase
+        .from('heritage_eventbooking')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
 
         if (eventBookings && eventBookings.length > 0) {
           // Get unique event IDs from bookings
@@ -432,24 +432,24 @@ export class UserService {
             }
           });
 
-          eventBookings?.forEach((b: any) => {
+      eventBookings?.forEach((b: any) => {
             const eventId = b.event_id;
-            bookings.push({
-              booking_id: b.booking_id,
-              booking_reference: b.booking_reference || `EVT-${b.booking_id}`,
-              module_type: 'event',
-              status: b.booking_status || 'pending',
-              payment_status: b.payment_status || 'pending',
-              total_amount: b.total_amount || 0,
-              currency: b.currency || 'INR',
-              created_at: b.created_at,
-              customer_name: b.attendee_name,
-              customer_email: b.attendee_email,
-              user_id: b.user_id,
+        bookings.push({
+          booking_id: b.booking_id,
+          booking_reference: b.booking_reference || `EVT-${b.booking_id}`,
+          module_type: 'event',
+          status: b.booking_status || 'pending',
+          payment_status: b.payment_status || 'pending',
+          total_amount: b.total_amount || 0,
+          currency: b.currency || 'INR',
+          created_at: b.created_at,
+          customer_name: b.attendee_name,
+          customer_email: b.attendee_email,
+          user_id: b.user_id,
               entity_name: eventNameMap.get(eventId) || 'Unknown Event',
-              ...b,
-            });
-          });
+          ...b,
+        });
+      });
         }
       }
 
@@ -504,29 +504,29 @@ export class UserService {
         }
       } else {
         // Customer perspective
-        const { data: foodBookings } = await supabase
-          .from('heritage_fv_foodbooking')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
+      const { data: foodBookings } = await supabase
+        .from('heritage_fv_foodbooking')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
 
-        foodBookings?.forEach((b: any) => {
-          bookings.push({
-            booking_id: b.booking_id,
-            booking_reference: b.booking_reference || `FOOD-${b.booking_id}`,
-            module_type: 'food',
-            status: b.booking_status || 'pending',
-            payment_status: b.payment_status || 'pending',
-            total_amount: b.total_amount || 0,
-            currency: b.currency || 'INR',
-            created_at: b.created_at,
-            customer_name: b.customer_name,
-            customer_email: b.customer_email,
-            customer_phone: b.customer_phone,
-            user_id: b.user_id,
-            ...b,
-          });
+      foodBookings?.forEach((b: any) => {
+        bookings.push({
+          booking_id: b.booking_id,
+          booking_reference: b.booking_reference || `FOOD-${b.booking_id}`,
+          module_type: 'food',
+          status: b.booking_status || 'pending',
+          payment_status: b.payment_status || 'pending',
+          total_amount: b.total_amount || 0,
+          currency: b.currency || 'INR',
+          created_at: b.created_at,
+          customer_name: b.customer_name,
+          customer_email: b.customer_email,
+          customer_phone: b.customer_phone,
+          user_id: b.user_id,
+          ...b,
         });
+      });
       }
 
       // Guide bookings - from guide's perspective if guide, otherwise customer perspective
@@ -540,10 +540,10 @@ export class UserService {
         guideBookings = data;
       } else {
         const { data } = await supabase
-          .from('heritage_guide_booking')
-          .select('*')
-          .eq('tourist_user_id', userId)
-          .order('created_at', { ascending: false });
+        .from('heritage_guide_booking')
+        .select('*')
+        .eq('tourist_user_id', userId)
+        .order('created_at', { ascending: false });
         guideBookings = data;
       }
 

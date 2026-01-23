@@ -315,9 +315,9 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({ open, onClose, us
                   <Box>
                     {userBookings.length === 0 ? (
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                        No bookings found for this user.
-                      </Typography>
-                    ) : (
+                    No bookings found for this user.
+                  </Typography>
+                ) : (
                       <Grid container spacing={2} sx={{ mt: 1 }}>
                         {getBookingCountsByEntity().map((entity, index) => (
                           <Grid item xs={12} sm={6} md={4} key={`${entity.type}-${entity.name}-${index}`}>
