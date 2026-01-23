@@ -572,9 +572,13 @@ export class VerificationService {
       }
 
       // Get entity details
+      // For products (artwork), select artisan_id; for others, select user_id
+      const selectFields = entityTab === 'product' 
+        ? `${config.idField}, ${config.nameField}, artisan_id`
+        : `${config.idField}, ${config.nameField}, user_id`;
       const { data: entityData } = await supabase
         .from(config.table)
-        .select(`${config.idField}, ${config.nameField}, artisan_id`)
+        .select(selectFields)
         .eq(config.idField, entityId)
         .single();
 
@@ -585,33 +589,28 @@ export class VerificationService {
       // Get user ID for sending notifications
       // For artwork, get user_id from artisan_id
       let userId: number | null = null;
-      if (entityTab === 'product' && entityData.artisan_id) {
+      const entityDataTyped = entityData as Record<string, any>;
+      if (entityTab === 'product' && entityDataTyped.artisan_id) {
         const { data: artisanData } = await supabase
           .from('heritage_artisan')
           .select('user_id')
-          .eq('artisan_id', entityData.artisan_id)
+          .eq('artisan_id', entityDataTyped.artisan_id)
           .single();
         userId = artisanData?.user_id || null;
       } else {
-        // For other entities (event, tour, hotel, food), try to get user_id from the entity table
+        // For other entities (event, tour, hotel, food), use user_id from the entity table
         // If not available, try to get from related organizer/operator tables
-        const { data: entityWithUser } = await supabase
-          .from(config.table)
-          .select('user_id, organizer_id, operator_id')
-          .eq(config.idField, entityId)
-          .single();
+        userId = entityDataTyped.user_id || null;
         
-        userId = entityWithUser?.user_id || entityWithUser?.organizer_id || entityWithUser?.operator_id || null;
-        
-        // If still no user_id, try to get from event_organizer_id or similar fields
-        if (!userId && entityTab === 'event') {
-          const { data: eventData } = await supabase
-            .from('heritage_event')
-            .select('event_organizer_id')
-            .eq('event_id', entityId)
+        // If still no user_id, try to get from organizer_id, operator_id, or event_organizer_id
+        if (!userId) {
+          const { data: entityWithUser } = await supabase
+            .from(config.table)
+            .select('organizer_id, operator_id, event_organizer_id')
+            .eq(config.idField, entityId)
             .single();
-          // event_organizer_id might be a user_id or might need another lookup
-          userId = eventData?.event_organizer_id || null;
+          
+          userId = entityWithUser?.organizer_id || entityWithUser?.operator_id || (entityWithUser as any)?.event_organizer_id || null;
         }
       }
 
@@ -627,7 +626,7 @@ export class VerificationService {
       const templateKey = `${entityTypeKey}_verification_approved`;
 
       const notificationVariables = {
-        entityName: entityData[config.nameField] || 'Record',
+        entityName: entityDataTyped[config.nameField] || 'Record',
         entityType: entityTypeName,
         verificationDate: verificationDate,
         entityId: entityId.toString(),
@@ -757,9 +756,13 @@ export class VerificationService {
       }
 
       // Get entity details
+      // For products (artwork), select artisan_id; for others, select user_id
+      const selectFields = entityTab === 'product' 
+        ? `${config.idField}, ${config.nameField}, artisan_id`
+        : `${config.idField}, ${config.nameField}, user_id`;
       const { data: entityData } = await supabase
         .from(config.table)
-        .select(`${config.idField}, ${config.nameField}, artisan_id`)
+        .select(selectFields)
         .eq(config.idField, entityId)
         .single();
 
@@ -788,33 +791,28 @@ export class VerificationService {
       // Get user ID for sending notifications
       // For artwork, get user_id from artisan_id
       let userId: number | null = null;
-      if (entityTab === 'product' && entityData.artisan_id) {
+      const entityDataTyped = entityData as Record<string, any>;
+      if (entityTab === 'product' && entityDataTyped.artisan_id) {
         const { data: artisanData } = await supabase
           .from('heritage_artisan')
           .select('user_id')
-          .eq('artisan_id', entityData.artisan_id)
+          .eq('artisan_id', entityDataTyped.artisan_id)
           .single();
         userId = artisanData?.user_id || null;
       } else {
-        // For other entities (event, tour, hotel, food), try to get user_id from the entity table
+        // For other entities (event, tour, hotel, food), use user_id from the entity table
         // If not available, try to get from related organizer/operator tables
-        const { data: entityWithUser } = await supabase
-          .from(config.table)
-          .select('user_id, organizer_id, operator_id')
-          .eq(config.idField, entityId)
-          .single();
+        userId = entityDataTyped.user_id || null;
         
-        userId = entityWithUser?.user_id || entityWithUser?.organizer_id || entityWithUser?.operator_id || null;
-        
-        // If still no user_id, try to get from event_organizer_id or similar fields
-        if (!userId && entityTab === 'event') {
-          const { data: eventData } = await supabase
-            .from('heritage_event')
-            .select('event_organizer_id')
-            .eq('event_id', entityId)
+        // If still no user_id, try to get from organizer_id, operator_id, or event_organizer_id
+        if (!userId) {
+          const { data: entityWithUser } = await supabase
+            .from(config.table)
+            .select('organizer_id, operator_id, event_organizer_id')
+            .eq(config.idField, entityId)
             .single();
-          // event_organizer_id might be a user_id or might need another lookup
-          userId = eventData?.event_organizer_id || null;
+          
+          userId = entityWithUser?.organizer_id || entityWithUser?.operator_id || (entityWithUser as any)?.event_organizer_id || null;
         }
       }
 
@@ -831,7 +829,7 @@ export class VerificationService {
       const templateKey = `${entityTypeKey}_verification_rejected`;
 
       const notificationVariables = {
-        entityName: entityData[config.nameField] || 'Record',
+        entityName: entityDataTyped[config.nameField] || 'Record',
         entityType: entityTypeName,
         rejectionDate: rejectionDate,
         rejectionReason: rejectionReason || 'No reason provided',
@@ -981,7 +979,6 @@ export class VerificationService {
       if (!user) return null;
 
       let businessDetails = null;
-      const documents: any[] = [];
 
       // Entity types that use vendor business details
       const vendorBusinessEntityTypes = ['Tour Operator', 'Hotel', 'Event Operator', 'Food Vendor'];

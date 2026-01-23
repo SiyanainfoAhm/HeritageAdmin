@@ -4992,7 +4992,7 @@ const Verification = () => {
         )}
 
         <TableContainer>
-          <Table>
+          <Table sx={{ '& .MuiTableCell-root': { borderBottom: '1px solid', borderColor: 'divider' } }}>
             <TableHead>
               <TableRow>
                 {currentTab === 'user' ? (
@@ -5219,7 +5219,7 @@ const Verification = () => {
                        : 'default');
                   
                   return (
-                    <TableRow key={`${currentTab}-${recordId}`} hover sx={{ '&:last-of-type td, &:last-of-type th': { border: 0 } }}>
+                    <TableRow key={`${currentTab}-${recordId}`} hover>
                       <TableCell>
                         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                           {nameField || '—'}
