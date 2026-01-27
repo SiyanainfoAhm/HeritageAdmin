@@ -14,6 +14,7 @@ import Reports2 from './pages/Reports/Reports2';
 import Users from './pages/Users/Users';
 import Bookings from './pages/Bookings/Bookings';
 import ProtectedRoute from './components/common/ProtectedRoute';
+import PublicRoute from './components/common/PublicRoute';
 import Verification from './pages/Verification/Verification';
 import Marketing from './pages/Marketing/Marketing';
 import NotificationTemplate from './pages/Manage/NotificationTemplate';
@@ -38,7 +39,14 @@ function App() {
       <AuthProvider>
         <Router>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/login"
+              element={
+                <PublicRoute>
+                  <LoginPage />
+                </PublicRoute>
+              }
+            />
             <Route
               path="/"
               element={

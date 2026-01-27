@@ -604,12 +604,12 @@ export class VerificationService {
         
         // If still no user_id, try to get from organizer_id, operator_id, or event_organizer_id
         if (!userId) {
-          const { data: entityWithUser } = await supabase
-            .from(config.table)
+        const { data: entityWithUser } = await supabase
+          .from(config.table)
             .select('organizer_id, operator_id, event_organizer_id')
-            .eq(config.idField, entityId)
-            .single();
-          
+          .eq(config.idField, entityId)
+          .single();
+        
           userId = entityWithUser?.organizer_id || entityWithUser?.operator_id || (entityWithUser as any)?.event_organizer_id || null;
         }
       }
@@ -806,12 +806,12 @@ export class VerificationService {
         
         // If still no user_id, try to get from organizer_id, operator_id, or event_organizer_id
         if (!userId) {
-          const { data: entityWithUser } = await supabase
-            .from(config.table)
+        const { data: entityWithUser } = await supabase
+          .from(config.table)
             .select('organizer_id, operator_id, event_organizer_id')
-            .eq(config.idField, entityId)
-            .single();
-          
+          .eq(config.idField, entityId)
+          .single();
+        
           userId = entityWithUser?.organizer_id || entityWithUser?.operator_id || (entityWithUser as any)?.event_organizer_id || null;
         }
       }

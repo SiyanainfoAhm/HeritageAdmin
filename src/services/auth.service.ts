@@ -32,6 +32,12 @@ export class AuthService {
           return { user: null, error: userError };
         }
 
+        // Store session in localStorage for persistence
+        localStorage.setItem('heritage_user_session', JSON.stringify({
+          user: userData as User,
+          timestamp: Date.now(),
+        }));
+
         return { user: userData as User, error: null };
       }
 
@@ -66,9 +72,18 @@ export class AuthService {
         return { user: null, error: new Error('Invalid login credentials') };
       }
 
-      // Return user data (without password_hash)
+      // Store session in localStorage for direct authentication
+      // This allows session persistence across page refreshes
       const { password_hash, ...userWithoutPassword } = userData;
-      return { user: userWithoutPassword as User, error: null };
+      const user = userWithoutPassword as User;
+      
+      // Store user session in localStorage
+      localStorage.setItem('heritage_user_session', JSON.stringify({
+        user,
+        timestamp: Date.now(),
+      }));
+      
+      return { user, error: null };
     } catch (error) {
       return { user: null, error: error as Error };
     }
@@ -96,19 +111,63 @@ export class AuthService {
 
   /**
    * Get current user
+   * Checks both Supabase Auth session and localStorage for direct authentication
    */
   static async getCurrentUser(): Promise<User | null> {
-    const { data: { user } } = await supabase.auth.getUser();
+    // First, try Supabase Auth session
+    const { data: { user: authUser } } = await supabase.auth.getUser();
     
-    if (!user) return null;
+    if (authUser) {
+      const { data: userData } = await supabase
+        .from('heritage_user')
+        .select('*')
+        .eq('email', authUser.email)
+        .single();
 
-    const { data: userData } = await supabase
-      .from('heritage_user')
-      .select('*')
-      .eq('email', user.email)
-      .single();
+      if (userData) {
+        // Update localStorage session
+        localStorage.setItem('heritage_user_session', JSON.stringify({
+          user: userData as User,
+          timestamp: Date.now(),
+        }));
+        return userData as User;
+      }
+    }
 
-    return userData as User | null;
+    // If no Supabase Auth session, check localStorage for direct authentication
+    const storedSession = localStorage.getItem('heritage_user_session');
+    if (storedSession) {
+      try {
+        const session = JSON.parse(storedSession);
+        const sessionAge = Date.now() - session.timestamp;
+        const maxSessionAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+        
+        // Check if session is still valid (not expired)
+        if (sessionAge < maxSessionAge && session.user) {
+          // Verify user still exists in database
+          const { data: userData } = await supabase
+            .from('heritage_user')
+            .select('*')
+            .eq('user_id', session.user.user_id)
+            .single();
+          
+          if (userData) {
+            return userData as User;
+          } else {
+            // User no longer exists, clear session
+            localStorage.removeItem('heritage_user_session');
+          }
+        } else {
+          // Session expired, clear it
+          localStorage.removeItem('heritage_user_session');
+        }
+      } catch (error) {
+        console.error('Error parsing stored session:', error);
+        localStorage.removeItem('heritage_user_session');
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -116,6 +175,8 @@ export class AuthService {
    */
   static async logout(): Promise<void> {
     await supabase.auth.signOut();
+    // Clear localStorage session
+    localStorage.removeItem('heritage_user_session');
   }
 
   /**
