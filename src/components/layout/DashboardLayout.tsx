@@ -414,6 +414,8 @@ const DashboardLayout = () => {
           flexGrow: 1,
           width: `calc(100% - ${drawerWidth}px)`,
           backgroundColor: '#fafafa',
+          height: '100vh',
+          overflow: 'hidden',
         }}
       >
         <Outlet />

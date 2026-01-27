@@ -21,8 +21,10 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
+import ImageIcon from '@mui/icons-material/Image';
 import { ChatService, ChatConversation, ChatMessage } from '@/services/chat.service';
 import { UserService } from '@/services/user.service';
+import { StorageService } from '@/services/storage.service';
 import { User } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
@@ -40,6 +42,10 @@ const Chat = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
@@ -325,12 +331,74 @@ const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedConversation || !user?.user_id) return;
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const messageTextToSend = messageText.trim();
-    setMessageText('');
+    // Validate it's an image
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file only');
+      return;
+    }
+
+    // Validate file size (50MB max)
+    if (file.size > 50 * 1024 * 1024) {
+      setError('Image size must be less than 50MB');
+      return;
+    }
+
+    setSelectedImage(file);
+    // Create preview URL
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if ((!messageText.trim() && !selectedImage) || !selectedConversation || !user?.user_id) return;
+
+    const messageTextToSend = messageText.trim() || (selectedImage ? '📷 Image' : '');
+    let attachmentUrl: string | undefined = undefined;
+    let messageType = 'text';
+
     setSending(true);
+    setUploadingImage(!!selectedImage);
+
+    // Upload image if selected
+    if (selectedImage) {
+      try {
+        setUploadingImage(true);
+        const uploadResult = await StorageService.uploadFile(selectedImage, 'chat');
+        if (!uploadResult.success || !uploadResult.url) {
+          throw new Error(uploadResult.error || 'Failed to upload image');
+        }
+        attachmentUrl = uploadResult.url;
+        messageType = 'image';
+      } catch (err: any) {
+        setError(err.message || 'Failed to upload image');
+        setSending(false);
+        setUploadingImage(false);
+        return;
+      }
+    }
+
+    // Clear form
+    setMessageText('');
+    setSelectedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
 
     // Optimistic UI: Add temporary message with pending flag
     const tempId = Date.now(); // Temporary ID for optimistic update
@@ -341,7 +409,8 @@ const Chat = () => {
       sender_type: 'executive',
       sender_name: user.full_name || user.email || 'Admin',
       message_text: messageTextToSend,
-      message_type: 'text',
+      message_type: messageType,
+      attachment_url: attachmentUrl,
       is_read: false,
       created_at: new Date().toISOString(),
     };
@@ -354,7 +423,9 @@ const Chat = () => {
       const newMessage = await ChatService.sendMessage(
         selectedConversation.conversation_id,
         user.user_id,
-        messageTextToSend
+        messageTextToSend,
+        messageType,
+        attachmentUrl
       );
 
       // Replace optimistic message with real message
@@ -375,7 +446,7 @@ const Chat = () => {
           if (conv.conversation_id === selectedConversation.conversation_id) {
             return {
               ...conv,
-              last_message_text: newMessage.message_text,
+              last_message_text: messageType === 'image' ? '📷 Image' : newMessage.message_text,
               last_message_at: newMessage.created_at,
             };
           }
@@ -392,6 +463,7 @@ const Chat = () => {
       setError(err.message || 'Failed to send message');
     } finally {
       setSending(false);
+      setUploadingImage(false);
     }
   };
 
@@ -483,7 +555,7 @@ const Chat = () => {
   });
 
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)', minHeight: '600px', backgroundColor: '#f5f5f5' }}>
+    <Box sx={{ display: 'flex', height: '100%', minHeight: '600px', backgroundColor: '#f5f5f5', margin: 0, padding: 0 }}>
       {/* Conversations List */}
       <Paper
         sx={{
@@ -608,7 +680,7 @@ const Chat = () => {
       </Paper>
 
       {/* Chat Area */}
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
         {selectedConversation ? (
           <>
             {/* Chat Header */}
@@ -620,6 +692,7 @@ const Chat = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2,
+                flexShrink: 0,
               }}
             >
               <Avatar 
@@ -643,12 +716,14 @@ const Chat = () => {
               ref={messagesContainerRef}
               sx={{
                 flex: 1,
-                overflow: 'auto',
+                overflowY: 'auto',
+                overflowX: 'hidden',
                 p: 2,
                 backgroundColor: '#ffffff',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 1,
+                minHeight: 0,
               }}
             >
               {messages.map((message) => {
@@ -688,9 +763,30 @@ const Chat = () => {
                           {message.sender_name || 'User'}
                         </Typography>
                       )}
-                      <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
-                        {message.message_text}
-                      </Typography>
+                      {/* Display image if message type is image */}
+                      {message.message_type === 'image' && message.attachment_url && (
+                        <Box sx={{ mb: 1, borderRadius: 1, overflow: 'hidden' }}>
+                          <img
+                            src={message.attachment_url}
+                            alt="Chat attachment"
+                            style={{
+                              maxWidth: '100%',
+                              maxHeight: '300px',
+                              display: 'block',
+                              borderRadius: '4px',
+                            }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </Box>
+                      )}
+                      {/* Display text message */}
+                      {message.message_text && (
+                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                          {message.message_text}
+                        </Typography>
+                      )}
                       <Typography
                         variant="caption"
                         sx={{
@@ -715,31 +811,79 @@ const Chat = () => {
                 p: 2,
                 borderTop: '1px solid #e0e0e0',
                 borderRadius: 0,
-                display: 'flex',
-                gap: 1,
-                alignItems: 'flex-end',
+                flexShrink: 0,
               }}
             >
-              <TextField
-                fullWidth
-                multiline
-                maxRows={4}
-                placeholder="Type your message..."
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                onKeyPress={handleKeyPress}
-                disabled={sending}
-                variant="outlined"
-                size="small"
-              />
-              <IconButton
-                color="primary"
-                onClick={handleSendMessage}
-                disabled={!messageText.trim() || sending}
-                sx={{ bgcolor: '#f08060', color: '#ffffff', '&:hover': { bgcolor: '#d96b4a' } }}
-              >
-                {sending ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
-              </IconButton>
+              {/* Image Preview */}
+              {imagePreview && (
+                <Box sx={{ mb: 1, position: 'relative', display: 'inline-block' }}>
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    style={{
+                      maxWidth: '200px',
+                      maxHeight: '200px',
+                      borderRadius: '8px',
+                      objectFit: 'cover',
+                    }}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={handleRemoveImage}
+                    sx={{
+                      position: 'absolute',
+                      top: -8,
+                      right: -8,
+                      bgcolor: 'error.main',
+                      color: 'white',
+                      '&:hover': { bgcolor: 'error.dark' },
+                    }}
+                  >
+                    ×
+                  </IconButton>
+                </Box>
+              )}
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageSelect}
+                  style={{ display: 'none' }}
+                />
+                <IconButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sending || uploadingImage}
+                  sx={{ color: '#f08060' }}
+                  title="Attach image"
+                >
+                  <ImageIcon />
+                </IconButton>
+                <TextField
+                  fullWidth
+                  multiline
+                  maxRows={4}
+                  placeholder="Type your message..."
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  disabled={sending || uploadingImage}
+                  variant="outlined"
+                  size="small"
+                />
+                <IconButton
+                  color="primary"
+                  onClick={handleSendMessage}
+                  disabled={(!messageText.trim() && !selectedImage) || sending || uploadingImage}
+                  sx={{ bgcolor: '#f08060', color: '#ffffff', '&:hover': { bgcolor: '#d96b4a' } }}
+                >
+                  {sending || uploadingImage ? (
+                    <CircularProgress size={20} color="inherit" />
+                  ) : (
+                    <SendIcon />
+                  )}
+                </IconButton>
+              </Box>
             </Paper>
           </>
         ) : (

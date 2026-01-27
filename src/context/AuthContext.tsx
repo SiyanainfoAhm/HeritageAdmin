@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AuthService } from '@/services/auth.service';
+import { supabase } from '@/config/supabase';
 import { User } from '@/types';
 
 interface AuthContextType {
@@ -18,6 +19,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     checkAuth();
+
+    // Listen to Supabase Auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // User signed in or token refreshed, update user
+        const currentUser = await AuthService.getCurrentUser();
+        setUser(currentUser);
+      } else if (event === 'SIGNED_OUT') {
+        // User signed out, clear user state
+        setUser(null);
+        localStorage.removeItem('heritage_user_session');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const checkAuth = async () => {
@@ -26,6 +46,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
     } catch (error) {
       console.error('Auth check failed:', error);
+      // Clear invalid session
+      localStorage.removeItem('heritage_user_session');
+      setUser(null);
     } finally {
       setLoading(false);
     }

@@ -11,6 +11,7 @@ import {
   FormControlLabel,
   InputAdornment,
   IconButton,
+  CircularProgress,
 } from '@mui/material';
 import {
   Email as EmailIcon,
@@ -30,26 +31,29 @@ const LoginPage = () => {
   const { login, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  // Load saved credentials on component mount
-  useEffect(() => {
-    const savedEmail = localStorage.getItem('rememberedEmail');
-    const savedPassword = localStorage.getItem('rememberedPassword');
-    const savedRememberMe = localStorage.getItem('rememberMe') === 'true';
-
-    if (savedRememberMe && savedEmail) {
-      setEmail(savedEmail);
-      if (savedPassword) {
-        setPassword(savedPassword);
-      }
-      setRememberMe(true);
-    }
-  }, []);
-
+  // Redirect if already authenticated
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       navigate('/dashboard', { replace: true });
     }
   }, [authLoading, isAuthenticated, navigate]);
+
+  // Load saved credentials on component mount (only if not authenticated)
+  useEffect(() => {
+    if (!isAuthenticated && !authLoading) {
+      const savedEmail = localStorage.getItem('rememberedEmail');
+      const savedPassword = localStorage.getItem('rememberedPassword');
+      const savedRememberMe = localStorage.getItem('rememberMe') === 'true';
+
+      if (savedRememberMe && savedEmail) {
+        setEmail(savedEmail);
+        if (savedPassword) {
+          setPassword(savedPassword);
+        }
+        setRememberMe(true);
+      }
+    }
+  }, [isAuthenticated, authLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,6 +94,28 @@ const LoginPage = () => {
       localStorage.removeItem('rememberMe');
     }
   };
+
+  // Show loading spinner while checking authentication
+  if (authLoading) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          backgroundColor: '#fdf7f5',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  // Don't render login form if already authenticated (redirect will happen)
+  if (isAuthenticated) {
+    return null;
+  }
 
   return (
     <Box
