@@ -145,12 +145,12 @@ export class AuthService {
         // Check if session is still valid (not expired)
         if (sessionAge < maxSessionAge && session.user) {
           // Verify user still exists in database
-          const { data: userData } = await supabase
-            .from('heritage_user')
-            .select('*')
+    const { data: userData } = await supabase
+      .from('heritage_user')
+      .select('*')
             .eq('user_id', session.user.user_id)
-            .single();
-          
+      .single();
+
           if (userData) {
             return userData as User;
           } else {
