@@ -41,17 +41,17 @@ const LoginPage = () => {
   // Load saved credentials on component mount (only if not authenticated)
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
-      const savedEmail = localStorage.getItem('rememberedEmail');
-      const savedPassword = localStorage.getItem('rememberedPassword');
-      const savedRememberMe = localStorage.getItem('rememberMe') === 'true';
+    const savedEmail = localStorage.getItem('rememberedEmail');
+    const savedPassword = localStorage.getItem('rememberedPassword');
+    const savedRememberMe = localStorage.getItem('rememberMe') === 'true';
 
-      if (savedRememberMe && savedEmail) {
-        setEmail(savedEmail);
-        if (savedPassword) {
-          setPassword(savedPassword);
-        }
-        setRememberMe(true);
+    if (savedRememberMe && savedEmail) {
+      setEmail(savedEmail);
+      if (savedPassword) {
+        setPassword(savedPassword);
       }
+      setRememberMe(true);
+    }
     }
   }, [isAuthenticated, authLoading]);
 

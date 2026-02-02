@@ -39,7 +39,6 @@ import { CallRequestService, CallSupportRequest, CallRequestFilters } from '@/se
 import { UserService } from '@/services/user.service';
 import { formatDisplayDate, formatDisplayTime } from '@/utils/dateTime.utils';
 import { format } from 'date-fns';
-import { getDefaultDateRange } from '@/utils/dateRange';
 
 const REQUEST_STATUSES = [
   { value: 'pending', label: 'Pending' },
@@ -61,11 +60,12 @@ const CallRequests = () => {
 
   // Filter states
   const [filters, setFilters] = useState<CallRequestFilters>(() => {
-    const { startDate, endDate } = getDefaultDateRange();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     return {
       status: 'pending',
-      startDate,
-      endDate,
+      startDate: today,
+      endDate: today,
       searchTerm: '',
       userTypeId: undefined,
       page: 1,
@@ -323,14 +323,36 @@ const CallRequests = () => {
             size="small"
             value={filters.startDate ? format(filters.startDate, 'yyyy-MM-dd') : ''}
             onChange={(e) => {
-              setFilters({
-                ...filters,
-                startDate: e.target.value ? new Date(e.target.value) : null,
-              });
+              const newStartDate = e.target.value ? new Date(e.target.value) : null;
+              if (newStartDate) {
+                // If new start date is after end date, adjust end date to match start date
+                const newEndDate = filters.endDate && newStartDate > filters.endDate 
+                  ? new Date(newStartDate) 
+                  : filters.endDate;
+                setFilters({
+                  ...filters,
+                  startDate: newStartDate,
+                  endDate: newEndDate,
+                });
+              } else {
+                setFilters({
+                  ...filters,
+                  startDate: null,
+                });
+              }
               setPage(0); // Reset to first page when filter changes
             }}
             InputLabelProps={{ shrink: true }}
+            inputProps={{
+              max: filters.endDate ? format(filters.endDate, 'yyyy-MM-dd') : undefined,
+            }}
             sx={{ minWidth: 150 }}
+            error={filters.startDate && filters.endDate ? filters.startDate > filters.endDate : false}
+            helperText={
+              filters.startDate && filters.endDate && filters.startDate > filters.endDate
+                ? 'Start date cannot be after end date'
+                : ''
+            }
           />
           <TextField
             label="End Date"
@@ -338,14 +360,33 @@ const CallRequests = () => {
             size="small"
             value={filters.endDate ? format(filters.endDate, 'yyyy-MM-dd') : ''}
             onChange={(e) => {
-              setFilters({
-                ...filters,
-                endDate: e.target.value ? new Date(e.target.value) : null,
-              });
+              const newEndDate = e.target.value ? new Date(e.target.value) : null;
+              if (newEndDate) {
+                // If new end date is before start date, show error but don't prevent
+                // The validation will be shown via error prop
+                setFilters({
+                  ...filters,
+                  endDate: newEndDate,
+                });
+              } else {
+                setFilters({
+                  ...filters,
+                  endDate: null,
+                });
+              }
               setPage(0); // Reset to first page when filter changes
             }}
             InputLabelProps={{ shrink: true }}
+            inputProps={{
+              min: filters.startDate ? format(filters.startDate, 'yyyy-MM-dd') : undefined,
+            }}
             sx={{ minWidth: 150 }}
+            error={filters.startDate && filters.endDate ? filters.endDate < filters.startDate : false}
+            helperText={
+              filters.startDate && filters.endDate && filters.endDate < filters.startDate
+                ? 'End date cannot be before start date'
+                : ''
+            }
           />
         </Box>
       </Paper>

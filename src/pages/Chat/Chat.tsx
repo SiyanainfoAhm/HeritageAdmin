@@ -783,9 +783,9 @@ const Chat = () => {
                       )}
                       {/* Display text message */}
                       {message.message_text && (
-                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
-                          {message.message_text}
-                        </Typography>
+                      <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                        {message.message_text}
+                      </Typography>
                       )}
                       <Typography
                         variant="caption"
@@ -859,30 +859,30 @@ const Chat = () => {
                 >
                   <ImageIcon />
                 </IconButton>
-                <TextField
-                  fullWidth
-                  multiline
-                  maxRows={4}
-                  placeholder="Type your message..."
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  onKeyPress={handleKeyPress}
+              <TextField
+                fullWidth
+                multiline
+                maxRows={4}
+                placeholder="Type your message..."
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                onKeyPress={handleKeyPress}
                   disabled={sending || uploadingImage}
-                  variant="outlined"
-                  size="small"
-                />
-                <IconButton
-                  color="primary"
-                  onClick={handleSendMessage}
+                variant="outlined"
+                size="small"
+              />
+              <IconButton
+                color="primary"
+                onClick={handleSendMessage}
                   disabled={(!messageText.trim() && !selectedImage) || sending || uploadingImage}
-                  sx={{ bgcolor: '#f08060', color: '#ffffff', '&:hover': { bgcolor: '#d96b4a' } }}
-                >
+                sx={{ bgcolor: '#f08060', color: '#ffffff', '&:hover': { bgcolor: '#d96b4a' } }}
+              >
                   {sending || uploadingImage ? (
                     <CircularProgress size={20} color="inherit" />
                   ) : (
                     <SendIcon />
                   )}
-                </IconButton>
+              </IconButton>
               </Box>
             </Paper>
           </>
