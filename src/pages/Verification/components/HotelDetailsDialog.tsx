@@ -118,12 +118,14 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
   const [translatingFields, setTranslatingFields] = useState<Set<string>>(new Set());
   const translationTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
   
-  // Hotel media
-  const [hotelHeroImage, setHotelHeroImage] = useState<string | null>(null);
-  const [hotelHeroImageFile, setHotelHeroImageFile] = useState<File | null>(null);
+  // Hotel media - heroes: min 1, max 10
+  const [hotelHeroMedia, setHotelHeroMedia] = useState<Array<{ media_id?: number; media_type: string; media_url: string; alt_text?: string; position?: number; is_primary?: boolean; file?: File }>>([]);
   const [hotelGalleryMedia, setHotelGalleryMedia] = useState<Array<{ media_id?: number; media_type: string; media_url: string; alt_text?: string; position?: number; is_primary?: boolean; file?: File }>>([]);
   const [uploadingHero, setUploadingHero] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
+
+  const HERO_MIN = 1;
+  const HERO_MAX = 10;
   
   // Room types
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
@@ -713,13 +715,20 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
 
             // Load media
             if (data.media && Array.isArray(data.media)) {
-              const heroMedia = data.media.find((m: any) => m.is_primary || m.media_type === 'hero');
+              const heroMediaList = data.media
+                .filter((m: any) => m.is_primary || m.media_type === 'hero')
+                .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
               const galleryMedia = data.media.filter((m: any) => !m.is_primary && m.media_type !== 'hero');
-              
-              if (heroMedia) {
-                setHotelHeroImage(heroMedia.media_url || null);
-              }
-              
+
+              setHotelHeroMedia(heroMediaList.map((m: any) => ({
+                media_id: m.media_id,
+                media_type: 'hero',
+                media_url: m.media_url || '',
+                alt_text: m.alt_text || '',
+                position: m.position ?? 0,
+                is_primary: m.is_primary || false,
+              })));
+
               setHotelGalleryMedia(galleryMedia.map((m: any) => ({
                 media_id: m.media_id,
                 media_type: m.media_type || 'gallery',
@@ -1053,6 +1062,14 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
   // Save hotel changes
   const handleSaveHotelChanges = async () => {
     if (!hotelId) return;
+    if (hotelHeroMedia.length < HERO_MIN) {
+      alert(`Please add at least ${HERO_MIN} hero image.`);
+      return;
+    }
+    if (hotelHeroMedia.length > HERO_MAX) {
+      alert(`Maximum ${HERO_MAX} hero images allowed.`);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -1112,69 +1129,54 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
         }
       }
 
-      // Save hero image
-      const { data: existingHeroMedia } = await supabase
+      // Save hero images (min 1, max 10)
+      const existingHeroMediaIds = hotelHeroMedia.filter(m => m.media_id).map(m => m.media_id);
+      const { data: currentHeroMedia } = await supabase
         .from('heritage_hotelmedia')
         .select('media_id, media_url')
         .eq('hotel_id', hotelId)
-        .eq('media_type', 'hero')
-        .single();
+        .eq('media_type', 'hero');
 
-      let heroImageUrl = hotelHeroImage;
-      if (hotelHeroImageFile) {
-        setUploadingHero(true);
+      if (currentHeroMedia) {
+        const heroIdsToDelete = currentHeroMedia
+          .map((m: any) => m.media_id)
+          .filter((id: number) => !existingHeroMediaIds.includes(id));
+        for (const m of currentHeroMedia.filter((x: any) => heroIdsToDelete.includes(x.media_id))) {
+          if (m.media_url) await StorageService.deleteFile(m.media_url);
+        }
+        if (heroIdsToDelete.length > 0) {
+          await supabase.from('heritage_hotelmedia').delete().in('media_id', heroIdsToDelete);
+        }
+      }
+
+      setUploadingHero(true);
+      const heroFolder = `hotels/${hotelId}`;
+      for (let idx = 0; idx < hotelHeroMedia.length; idx++) {
+        const media = hotelHeroMedia[idx];
         try {
-          const folder = `hotels/${hotelId}`;
-          const uploadResult = await StorageService.uploadFile(hotelHeroImageFile, folder);
-          
-          if (!uploadResult.success || !uploadResult.url) {
-            throw new Error(`Failed to upload hero image: ${uploadResult.error || 'Unknown error'}`);
+          let mediaUrl = media.media_url;
+          if (media.file) {
+            const uploadResult = await StorageService.uploadFile(media.file, heroFolder);
+            if (uploadResult.success && uploadResult.url) mediaUrl = uploadResult.url;
           }
-          
-          heroImageUrl = uploadResult.url;
-          setHotelHeroImage(heroImageUrl);
-          setHotelHeroImageFile(null);
-        } catch (error: any) {
-          console.error('Error uploading hero image:', error);
-        } finally {
-          setUploadingHero(false);
+          const heroMediaData: any = {
+            hotel_id: hotelId,
+            media_type: 'hero',
+            media_url: mediaUrl || '',
+            alt_text: media.alt_text || null,
+            position: idx,
+            is_primary: idx === 0,
+          };
+          if (media.media_id) {
+            await supabase.from('heritage_hotelmedia').update(heroMediaData).eq('media_id', media.media_id);
+          } else {
+            await supabase.from('heritage_hotelmedia').insert(heroMediaData);
+          }
+        } catch (err) {
+          console.error('Error saving hero image:', err);
         }
       }
-
-      if (heroImageUrl) {
-        const heroMediaData: any = {
-          hotel_id: hotelId,
-          media_type: 'hero',
-          media_url: heroImageUrl,
-          alt_text: null,
-          position: 0,
-          is_primary: true,
-        };
-
-        if (existingHeroMedia?.media_id) {
-          // Delete old file if URL changed
-          if (existingHeroMedia.media_url !== heroImageUrl && existingHeroMedia.media_url) {
-            await StorageService.deleteFile(existingHeroMedia.media_url);
-          }
-          await supabase
-            .from('heritage_hotelmedia')
-            .update(heroMediaData)
-            .eq('media_id', existingHeroMedia.media_id);
-        } else {
-          await supabase
-            .from('heritage_hotelmedia')
-            .insert(heroMediaData);
-        }
-      } else if (existingHeroMedia?.media_id) {
-        // Delete hero if removed
-        if (existingHeroMedia.media_url) {
-          await StorageService.deleteFile(existingHeroMedia.media_url);
-        }
-        await supabase
-          .from('heritage_hotelmedia')
-          .delete()
-          .eq('media_id', existingHeroMedia.media_id);
-      }
+      setUploadingHero(false);
 
       // Save gallery media
       if (hotelGalleryMedia.length > 0) {
@@ -1737,12 +1739,12 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
               </Grid>
             </Box>
 
-            {/* Hero Image Section */}
+            {/* Hero Images Section - Min 1, Max 10 (matches mobile design) */}
             <Box>
               <Divider sx={{ my: 2 }} />
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
                 <Typography variant="subtitle1" fontWeight={600}>
-                  Hero Image
+                  Images ({hotelHeroMedia.length}/{HERO_MAX})
                 </Typography>
                 {editMode && (
                   <>
@@ -1751,13 +1753,23 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                       style={{ display: 'none' }}
                       id="hotel-hero-image-upload"
                       type="file"
+                      multiple
                       onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setHotelHeroImageFile(file);
-                          const previewUrl = URL.createObjectURL(file);
-                          setHotelHeroImage(previewUrl);
+                        const files = Array.from(e.target.files || []);
+                        if (files.length > 0) {
+                          const remaining = HERO_MAX - hotelHeroMedia.length;
+                          const toAdd = files.slice(0, remaining).map((file, idx) => ({
+                            media_id: undefined,
+                            media_type: 'hero',
+                            media_url: URL.createObjectURL(file),
+                            alt_text: '',
+                            position: hotelHeroMedia.length + idx,
+                            is_primary: hotelHeroMedia.length === 0 && idx === 0,
+                            file,
+                          }));
+                          setHotelHeroMedia([...hotelHeroMedia, ...toAdd]);
                         }
+                        e.target.value = '';
                       }}
                     />
                     <label htmlFor="hotel-hero-image-upload">
@@ -1766,58 +1778,76 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                         size="small"
                         component="span"
                         startIcon={<CloudUploadIcon />}
-                        disabled={uploadingHero}
+                        disabled={uploadingHero || hotelHeroMedia.length >= HERO_MAX}
                       >
-                        {uploadingHero ? 'Uploading...' : (hotelHeroImage ? 'Change' : 'Upload')} Hero Image
+                        {uploadingHero ? 'Uploading...' : 'Upload Hero Images'}
                       </Button>
                     </label>
                   </>
                 )}
               </Stack>
-              {hotelHeroImage ? (
-                <Card variant="outlined">
-                  <CardMedia
-                    component="img"
-                    height="300"
-                    image={hotelHeroImage}
-                    alt="Hotel hero image"
-                    sx={{ objectFit: 'cover' }}
-                  />
-                  {editMode && (
-                    <Box sx={{ p: 1.5 }}>
-                      {uploadingHero && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                          <CircularProgress size={16} />
-                          <Typography variant="caption" color="text.secondary">
-                            Uploading hero image...
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                Min {HERO_MIN} image, Max {HERO_MAX} images
+              </Typography>
+              {hotelHeroMedia.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                  Add at least one hero image
+                </Typography>
+              ) : (
+                <Grid container spacing={2}>
+                  {hotelHeroMedia.map((media, index) => (
+                    <Grid item xs={12} sm={6} md={4} key={media.media_id ?? index}>
+                      <Card variant="outlined" sx={{ position: 'relative', overflow: 'visible' }}>
+                        <Box sx={{ position: 'absolute', top: 8, left: 8, zIndex: 1 }}>
+                          <Chip label="HERO" size="small" color="primary" />
+                        </Box>
+                        {editMode && (
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              if (hotelHeroMedia.length <= HERO_MIN) return;
+                              setConfirmDialog({
+                                open: true,
+                                message: 'Are you sure you want to remove this hero image?',
+                                onConfirm: () => {
+                                  setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                  setHotelHeroMedia(hotelHeroMedia.filter((_, i) => i !== index));
+                                },
+                              });
+                            }}
+                            disabled={hotelHeroMedia.length <= HERO_MIN}
+                            sx={{
+                              position: 'absolute',
+                              top: 8,
+                              right: 8,
+                              zIndex: 1,
+                              bgcolor: 'white',
+                              '&:hover': { bgcolor: '#ffebee' },
+                              '&.Mui-disabled': { bgcolor: 'rgba(255,255,255,0.8)' },
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                        {media.media_url && (
+                          <CardMedia
+                            component="img"
+                            height="180"
+                            image={media.media_url}
+                            alt={media.alt_text || 'Hero image'}
+                            sx={{ objectFit: 'cover' }}
+                          />
+                        )}
+                        <Box sx={{ p: 1, bgcolor: 'success.light', textAlign: 'center' }}>
+                          <Typography variant="caption" fontWeight={600} color="success.contrastText">
+                            Hero ✓
                           </Typography>
                         </Box>
-                      )}
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => {
-                          setConfirmDialog({
-                            open: true,
-                            message: 'Are you sure you want to remove the hero image?',
-                            onConfirm: () => {
-                              setConfirmDialog({ open: false, message: '', onConfirm: null });
-                              setHotelHeroImage(null);
-                              setHotelHeroImageFile(null);
-                            },
-                          });
-                        }}
-                      >
-                        Remove Hero Image
-                      </Button>
-                    </Box>
-                  )}
-                </Card>
-              ) : (
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                  No hero image added yet
-                </Typography>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
               )}
             </Box>
 
