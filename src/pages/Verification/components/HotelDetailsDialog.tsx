@@ -95,6 +95,18 @@ interface RoomType {
   media?: Array<{ media_id?: number; media_url: string; alt_text?: string; position?: number; is_primary?: boolean; file?: File }>;
 }
 
+interface Restaurant {
+  restaurant_id?: number;
+  name: string;
+  food_type: string;
+  timing: string;
+  open_24h: boolean;
+  menu_image_url?: string | null;
+  menuImageFile?: File | null;
+  menuImagePreview?: string | null;
+  position?: number;
+}
+
 const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,6 +128,10 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
   // Room types
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [roomTypeTranslations, setRoomTypeTranslations] = useState<Record<number, Record<LanguageCode, { room_name: string; short_description: string }>>>({});
+  
+  // Restaurants
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [restaurantTranslations, setRestaurantTranslations] = useState<Record<number, Record<LanguageCode, string>>>({});
   
   // Amenities
   const [amenities, setAmenities] = useState<Array<{ amenity_id: number; amenity_key: string; amenity_name: string; amenity_icon: string }>>([]);
@@ -484,6 +500,53 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
     } catch (error) {
       console.error('Error confirming amenity selection:', error);
     }
+  };
+
+  // Auto-translate restaurant name - works from any language to all other languages
+  const autoTranslateRestaurantField = async (text: string, restaurantId: number) => {
+    if (!text || !text.trim()) return;
+
+    const timerKey = `restaurant_${restaurantId}_name_${currentLanguageTab}`;
+    if (translationTimerRef.current[timerKey]) {
+      clearTimeout(translationTimerRef.current[timerKey]);
+    }
+
+    translationTimerRef.current[timerKey] = setTimeout(async () => {
+      try {
+        const sourceLanguage = currentLanguageTab;
+        const targetLanguages: LanguageCode[] = LANGUAGES.filter(l => l.code !== sourceLanguage).map(l => l.code);
+
+        const translationPromises = targetLanguages.map(async (lang) => {
+          try {
+            const result = await TranslationService.translate(text, lang, sourceLanguage);
+            if (result.success && result.translations && result.translations[lang]) {
+              const translations = result.translations[lang];
+              const translated = Array.isArray(translations) ? translations[0] : String(translations || '');
+              return { lang, text: translated };
+            }
+            return { lang, text: '' };
+          } catch (err) {
+            console.error(`Translation error for ${lang}:`, err);
+            return { lang, text: '' };
+          }
+        });
+
+        const results = await Promise.all(translationPromises);
+        setRestaurantTranslations(prev => {
+          const newTrans = { ...prev };
+          if (!newTrans[restaurantId]) {
+            newTrans[restaurantId] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+          }
+          newTrans[restaurantId][sourceLanguage] = text;
+          results.forEach(({ lang, text }) => {
+            newTrans[restaurantId][lang] = text;
+          });
+          return newTrans;
+        });
+      } catch (error) {
+        console.error('Error in restaurant auto-translation:', error);
+      }
+    }, 1000);
   };
 
   // Auto-translate room type field - works from any language to all other languages
@@ -926,6 +989,56 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
             } catch (err) {
               console.error('Error loading highlights:', err);
             }
+
+            // Load restaurants
+            try {
+              const { data: restaurantsData, error: restaurantsError } = await supabase
+                .from('heritage_hotelrestaurant')
+                .select('*')
+                .eq('hotel_id', hotelId)
+                .order('position', { ascending: true });
+
+              if (!restaurantsError && restaurantsData && restaurantsData.length > 0) {
+                const loadedRestaurants: Restaurant[] = restaurantsData.map((r: any) => ({
+                  restaurant_id: r.restaurant_id,
+                  name: r.name || '',
+                  food_type: r.food_type || '',
+                  timing: r.timing || '',
+                  open_24h: r.open_24h || false,
+                  menu_image_url: r.menu_image_url || null,
+                  position: r.position ?? 0,
+                }));
+                setRestaurants(loadedRestaurants);
+
+                const restaurantIds = loadedRestaurants.map((r: Restaurant) => r.restaurant_id).filter(Boolean) as number[];
+                if (restaurantIds.length > 0) {
+                  const { data: transData, error: transError } = await supabase
+                    .from('heritage_hotelrestauranttranslation')
+                    .select('*')
+                    .in('restaurant_id', restaurantIds);
+
+                  if (!transError && transData) {
+                    const restTrans: Record<number, Record<LanguageCode, string>> = {};
+                    loadedRestaurants.forEach((r: Restaurant) => {
+                      restTrans[r.restaurant_id!] = { en: r.name || '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                    });
+                    transData.forEach((trans: any) => {
+                      const langCode = String(trans.language_code || '').toLowerCase() as LanguageCode;
+                      if (langCode && LANGUAGES.some(l => l.code === langCode) && trans.restaurant_id && trans.name) {
+                        if (!restTrans[trans.restaurant_id]) restTrans[trans.restaurant_id] = { en: '', hi: '', gu: '', ja: '', es: '', fr: '' };
+                        restTrans[trans.restaurant_id][langCode] = String(trans.name || '').trim();
+                      }
+                    });
+                    setRestaurantTranslations(restTrans);
+                  }
+                }
+              } else {
+                setRestaurants([]);
+              }
+            } catch (err) {
+              console.error('Error loading restaurants:', err);
+              setRestaurants([]);
+            }
           }
         })
         .catch((error) => {
@@ -1263,6 +1376,96 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
             }
           }
         }
+      }
+
+      // Save restaurants
+      for (let idx = 0; idx < restaurants.length; idx++) {
+        const restaurant = restaurants[idx];
+        const restaurantData: any = {
+          hotel_id: hotelId,
+          name: restaurant.name,
+          food_type: restaurant.food_type || '',
+          timing: restaurant.open_24h ? '24 hours' : (restaurant.timing || ''),
+          open_24h: restaurant.open_24h || false,
+          position: idx,
+        };
+
+        let finalRestaurantId = restaurant.restaurant_id;
+
+        if (restaurant.restaurant_id) {
+          await supabase
+            .from('heritage_hotelrestaurant')
+            .update(restaurantData)
+            .eq('restaurant_id', restaurant.restaurant_id);
+        } else {
+          const { data: insertedRest, error: insertError } = await supabase
+            .from('heritage_hotelrestaurant')
+            .insert({ ...restaurantData, menu_image_url: null })
+            .select()
+            .single();
+
+          if (!insertError && insertedRest) {
+            finalRestaurantId = insertedRest.restaurant_id;
+          }
+        }
+
+        if (!finalRestaurantId) continue;
+
+        let menuImageUrl = restaurant.menu_image_url || null;
+
+        if (restaurant.menuImageFile) {
+          const folder = `hotelrestro/${finalRestaurantId}`;
+          const uploadResult = await StorageService.uploadFile(restaurant.menuImageFile, folder);
+          if (uploadResult.success && uploadResult.url) {
+            if (restaurant.menu_image_url && restaurant.restaurant_id) {
+              await StorageService.deleteFile(restaurant.menu_image_url);
+            }
+            menuImageUrl = uploadResult.url;
+          }
+        } else if (restaurant.restaurant_id) {
+          const { data: existingRest } = await supabase
+            .from('heritage_hotelrestaurant')
+            .select('menu_image_url')
+            .eq('restaurant_id', restaurant.restaurant_id)
+            .single();
+          if (existingRest?.menu_image_url && !restaurant.menu_image_url && !restaurant.menuImageFile) {
+            await StorageService.deleteFile(existingRest.menu_image_url);
+            menuImageUrl = null;
+          } else if (existingRest?.menu_image_url) {
+            menuImageUrl = existingRest.menu_image_url;
+          }
+        }
+
+        await supabase
+          .from('heritage_hotelrestaurant')
+          .update({ menu_image_url: menuImageUrl })
+          .eq('restaurant_id', finalRestaurantId);
+
+        if (restaurantTranslations[restaurant.restaurant_id || 0]) {
+          const restTrans = restaurantTranslations[restaurant.restaurant_id || 0];
+          for (const lang of LANGUAGES) {
+            if (lang.code !== 'en' && restTrans[lang.code]) {
+              await supabase
+                .from('heritage_hotelrestauranttranslation')
+                .upsert({
+                  restaurant_id: finalRestaurantId,
+                  language_code: lang.code.toUpperCase(),
+                  name: restTrans[lang.code],
+                }, { onConflict: 'restaurant_id,language_code' });
+            }
+          }
+        }
+      }
+
+      const existingRestaurantIds = (await supabase.from('heritage_hotelrestaurant').select('restaurant_id').eq('hotel_id', hotelId)).data?.map((r: any) => r.restaurant_id) || [];
+      const currentRestaurantIds = restaurants.map(r => r.restaurant_id).filter(Boolean) as number[];
+      const restaurantsToDelete = existingRestaurantIds.filter((id: number) => !currentRestaurantIds.includes(id));
+      if (restaurantsToDelete.length > 0) {
+        const { data: toDelete } = await supabase.from('heritage_hotelrestaurant').select('restaurant_id, menu_image_url').in('restaurant_id', restaurantsToDelete);
+        for (const r of toDelete || []) {
+          if (r.menu_image_url) await StorageService.deleteFile(r.menu_image_url);
+        }
+        await supabase.from('heritage_hotelrestaurant').delete().in('restaurant_id', restaurantsToDelete);
       }
 
       // Save hotel amenity mappings
@@ -2342,6 +2545,275 @@ const HotelDetailsDialog: React.FC<HotelDetailsDialogProps> = ({ open, hotelId, 
                       </Stack>
                     </Card>
                   ))}
+                </Stack>
+              )}
+            </Box>
+
+            {/* Restaurant Section */}
+            <Box>
+              <Divider sx={{ my: 2 }} />
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Restaurants ({restaurants.length})
+                </Typography>
+                {editMode && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => {
+                      const tempId = restaurants.length > 0
+                        ? Math.min(...restaurants.map(r => r.restaurant_id ?? 0).filter(id => id < 0)) - 1
+                        : -1;
+                      const newRestaurant: Restaurant = {
+                        restaurant_id: tempId,
+                        name: '',
+                        food_type: '',
+                        timing: '',
+                        open_24h: false,
+                      };
+                      setRestaurants([...restaurants, newRestaurant]);
+                      setRestaurantTranslations(prev => ({
+                        ...prev,
+                        [tempId]: { en: '', hi: '', gu: '', ja: '', es: '', fr: '' },
+                      }));
+                    }}
+                  >
+                    Add Restaurant
+                  </Button>
+                )}
+              </Stack>
+              {restaurants.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                  No restaurants added yet
+                </Typography>
+              ) : (
+                <Stack spacing={2}>
+                  {restaurants.map((restaurant, restIndex) => {
+                    const displayImage = restaurant.menuImagePreview || restaurant.menu_image_url;
+                    return (
+                      <Card key={restaurant.restaurant_id ?? restIndex} variant="outlined" sx={{ p: 2 }}>
+                        <Stack spacing={2}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center">
+                            <Typography variant="h6">
+                              {currentLanguageTab === 'en'
+                                ? restaurant.name
+                                : restaurantTranslations[restaurant.restaurant_id ?? -999]?.[currentLanguageTab] || restaurant.name}
+                            </Typography>
+                            {editMode && (
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  setConfirmDialog({
+                                    open: true,
+                                    message: 'Are you sure you want to delete this restaurant?',
+                                    onConfirm: () => {
+                                      setConfirmDialog({ open: false, message: '', onConfirm: null });
+                                      const newRest = restaurants.filter((_, i) => i !== restIndex);
+                                      setRestaurants(newRest);
+                                      if (restaurant.restaurant_id) {
+                                        const newTrans = { ...restaurantTranslations };
+                                        delete newTrans[restaurant.restaurant_id];
+                                        setRestaurantTranslations(newTrans);
+                                      }
+                                    },
+                                  });
+                                }}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            )}
+                          </Stack>
+
+                          <Grid container spacing={2}>
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Restaurant Name ({LANGUAGES.find(l => l.code === currentLanguageTab)?.label})
+                              </Typography>
+                              {editMode ? (
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  value={
+                                    currentLanguageTab === 'en'
+                                      ? restaurant.name
+                                      : restaurantTranslations[restaurant.restaurant_id ?? -999]?.[currentLanguageTab] ?? ''
+                                  }
+                                  onChange={(e) => {
+                                    const newVal = e.target.value;
+                                    if (currentLanguageTab === 'en') {
+                                      const newRest = [...restaurants];
+                                      newRest[restIndex] = { ...newRest[restIndex], name: newVal };
+                                      setRestaurants(newRest);
+                                    } else {
+                                      const rid = restaurant.restaurant_id ?? -999;
+                                      setRestaurantTranslations(prev => ({
+                                        ...prev,
+                                        [rid]: { ...(prev[rid] || { en: restaurant.name, hi: '', gu: '', ja: '', es: '', fr: '' }), [currentLanguageTab]: newVal },
+                                      }));
+                                    }
+                                    if (newVal?.trim()) autoTranslateRestaurantField(newVal, restaurant.restaurant_id ?? -999);
+                                  }}
+                                />
+                              ) : (
+                                <Typography variant="body2">
+                                  {currentLanguageTab === 'en'
+                                    ? restaurant.name
+                                    : restaurantTranslations[restaurant.restaurant_id ?? -999]?.[currentLanguageTab] || restaurant.name}
+                                </Typography>
+                              )}
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Food Type
+                              </Typography>
+                              {editMode ? (
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  value={restaurant.food_type || ''}
+                                  onChange={(e) => {
+                                    const newRest = [...restaurants];
+                                    newRest[restIndex] = { ...newRest[restIndex], food_type: e.target.value };
+                                    setRestaurants(newRest);
+                                  }}
+                                  placeholder="e.g. restaurant, Lunch"
+                                />
+                              ) : (
+                                <Typography variant="body2">{restaurant.food_type || '—'}</Typography>
+                              )}
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Timing
+                              </Typography>
+                              {editMode ? (
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  value={restaurant.open_24h ? '24 hours' : (restaurant.timing || '')}
+                                  onChange={(e) => {
+                                    const newRest = [...restaurants];
+                                    newRest[restIndex] = { ...newRest[restIndex], timing: e.target.value };
+                                    setRestaurants(newRest);
+                                  }}
+                                  disabled={restaurant.open_24h}
+                                  placeholder="e.g. 10:00 AM - 1:30 PM"
+                                />
+                              ) : (
+                                <Typography variant="body2">
+                                  {restaurant.open_24h ? '24 hours' : (restaurant.timing || '—')}
+                                </Typography>
+                              )}
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                              {editMode ? (
+                                <FormControlLabel
+                                  control={
+                                    <Switch
+                                      checked={restaurant.open_24h || false}
+                                      onChange={(e) => {
+                                        const newRest = [...restaurants];
+                                        newRest[restIndex] = {
+                                          ...newRest[restIndex],
+                                          open_24h: e.target.checked,
+                                          timing: e.target.checked ? '' : newRest[restIndex].timing,
+                                        };
+                                        setRestaurants(newRest);
+                                      }}
+                                    />
+                                  }
+                                  label="Open 24 hours"
+                                />
+                              ) : (
+                                <>
+                                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                                    Open 24 hours
+                                  </Typography>
+                                  <Typography variant="body2">{restaurant.open_24h ? 'Yes' : 'No'}</Typography>
+                                </>
+                              )}
+                            </Grid>
+
+                            <Grid item xs={12}>
+                              <Typography variant="body2" fontWeight={600} gutterBottom>
+                                Menu Image
+                              </Typography>
+                              {editMode && (
+                                <>
+                                  <input
+                                    accept="image/*"
+                                    style={{ display: 'none' }}
+                                    id={`restaurant-menu-upload-${restIndex}`}
+                                    type="file"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        const newRest = [...restaurants];
+                                        newRest[restIndex] = {
+                                          ...newRest[restIndex],
+                                          menuImageFile: file,
+                                          menuImagePreview: URL.createObjectURL(file),
+                                        };
+                                        setRestaurants(newRest);
+                                      }
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                  <label htmlFor={`restaurant-menu-upload-${restIndex}`}>
+                                    <Button variant="outlined" size="small" component="span" startIcon={<CloudUploadIcon />} sx={{ mb: 1 }}>
+                                      {displayImage ? 'Change' : 'Upload'} Menu Image
+                                    </Button>
+                                  </label>
+                                </>
+                              )}
+                              {displayImage ? (
+                                <Card variant="outlined" sx={{ mt: 1, maxWidth: 300, position: 'relative' }}>
+                                  {editMode && (
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => {
+                                        const newRest = [...restaurants];
+                                        newRest[restIndex] = {
+                                          ...newRest[restIndex],
+                                          menu_image_url: null,
+                                          menuImageFile: undefined,
+                                          menuImagePreview: undefined,
+                                        };
+                                        setRestaurants(newRest);
+                                      }}
+                                      sx={{
+                                        position: 'absolute',
+                                        top: 4,
+                                        right: 4,
+                                        zIndex: 1,
+                                        bgcolor: 'white',
+                                        '&:hover': { bgcolor: '#ffebee' },
+                                      }}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  )}
+                                  <CardMedia
+                                    component="img"
+                                    height="180"
+                                    image={displayImage}
+                                    alt="Menu"
+                                    sx={{ objectFit: 'cover' }}
+                                  />
+                                </Card>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                  No menu image
+                                </Typography>
+                              )}
+                            </Grid>
+                          </Grid>
+                        </Stack>
+                      </Card>
+                    );
+                  })}
                 </Stack>
               )}
             </Box>
