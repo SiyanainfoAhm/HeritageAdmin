@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Avatar,
   Box,
   Breadcrumbs,
   Button,
   Chip,
+  CircularProgress,
   Grid,
   IconButton,
   Link,
@@ -35,6 +36,13 @@ import {
   ReplyOutlined as ReplyOutlinedIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
+import {
+  FeedbackService,
+  FeedbackItem,
+  FeedbackCategory,
+  FeedbackStatus,
+  FEEDBACK_CATEGORY_LABELS,
+} from '@/services/feedback.service';
 
 type TabKey =
   | 'booking'
@@ -488,122 +496,186 @@ const VendorReportsSection = () => {
   );
 };
 
-const FeedbackSection = () => {
-  const items = [
-    {
-      user: 'Vikram Reddy',
-      type: 'Complaint',
-      entity: 'Royal Retreats',
-      description:
-        'Room was not as shown in pictures. The view was completely different and amenities were missing...',
-      status: 'Open',
-      date: new Date('2025-06-12'),
-    },
-    {
-      user: 'Shreya Desai',
-      type: 'Complaint',
-      entity: 'Alleppey Cruises',
-      description:
-        'The houseboat had cleanliness issues and the food quality was below average. Staff was not responsive...',
-      status: 'In Progress',
-      date: new Date('2025-06-11'),
-    },
-    {
-      user: 'Rahul Kumar',
-      type: 'Suggestion',
-      entity: 'Platform',
-      description:
-        'It would be great if the app could include a feature to download tickets offline for areas with poor...',
-      status: 'Open',
-      date: new Date('2025-06-10'),
-    },
-    {
-      user: 'Ananya Patel',
-      type: 'Feedback',
-      entity: 'Karnataka Tourism',
-      description:
-        'The Mysore Palace light show was absolutely spectacular! The guide was knowledgeable and the entire...',
-      status: 'Resolved',
-      date: new Date('2025-06-09'),
-    },
-    {
-      user: 'Priya Joshi',
-      type: 'Complaint',
-      entity: 'Banaras Cultural Tours',
-      description:
-        'The guide was 30 minutes late for the Ganga Aarti tour and rushed through explanations. The experience...',
-      status: 'Resolved',
-      date: new Date('2025-06-08'),
-    },
-  ];
+const FEEDBACK_CATEGORY_CHIPS: Array<{ label: string; value: FeedbackCategory | 'All' }> = [
+  { label: 'All', value: 'All' },
+  { label: 'UI/UX', value: 'uiux' },
+  { label: 'Bug Report', value: 'bug' },
+  { label: 'Performance', value: 'performance' },
+  { label: 'Other', value: 'other' },
+];
 
-  const statusColor: Record<string, 'default' | 'primary' | 'success' | 'warning'> = {
-    Open: 'primary',
-    'In Progress': 'warning',
-    Resolved: 'success',
+const STATUS_COLORS: Record<FeedbackStatus, 'default' | 'primary' | 'success' | 'warning'> = {
+  Open: 'primary',
+  'In Progress': 'warning',
+  Resolved: 'success',
+};
+
+const FeedbackSection = () => {
+  const [items, setItems] = useState<FeedbackItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<FeedbackCategory | 'All'>('All');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const limit = 10;
+
+  const fetchFeedback = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await FeedbackService.getFeedbackList({
+        type: categoryFilter === 'All' ? undefined : categoryFilter,
+        page,
+        limit,
+      });
+      setItems(res.data);
+      setTotal(res.total);
+      setTotalPages(res.totalPages);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load feedback');
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [categoryFilter, page, limit]);
+
+  useEffect(() => {
+    fetchFeedback();
+  }, [fetchFeedback]);
+
+  const handleResolve = async (item: FeedbackItem) => {
+    const result = await FeedbackService.updateStatus(item.feedback_id, 'Resolved');
+    if (result.success) fetchFeedback();
   };
+
+  const from = (page - 1) * limit + 1;
+  const to = Math.min(page * limit, total);
+  const summary = total === 0 ? 'No items' : `Showing ${from}–${to} of ${total} items`;
 
   return (
     <Paper sx={{ p: 3 }}>
       <TableTitle title="Feedback & Complaints" subtitle="Central log of all user feedback with actionable context." />
 
-      <ControlChips items={['All', 'Complaints', 'Suggestions', 'Feedback']} />
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+        {FEEDBACK_CATEGORY_CHIPS.map((chip) => (
+          <Chip
+            key={chip.value}
+            label={chip.label}
+            variant={categoryFilter === chip.value ? 'filled' : 'outlined'}
+            color={categoryFilter === chip.value ? 'primary' : 'default'}
+            onClick={() => setCategoryFilter(chip.value)}
+            sx={{ cursor: 'pointer' }}
+          />
+        ))}
+      </Box>
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>User</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Entity</TableCell>
-            <TableCell>Description</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Date</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {items.map((item) => (
-            <TableRow key={`${item.user}-${item.entity}`} hover>
-              <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <Avatar>{item.user.split(' ').map((n) => n[0]).join('').slice(0, 2)}</Avatar>
-                  <Typography variant="body2">{item.user}</Typography>
-                </Box>
-              </TableCell>
-              <TableCell>{item.type}</TableCell>
-              <TableCell>{item.entity}</TableCell>
-              <TableCell sx={{ maxWidth: 280 }}>
-                <Typography variant="body2" color="text.secondary">
-                  {item.description}
-                </Typography>
-              </TableCell>
-              <TableCell>
-                <Chip size="small" label={item.status} color={statusColor[item.status] ?? 'default'} />
-              </TableCell>
-              <TableCell>{format(item.date, 'MMM dd, yyyy')}</TableCell>
-              <TableCell align="right">
-                <Tooltip title="View">
-                  <IconButton>
-                    <VisibilityIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Resolve">
-                  <IconButton>
-                    <CheckCircleOutlineIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Archive">
-                  <IconButton>
-                    <ArchiveOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      {error && (
+        <Typography color="error" variant="body2" sx={{ mb: 2 }}>
+          {error}
+        </Typography>
+      )}
 
-      <PaginationFooter summary="Showing 1–5 of 36 items" totalPages={8} />
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>User</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Entity</TableCell>
+                <TableCell>Description</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Date</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                    <Typography color="text.secondary">No feedback yet. Data comes from the database.</Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) => (
+                  <TableRow key={item.feedback_id} hover>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar>
+                          {item.user_name
+                            .split(' ')
+                            .map((n) => n[0])
+                            .join('')
+                            .slice(0, 2)}
+                        </Avatar>
+                        <Typography variant="body2">{item.user_name}</Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>{FEEDBACK_CATEGORY_LABELS[item.type] ?? item.type}</TableCell>
+                    <TableCell>{item.user_type_name}</TableCell>
+                    <TableCell sx={{ maxWidth: 280 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {item.comments || '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={item.status}
+                        color={STATUS_COLORS[item.status] ?? 'default'}
+                      />
+                    </TableCell>
+                    <TableCell>{format(new Date(item.created_at), 'MMM dd, yyyy')}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="View">
+                        <IconButton>
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Resolve">
+                        <IconButton onClick={() => handleResolve(item)} disabled={item.status === 'Resolved'}>
+                          <CheckCircleOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Archive">
+                        <IconButton>
+                          <ArchiveOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              {summary}
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Button size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                Previous
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Page {page} of {totalPages || 1}
+              </Typography>
+              <Button
+                size="small"
+                disabled={page >= (totalPages || 1)}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+              </Button>
+            </Box>
+          </Box>
+        </>
+      )}
     </Paper>
   );
 };
